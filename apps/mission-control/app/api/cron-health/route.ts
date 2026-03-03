@@ -130,6 +130,20 @@ export const normalizeStatus = (
   return "healthy";
 };
 
+export const shouldForceHealthyFromNextRun = (input: {
+  now: number;
+  nextRunAtMs: number | null;
+  status: string | null | undefined;
+  consecutiveFailures: number;
+}) => {
+  const { now, nextRunAtMs, status, consecutiveFailures } = input;
+  if (typeof nextRunAtMs !== "number") return false;
+  if (nextRunAtMs <= now) return false;
+  if (consecutiveFailures > 0) return false;
+  if (isFailedLikeStatus(status)) return false;
+  return true;
+};
+
 export const isCronLate = (input: {
   now: number;
   lastFireMs: number | null;
@@ -298,7 +312,15 @@ export async function GET() {
       consecutiveFailures,
     });
 
-    const status = normalizeStatus(effectiveStatus, consecutiveFailures, isLate);
+    const normalizedStatus = normalizeStatus(effectiveStatus, consecutiveFailures, isLate);
+    const status = shouldForceHealthyFromNextRun({
+      now,
+      nextRunAtMs: nextFireMs,
+      status: effectiveStatus,
+      consecutiveFailures,
+    })
+      ? "healthy"
+      : normalizedStatus;
     const displayStatus = toDisplayStatus(status);
 
     const stateDurationSec = typeof job.state?.lastDurationMs === "number"

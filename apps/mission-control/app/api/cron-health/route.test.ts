@@ -3,6 +3,7 @@ import {
   parseCronIntervalMs,
   getExpectedIntervalMs,
   normalizeStatus,
+  shouldForceHealthyFromNextRun,
   isCronLate,
   normalizeDeliveryMode,
   isNoReplyExpected,
@@ -66,12 +67,47 @@ describe("normalizeStatus", () => {
   });
 });
 
+describe("shouldForceHealthyFromNextRun", () => {
+  it("forces healthy when next run is in future and there are no failures", () => {
+    const now = Date.UTC(2026, 0, 1, 12, 0, 0);
+    expect(
+      shouldForceHealthyFromNextRun({
+        now,
+        nextRunAtMs: now + 5 * 60_000,
+        status: "completed",
+        consecutiveFailures: 0,
+      })
+    ).toBe(true);
+  });
+
+  it("does not force healthy when explicit failure signal exists", () => {
+    const now = Date.UTC(2026, 0, 1, 12, 0, 0);
+    expect(
+      shouldForceHealthyFromNextRun({
+        now,
+        nextRunAtMs: now + 5 * 60_000,
+        status: "failed",
+        consecutiveFailures: 0,
+      })
+    ).toBe(false);
+
+    expect(
+      shouldForceHealthyFromNextRun({
+        now,
+        nextRunAtMs: now + 5 * 60_000,
+        status: "completed",
+        consecutiveFailures: 1,
+      })
+    ).toBe(false);
+  });
+});
+
 describe("isCronLate", () => {
-  it("treats future next run as healthy when no failures", () => {
+  it("treats future next run as healthy when no failures even if last run is stale", () => {
     const now = Date.UTC(2026, 0, 1, 12, 0, 0);
     const isLate = isCronLate({
       now,
-      lastFireMs: now - 10 * 60_000,
+      lastFireMs: now - 24 * 60 * 60_000,
       nextFireMs: now + 5 * 60_000,
       expectedIntervalMs: 60_000,
       status: "completed",
@@ -79,7 +115,15 @@ describe("isCronLate", () => {
     });
     expect(isLate).toBe(false);
 
-    const status = normalizeStatus("completed", 0, isLate);
+    const status = shouldForceHealthyFromNextRun({
+      now,
+      nextRunAtMs: now + 5 * 60_000,
+      status: "completed",
+      consecutiveFailures: 0,
+    })
+      ? "healthy"
+      : normalizeStatus("completed", 0, isLate);
+
     expect(status).toBe("healthy");
     expect(toDisplayStatus(status)).toBe("healthy");
   });
