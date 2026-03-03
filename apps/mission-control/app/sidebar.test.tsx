@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "@/components/sidebar";
 
@@ -9,7 +10,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("next/link", () => ({
-  default: ({ href, children, ...props }: any) => (
+  default: ({
+    href,
+    children,
+    ...props
+  }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string; children?: ReactNode }) => (
     <a href={href} {...props}>
       {children}
     </a>
@@ -27,6 +32,9 @@ const NAV_LABELS = [
   "Feedback",
   "Council",
   "Fitness",
+  "Sessions",
+  "Usage",
+  "Logs",
   "Docs",
 ];
 
@@ -41,6 +49,9 @@ const ICON_CLASSES = [
   ".lucide-message-circle",
   ".lucide-users",
   ".lucide-dumbbell",
+  ".lucide-timer",
+  ".lucide-line-chart",
+  ".lucide-scroll-text",
   ".lucide-file-text",
   ".lucide-chevron-left",
 ];
@@ -52,14 +63,14 @@ describe("Sidebar", () => {
     mockUsePathname.mockReturnValue("/");
   });
 
-  it("renders all 11 navigation links with correct labels", () => {
+  it("renders all navigation links with correct labels", () => {
     render(<Sidebar />);
 
     for (const label of NAV_LABELS) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
 
-    expect(screen.getAllByRole("link")).toHaveLength(11);
+    expect(screen.getAllByRole("link")).toHaveLength(NAV_LABELS.length);
   });
 
   it("renders all expected Lucide icons", () => {

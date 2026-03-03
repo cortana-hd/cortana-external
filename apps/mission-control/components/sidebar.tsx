@@ -14,9 +14,12 @@ import {
   FileText,
   GitBranch,
   LayoutDashboard,
+  LineChart,
   MessageCircle,
   Play,
+  ScrollText,
   ShieldCheck,
+  Timer,
   Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -36,19 +39,18 @@ const links = [
   { href: "/feedback", label: "Feedback", icon: MessageCircle },
   { href: "/council", label: "Council", icon: Users },
   { href: "/fitness", label: "Fitness", icon: Dumbbell },
+  { href: "/sessions", label: "Sessions", icon: Timer },
+  { href: "/usage", label: "Usage", icon: LineChart },
+  { href: "/logs", label: "Logs", icon: ScrollText },
   { href: "/docs", label: "Docs", icon: FileText },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "true") {
-      setCollapsed(true);
-    }
-  }, []);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(STORAGE_KEY) === "true";
+  });
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, String(collapsed));
