@@ -202,7 +202,7 @@ class DipBuyerStrategy(Strategy):
         data_index = pd.to_datetime(data.index).tz_localize(None)
         risk = risk_history.reindex(data_index, method='ffill')
         risk.index = data.index
-        risk = risk.fillna(method='ffill').fillna(method='bfill')
+        risk = risk.ffill().bfill()
 
         # Fill missing values with neutral defaults
         risk = risk.fillna({
@@ -221,7 +221,7 @@ class DipBuyerStrategy(Strategy):
         credit_veto = risk['hy_spread'] > DIPBUYER_CONFIG["credit"]["hy_spread_weak"]
 
         buy_condition = market_active & (total_score >= self.min_buy_score) & (~credit_veto)
-        sell_condition = (~market_active) | credit_veto
+        sell_condition = (not market_active) | credit_veto
 
         signals[buy_condition] = 1
         signals[sell_condition] = -1
