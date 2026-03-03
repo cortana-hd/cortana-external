@@ -27,6 +27,11 @@ type WorkoutSummary = {
   kilojoules: number | null;
 };
 
+export const getWorkoutRenderKey = (
+  workout: Pick<WorkoutSummary, "id" | "start">,
+  index: number,
+) => `${workout.id}-${workout.start ?? "na"}-${index}`;
+
 type FitnessSummary = {
   recovery: {
     score: number | null;
@@ -351,9 +356,9 @@ export default async function FitnessPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {data.workouts.map((workout) => (
+                {data.workouts.map((workout, index) => (
                   <div
-                    key={workout.id}
+                    key={getWorkoutRenderKey(workout, index)}
                     className="rounded-lg border border-muted/40 bg-muted/10 p-3 text-sm"
                   >
                     <div className="flex items-start justify-between gap-2">
