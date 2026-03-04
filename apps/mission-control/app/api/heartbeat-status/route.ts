@@ -15,7 +15,10 @@ function isQuietHours(): boolean {
   return etHour >= QUIET_START || etHour < QUIET_END;
 }
 
-const HEARTBEAT_FILE = "/Users/hd/openclaw/memory/heartbeat-state.json";
+const HEARTBEAT_FILES = [
+  "/Users/hd/.openclaw/memory/heartbeat-state.json",
+  "/Users/hd/openclaw/memory/heartbeat-state.json",
+] as const;
 
 type HeartbeatState = {
   lastHeartbeat?: unknown;
@@ -56,7 +59,14 @@ export const revalidate = 0;
 
 export async function GET() {
   try {
-    const raw = await readFile(HEARTBEAT_FILE, "utf8");
+    let raw: string | null = null;
+    for (const path of HEARTBEAT_FILES) {
+      try {
+        raw = await readFile(path, "utf8");
+        break;
+      } catch {}
+    }
+    if (raw == null) throw new Error("heartbeat state not found");
     const parsed = JSON.parse(raw) as HeartbeatState;
     const lastHeartbeat = resolveLatestHeartbeat(parsed);
     const ageMs = lastHeartbeat == null ? null : Math.max(0, Date.now() - lastHeartbeat);

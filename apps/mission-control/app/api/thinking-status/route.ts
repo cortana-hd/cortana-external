@@ -19,7 +19,10 @@ type TaskSummaryRow = {
   completed_recent_count: bigint | number;
 };
 
-const HEARTBEAT_FILE = "/Users/hd/openclaw/memory/heartbeat-state.json";
+const HEARTBEAT_FILES = [
+  "/Users/hd/.openclaw/memory/heartbeat-state.json",
+  "/Users/hd/openclaw/memory/heartbeat-state.json",
+] as const;
 
 export function normalizeTimestamp(raw: unknown): number | null {
   if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
@@ -63,7 +66,14 @@ export async function GET() {
   const [heartbeat, runningSubagents, taskSummary] = await Promise.all([
     (async () => {
       try {
-        const raw = await readFile(HEARTBEAT_FILE, "utf8");
+        let raw: string | null = null;
+        for (const path of HEARTBEAT_FILES) {
+          try {
+            raw = await readFile(path, "utf8");
+            break;
+          } catch {}
+        }
+        if (raw == null) throw new Error("heartbeat state not found");
         const parsed = JSON.parse(raw) as HeartbeatFile;
         const lastHeartbeat = resolveLatestHeartbeat(parsed);
         const ageMs =
