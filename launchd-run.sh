@@ -7,7 +7,7 @@ fi
 
 # Ensure fitness service binds to the canonical port expected by watchdog
 export PORT="${PORT:-3033}"
-export ALPACA_KEYS_PATH="${ALPACA_KEYS_PATH:-$HOME/Desktop/services/alpaca_keys.json}"
+export ALPACA_KEYS_PATH="${ALPACA_KEYS_PATH:-$HOME/Developer/cortana-external/alpaca_keys.json}"
 export ALPACA_TARGET_ENVIRONMENT="${ALPACA_TARGET_ENVIRONMENT:-live}"
 
 

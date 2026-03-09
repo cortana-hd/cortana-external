@@ -63,7 +63,7 @@ func main() {
 
 	keysPath := strings.TrimSpace(os.Getenv("ALPACA_KEYS_PATH"))
 	if keysPath == "" {
-		keysPath = filepath.Join(os.Getenv("HOME"), "Desktop", "services", "alpaca_keys.json")
+		keysPath = filepath.Join(os.Getenv("HOME"), "Developer", "cortana-external", "alpaca_keys.json")
 	}
 
 	// Alpaca trading service
