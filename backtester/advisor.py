@@ -53,6 +53,13 @@ from data.wave3 import (
     score_catalyst_weighting,
 )
 from data.x_sentiment import XSentimentAnalyzer
+from evaluation.comparison import (
+    attach_model_family_scores,
+    build_default_model_families,
+    compare_model_families as evaluate_model_families,
+    render_model_comparison_report,
+    score_enhanced_rank,
+)
 from strategies.dip_buyer import DipBuyerStrategy, DIPBUYER_CONFIG
 
 
@@ -148,14 +155,13 @@ class TradingAdvisor:
         sector_score: int = 0,
         catalyst_score: int = 0,
     ) -> float:
-        return round(
-            total_score
-            + breakout_score * 0.75
-            + sentiment_score * 0.5
-            + sector_score * 0.75
-            + catalyst_score * 0.5
-            - exit_risk_score * 0.75,
-            2,
+        return score_enhanced_rank(
+            total_score,
+            breakout_score,
+            sentiment_score,
+            exit_risk_score,
+            sector_score=sector_score,
+            catalyst_score=catalyst_score,
         )
 
     def analyze_stock(self, symbol: str, quiet: bool = False) -> Dict:
@@ -650,8 +656,45 @@ class TradingAdvisor:
         
         # Filter by minimum total score
         enriched_df = enriched_df[enriched_df['total_score'] >= min_score]
-        
-        return enriched_df
+        return attach_model_family_scores(enriched_df)
+
+    def compare_model_families(
+        self,
+        quick: bool = False,
+        min_score: int = 6,
+        top_n: int = 5,
+    ) -> Dict:
+        """Compare baseline, tactical, and enhanced score families on the same scan output."""
+        candidates = self.scan_for_opportunities(quick=quick, min_score=min_score)
+        if candidates.empty:
+            report = "Wave 4 Model Comparison\nNo candidates available for comparison."
+            return {
+                "candidates": candidates,
+                "summary": pd.DataFrame(),
+                "selections": {},
+                "report": report,
+            }
+
+        families = build_default_model_families(
+            top_n=top_n,
+            baseline_min_score=max(min_score, 7),
+        )
+        summary, selections = evaluate_model_families(
+            candidates,
+            families,
+            baseline_name=families[0].name,
+        )
+        report = render_model_comparison_report(
+            summary,
+            selections,
+            baseline_name=families[0].name,
+        )
+        return {
+            "candidates": candidates,
+            "summary": summary,
+            "selections": selections,
+            "report": report,
+        }
     
     def scan_dip_opportunities(
         self,

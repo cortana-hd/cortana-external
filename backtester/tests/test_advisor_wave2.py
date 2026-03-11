@@ -132,3 +132,6 @@ def test_scan_for_opportunities_sorts_by_wave2_rank_score():
 
     assert list(df["symbol"]) == ["BBB", "AAA"]
     assert list(df["rank_score"]) == [10.0, 8.5]
+    assert list(df["baseline_score"]) == [7.0, 8.0]
+    assert list(df["enhanced_score"]) == [10.0, 8.5]
+    assert list(df["tactical_score"]) == [10.75, 8.75]
