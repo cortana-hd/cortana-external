@@ -1,6 +1,11 @@
 from types import SimpleNamespace
 
-from data.confidence import build_confidence_assessment, build_dip_confidence_assessment
+from data.confidence import (
+    build_confidence_assessment,
+    build_dip_confidence_assessment,
+    build_trade_quality_score,
+    regime_quality_modifier,
+)
 from data.market_regime import MarketRegime
 
 
@@ -81,3 +86,34 @@ def test_build_dip_confidence_assessment_marks_credit_veto_and_falling_knife():
     assert assessment["abstain"] is True
     assert "credit_veto" in assessment["abstain_reason_codes"]
     assert "falling_knife" in assessment["abstain_reason_codes"]
+
+def test_trade_quality_score_penalizes_uncertainty_hostile_regime_and_churn_proxy():
+    degraded = build_trade_quality_score(
+        raw_setup_score=12,
+        setup_scale=16,
+        confidence_pct=86,
+        uncertainty_pct=34,
+        regime_modifier=regime_quality_modifier(
+            regime=MarketRegime.UPTREND_UNDER_PRESSURE,
+            position_sizing=0.5,
+        ),
+        cost_penalty=18,
+        cost_penalty_reason='exit_risk_score proxy',
+    )
+    clean = build_trade_quality_score(
+        raw_setup_score=10,
+        setup_scale=16,
+        confidence_pct=82,
+        uncertainty_pct=8,
+        regime_modifier=regime_quality_modifier(
+            regime=MarketRegime.CONFIRMED_UPTREND,
+            position_sizing=1.0,
+        ),
+        cost_penalty=6,
+        cost_penalty_reason='exit_risk_score proxy',
+    )
+
+    assert degraded['score'] < clean['score']
+    assert degraded['regime_modifier'] < clean['regime_modifier']
+    assert degraded['cost_penalty_reason'] == 'exit_risk_score proxy'
+

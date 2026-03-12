@@ -220,13 +220,14 @@ def test_scan_for_opportunities_prioritizes_buyable_candidates_over_abstaining_w
     assert list(df["action"]) == ["BUY", "WATCH"]
     assert list(df["abstain"]) == [False, True]
 
-def test_get_recommendations_uses_buy_rows_from_enriched_scan():
+def test_get_recommendations_uses_buy_rows_in_trade_quality_order():
     advisor = TradingAdvisor()
     advisor.scan_for_opportunities = MagicMock(
         return_value=pd.DataFrame(
             [
-                {"symbol": "AAA", "action": "WATCH", "rank_score": 12.0},
-                {"symbol": "BBB", "action": "BUY", "rank_score": 10.0},
+                {"symbol": "AAA", "action": "BUY", "rank_score": 12.0, "trade_quality_score": 74.0, "effective_confidence": 58, "uncertainty_pct": 24, "total_score": 9},
+                {"symbol": "BBB", "action": "BUY", "rank_score": 10.0, "trade_quality_score": 96.0, "effective_confidence": 80, "uncertainty_pct": 8, "total_score": 8},
+                {"symbol": "CCC", "action": "WATCH", "rank_score": 13.0, "trade_quality_score": 99.0},
             ]
         )
     )
@@ -236,11 +237,16 @@ def test_get_recommendations_uses_buy_rows_from_enriched_scan():
                 "symbol": "BBB",
                 "total_score": 8,
                 "recommendation": {"action": "BUY", "position_size_pct": 9.5},
-            }
+            },
+            {
+                "symbol": "AAA",
+                "total_score": 9,
+                "recommendation": {"action": "BUY", "position_size_pct": 4.0},
+            },
         ]
     )
 
-    recommendations = advisor.get_recommendations(limit=1)
+    recommendations = advisor.get_recommendations(limit=2)
 
-    assert [item["symbol"] for item in recommendations] == ["BBB"]
-    advisor.analyze_stock.assert_called_once_with("BBB")
+    assert [item["symbol"] for item in recommendations] == ["BBB", "AAA"]
+    assert [call.args[0] for call in advisor.analyze_stock.call_args_list] == ["BBB", "AAA"]

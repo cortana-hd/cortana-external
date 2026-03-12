@@ -33,7 +33,11 @@ USAGE
 import argparse
 from typing import List, Dict, Optional
 import pandas as pd
-from data.confidence import build_confidence_assessment
+from data.confidence import (
+    build_confidence_assessment,
+    build_trade_quality_score,
+    regime_quality_modifier,
+)
 from data.universe import UniverseScreener, GROWTH_WATCHLIST
 from data.market_data_provider import MarketDataProvider
 from data.market_regime import MarketRegimeDetector, MarketRegime, MarketStatus
@@ -163,6 +167,50 @@ class TradingAdvisor:
         )
 
     @staticmethod
+    def _build_canslim_trade_quality(
+        *,
+        market: MarketStatus,
+        rank_score: float,
+        confidence_assessment: Dict,
+        exit_risk: Dict,
+    ) -> Dict:
+        # Exit-risk is the cleanest current churn proxy in the CANSLIM path.
+        return build_trade_quality_score(
+            raw_setup_score=rank_score,
+            setup_scale=16,
+            confidence_pct=confidence_assessment.get('raw_confidence_pct', confidence_assessment.get('effective_confidence_pct', 0)),
+            uncertainty_pct=confidence_assessment.get('uncertainty_pct', 0),
+            regime_modifier=regime_quality_modifier(market=market),
+            cost_penalty=int((exit_risk or {}).get('score', 0)) * 6,
+            cost_penalty_reason='exit_risk_score proxy',
+        )
+
+    @staticmethod
+    def _build_dip_trade_quality(
+        *,
+        market: MarketStatus,
+        total_score: float,
+        confidence_assessment: Dict,
+        recovery_ready: bool,
+        falling_knife: bool,
+    ) -> Dict:
+        # Dip Buyer does not have explicit cost data, so structural churn risk is proxied by recovery readiness.
+        cost_penalty = 0.0
+        if not recovery_ready:
+            cost_penalty += 10.0
+        if falling_knife:
+            cost_penalty += 12.0
+        return build_trade_quality_score(
+            raw_setup_score=total_score,
+            setup_scale=12,
+            confidence_pct=confidence_assessment.get('raw_confidence_pct', confidence_assessment.get('effective_confidence_pct', 0)),
+            uncertainty_pct=confidence_assessment.get('uncertainty_pct', 0),
+            regime_modifier=regime_quality_modifier(market=market),
+            cost_penalty=cost_penalty,
+            cost_penalty_reason='recovery_ready/falling_knife proxy',
+        )
+
+    @staticmethod
     def _action_priority(action: object) -> int:
         return {
             'BUY': 0,
@@ -195,6 +243,7 @@ class TradingAdvisor:
                 ascending.append(False)
 
         for column, column_ascending in (
+            ('trade_quality_score', False),
             ('effective_confidence', False),
             ('confidence', False),
             ('uncertainty_pct', True),
@@ -288,6 +337,13 @@ class TradingAdvisor:
         )
         
         # Generate recommendation
+        trade_quality = self._build_canslim_trade_quality(
+            market=market,
+            rank_score=rank_score,
+            confidence_assessment=confidence_assessment,
+            exit_risk=exit_risk,
+        )
+
         recommendation = self._generate_recommendation(
             symbol=symbol,
             total_score=total_score,
@@ -326,6 +382,8 @@ class TradingAdvisor:
             'abstain_reason_codes': confidence_assessment["abstain_reason_codes"],
             'abstain_reasons': confidence_assessment["abstain_reasons"],
             'confidence_assessment': confidence_assessment,
+            'trade_quality_score': trade_quality['score'],
+            'trade_quality': trade_quality,
             'data_source': history_result.source,
             'data_staleness_seconds': history_result.staleness_seconds,
             'data_status': history_result.status,
@@ -397,6 +455,8 @@ class TradingAdvisor:
             'abstain_reason_codes': setup.get('abstain_reason_codes', []),
             'abstain_reasons': setup.get('abstain_reasons', []),
             'confidence_assessment': setup.get('confidence_assessment', {}),
+            'trade_quality_score': setup.get('trade_quality_score', setup.get('recommendation', {}).get('trade_quality_score', 0.0)),
+            'trade_quality': setup.get('trade_quality', setup.get('recommendation', {}).get('trade_quality', {})),
             'recommendation': setup.get('recommendation', {}),
         }
 
@@ -481,6 +541,7 @@ class TradingAdvisor:
                 'action': analysis.get('recommendation', {}).get('action', 'NO_BUY'),
                 'position_size_pct': analysis.get('recommendation', {}).get('position_size_pct', 0.0),
                 'size_label': analysis.get('recommendation', {}).get('size_label', 'STANDARD'),
+                'trade_quality_score': analysis.get('trade_quality_score', analysis.get('effective_confidence', analysis.get('confidence', 0))),
             })
 
         if not candidates:
@@ -489,7 +550,7 @@ class TradingAdvisor:
         df = pd.DataFrame(candidates)
         return self._sort_runtime_candidates(
             df,
-            primary_desc_columns=['effective_confidence', 'position_size_pct', 'total_score'],
+            primary_desc_columns=['trade_quality_score', 'effective_confidence', 'position_size_pct', 'total_score'],
         )
     
     def _generate_recommendation(
@@ -533,9 +594,18 @@ class TradingAdvisor:
             catalyst=catalyst_weighting,
         )
 
+        trade_quality = self._build_canslim_trade_quality(
+            market=market,
+            rank_score=rank_score,
+            confidence_assessment=confidence_assessment,
+            exit_risk=exit_risk,
+        )
+
         base_fields = {
             'score': total_score,
             'rank_score': rank_score,
+            'trade_quality_score': trade_quality['score'],
+            'trade_quality': trade_quality,
             'confidence': confidence,
             'raw_confidence': int(confidence_assessment.get('raw_confidence_pct', confidence)),
             'effective_confidence': confidence,
@@ -739,6 +809,7 @@ class TradingAdvisor:
                     row_dict['position_size_pct'] = rec.get('position_size_pct', 0.0)
                     row_dict['size_label'] = rec.get('size_label', rec.get('sizing', {}).get('label', 'STANDARD'))
                     row_dict['action'] = rec.get('action', 'NO_BUY')
+                    row_dict['trade_quality_score'] = analysis.get('trade_quality_score', rec.get('trade_quality_score', row_dict['rank_score']))
                     enriched.append(row_dict)
 
                 except Exception as e:
@@ -753,7 +824,7 @@ class TradingAdvisor:
         enriched_df = pd.DataFrame(enriched)
         enriched_df = self._sort_runtime_candidates(
             enriched_df,
-            primary_desc_columns=['rank_score'],
+            primary_desc_columns=['trade_quality_score', 'rank_score'],
         )
         
         # Filter by minimum total score
@@ -816,9 +887,27 @@ class TradingAdvisor:
         if 'action' not in candidates.columns or 'symbol' not in candidates.columns:
             return []
 
-        buy_symbols = candidates.loc[candidates['action'] == 'BUY', 'symbol'].head(limit).tolist()
-        if not buy_symbols:
+        buy_rows = candidates.loc[candidates['action'] == 'BUY'].copy()
+        if buy_rows.empty:
             return []
+
+        if 'trade_quality_score' in buy_rows.columns:
+            sort_columns = ['trade_quality_score']
+            ascending = [False]
+            for column, column_ascending in (
+                ('effective_confidence', False),
+                ('confidence', False),
+                ('uncertainty_pct', True),
+                ('rank_score', False),
+                ('total_score', False),
+                ('symbol', True),
+            ):
+                if column in buy_rows.columns and column not in sort_columns:
+                    sort_columns.append(column)
+                    ascending.append(column_ascending)
+            buy_rows = buy_rows.sort_values(sort_columns, ascending=ascending, kind='mergesort')
+
+        buy_symbols = buy_rows['symbol'].head(limit).tolist()
 
         recommendations = []
 

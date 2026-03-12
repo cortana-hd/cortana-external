@@ -18,6 +18,18 @@ from advisor import TradingAdvisor
 from data.universe import GROWTH_WATCHLIST
 
 
+def _trade_quality_sort_key(record: dict) -> tuple:
+    return (
+        TradingAdvisor._action_priority(record.get('action', 'NO_BUY')),
+        int(bool(record.get('abstain', False))),
+        -float(record.get('trade_quality_score', record.get('score', 0))),
+        -float(record.get('effective_confidence', 0)),
+        float(record.get('uncertainty_pct', 0)),
+        -float(record.get('score', 0)),
+        str(record.get('symbol', '')),
+    )
+
+
 def _run_quiet(fn, *args, **kwargs):
     with warnings.catch_warnings(), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
         warnings.simplefilter("ignore")
@@ -121,7 +133,17 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
         action = rec.get("action", "NO_BUY")
         reason = rec.get("reason") or "No reason provided."
 
-        record = {"symbol": symbol, "score": score, "action": action, "reason": reason, "rec": rec}
+        record = {
+            "symbol": symbol,
+            "score": score,
+            "action": action,
+            "reason": reason,
+            "rec": rec,
+            "trade_quality_score": rec.get("trade_quality_score", analysis.get("trade_quality_score", score)),
+            "effective_confidence": rec.get("effective_confidence", analysis.get("effective_confidence", analysis.get("confidence", 0))),
+            "uncertainty_pct": rec.get("uncertainty_pct", analysis.get("uncertainty_pct", 0)),
+            "abstain": rec.get("abstain", analysis.get("abstain", False)),
+        }
         if score >= min_score:
             passed.append(record)
         else:
@@ -137,7 +159,7 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
         lines.append("Why no buys: no names cleared the CANSLIM threshold")
         return "\n".join(lines)
 
-    ranked = sorted(passed, key=lambda x: x["score"], reverse=True)
+    ranked = sorted(passed, key=_trade_quality_sort_key)
     candidates = ranked[:limit]
 
     buy_count = sum(1 for c in candidates if c["action"] == "BUY")

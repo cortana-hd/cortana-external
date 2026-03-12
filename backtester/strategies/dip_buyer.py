@@ -43,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from strategies.base import Strategy
 from indicators import rsi
-from data.confidence import build_dip_confidence_assessment
+from data.confidence import build_dip_confidence_assessment, build_trade_quality_score, regime_quality_modifier
 from data.fundamentals import FundamentalsFetcher
 from data.market_regime import MarketRegimeDetector, MarketRegime, MarketStatus
 from data.risk_signals import RiskSignalFetcher
@@ -486,8 +486,21 @@ class DipBuyerStrategy(Strategy):
             else "STARTER"
         )
 
+        # Dip Buyer does not have explicit cost data, so use recovery structure as a churn proxy.
+        trade_quality = build_trade_quality_score(
+            raw_setup_score=total_score,
+            setup_scale=12,
+            confidence_pct=confidence_assessment.get('raw_confidence_pct', confidence),
+            uncertainty_pct=uncertainty_pct,
+            regime_modifier=regime_quality_modifier(market=market),
+            cost_penalty=(0.0 if recovery_ready else 10.0) + (12.0 if falling_knife else 0.0),
+            cost_penalty_reason='recovery_ready/falling_knife proxy',
+        )
+
         recommendation_base = {
             'score': total_score,
+            'trade_quality_score': trade_quality['score'],
+            'trade_quality': trade_quality,
             'confidence': confidence,
             'raw_confidence': int(confidence_assessment["raw_confidence_pct"]),
             'effective_confidence': confidence,
@@ -587,6 +600,8 @@ class DipBuyerStrategy(Strategy):
             'abstain_reason_codes': confidence_assessment.get('abstain_reason_codes', []),
             'abstain_reasons': confidence_assessment.get('abstain_reasons', []),
             'confidence_assessment': confidence_assessment,
+            'trade_quality_score': trade_quality['score'],
+            'trade_quality': trade_quality,
             'recommendation': recommendation,
             'score_frame': scores,
         }

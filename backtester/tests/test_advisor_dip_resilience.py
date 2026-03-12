@@ -90,3 +90,55 @@ def test_scan_dip_opportunities_prioritizes_buyable_lower_uncertainty_setups(mon
     assert list(df["symbol"]) == ["BBB", "AAA"]
     assert list(df["action"]) == ["BUY", "WATCH"]
     assert list(df["abstain"]) == [False, True]
+
+def test_scan_dip_opportunities_keeps_vetoed_high_score_setup_below_buyable_trade(monkeypatch):
+    advisor = TradingAdvisor()
+    from data.market_regime import MarketRegime
+    market = MagicMock()
+    market.regime = MarketRegime.CORRECTION
+    advisor.get_market_status = MagicMock(return_value=market)
+    advisor.risk_fetcher.get_snapshot = MagicMock(return_value={"vix": 25.0})
+    advisor.screener.get_universe = MagicMock(return_value=["AAA", "BBB"])
+
+    monkeypatch.setattr(
+        advisor,
+        "_analyze_dip_with_context",
+        MagicMock(
+            side_effect=[
+                {
+                    "symbol": "AAA",
+                    "price": 100.0,
+                    "rsi": 30.0,
+                    "scores": {"Q": 3, "V": 3, "C": 3},
+                    "total_score": 9,
+                    "confidence": 42,
+                    "effective_confidence": 42,
+                    "uncertainty_pct": 38,
+                    "abstain": True,
+                    "abstain_reason_codes": ["credit_veto"],
+                    "trade_quality_score": 34.0,
+                    "recommendation": {"action": "NO_BUY", "position_size_pct": 0.0, "size_label": "STARTER"},
+                },
+                {
+                    "symbol": "BBB",
+                    "price": 95.0,
+                    "rsi": 32.0,
+                    "scores": {"Q": 3, "V": 2, "C": 2},
+                    "total_score": 7,
+                    "confidence": 74,
+                    "effective_confidence": 74,
+                    "uncertainty_pct": 9,
+                    "abstain": False,
+                    "abstain_reason_codes": [],
+                    "trade_quality_score": 83.0,
+                    "recommendation": {"action": "BUY", "position_size_pct": 4.5, "size_label": "STANDARD"},
+                },
+            ]
+        ),
+    )
+
+    df = advisor.scan_dip_opportunities(quick=False, min_score=6)
+
+    assert list(df["symbol"]) == ["BBB", "AAA"]
+    assert list(df["action"]) == ["BUY", "NO_BUY"]
+

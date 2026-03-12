@@ -86,3 +86,39 @@ def test_dipbuyer_alert_is_compact_when_market_gate_blocks_buys():
         "Final action: DO NOT BUY — market regime veto (market correction gate)",
     ]
     analyzer.analyze.assert_not_called()
+
+def test_canslim_alert_uses_trade_quality_order_for_leaders():
+    fake = _FakeCanSlimAdvisor()
+    fake._market = SimpleNamespace(
+        regime=MarketRegime.CONFIRMED_UPTREND,
+        position_sizing=1.0,
+        notes="trend intact",
+        snapshot_age_seconds=0.0,
+        status="ok",
+    )
+    fake.screener = SimpleNamespace(get_universe=lambda: ["AAA", "BBB"])
+    fake._analysis = {
+        "AAA": {
+            "total_score": 9,
+            "trade_quality_score": 71.0,
+            "effective_confidence": 52,
+            "uncertainty_pct": 31,
+            "abstain": True,
+            "recommendation": {"action": "WATCH", "reason": "uncertain", "trade_quality_score": 71.0, "abstain": True},
+        },
+        "BBB": {
+            "total_score": 8,
+            "trade_quality_score": 94.0,
+            "effective_confidence": 80,
+            "uncertainty_pct": 8,
+            "abstain": False,
+            "recommendation": {"action": "BUY", "reason": "clean", "trade_quality_score": 94.0, "effective_confidence": 80, "uncertainty_pct": 8, "abstain": False},
+        },
+    }
+
+    with patch("canslim_alert.TradingAdvisor", return_value=fake), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
+        text = format_canslim(limit=5, min_score=6, universe_size=2)
+
+    assert "Top names considered: BBB, AAA" in text
+    assert "Leaders: BBB BUY (8/12) | AAA WATCH (9/12)" in text
+

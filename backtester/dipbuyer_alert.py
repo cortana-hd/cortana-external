@@ -19,6 +19,18 @@ from data.x_sentiment import XSentimentAnalyzer
 from strategies.dip_buyer import DIPBUYER_CONFIG
 
 
+def _trade_quality_sort_key(record: dict) -> tuple:
+    return (
+        TradingAdvisor._action_priority(record.get('action', 'NO_BUY')),
+        int(bool(record.get('abstain', False))),
+        -float(record.get('trade_quality_score', record.get('score', 0))),
+        -float(record.get('effective_confidence', 0)),
+        float(record.get('uncertainty_pct', 0)),
+        -float(record.get('score', 0)),
+        str(record.get('symbol', '')),
+    )
+
+
 def _run_quiet(fn, *args, **kwargs):
     with warnings.catch_warnings(), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
         warnings.simplefilter("ignore")
@@ -206,7 +218,18 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
                 if sentiment_value == "UNAVAILABLE":
                     sentiment_value = "NEUTRAL"
                 sentiment_tag = _sentiment_tag(sentiment_value)
-            passed.append({"symbol": symbol, "score": score, "action": action, "reason": reason, "rec": rec, "sentiment_tag": sentiment_tag})
+            passed.append({
+                "symbol": symbol,
+                "score": score,
+                "action": action,
+                "reason": reason,
+                "rec": rec,
+                "sentiment_tag": sentiment_tag,
+                "trade_quality_score": rec.get("trade_quality_score", analysis.get("trade_quality_score", score)),
+                "effective_confidence": rec.get("effective_confidence", analysis.get("effective_confidence", analysis.get("confidence", 0))),
+                "uncertainty_pct": rec.get("uncertainty_pct", analysis.get("uncertainty_pct", 0)),
+                "abstain": rec.get("abstain", analysis.get("abstain", False)),
+            })
         else:
             rejected.append({"symbol": symbol, "reason": f"Below min-score filter ({score}<{min_score})"})
             if action == "NO_BUY":
@@ -221,7 +244,7 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
         lines.append(f"Final action: DO NOT BUY — market regime veto ({_dedupe_reason(market.notes or 'market correction gate')})")
         return "\n".join(lines)
 
-    ranked = sorted(passed, key=lambda x: x["score"], reverse=True)
+    ranked = sorted(passed, key=_trade_quality_sort_key)
     candidates = ranked[:limit]
     buy_candidates = [c for c in candidates if c["action"] == "BUY"]
     watch_candidates = [c for c in candidates if c["action"] == "WATCH"]

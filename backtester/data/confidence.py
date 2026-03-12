@@ -1,4 +1,4 @@
-"""Shared confidence and uncertainty assessment helpers."""
+"""Shared confidence, uncertainty, and trade-quality assessment helpers."""
 
 from __future__ import annotations
 
@@ -63,6 +63,77 @@ def _size_multiplier(effective_confidence_pct: float, uncertainty_pct: float, ab
         uncertainty_multiplier = 1.0
 
     return round(_clamp(confidence_multiplier * uncertainty_multiplier, 0.4, 1.1), 2)
+
+
+def _safe_float(value: object, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def regime_quality_modifier(
+    *,
+    market: Optional[object] = None,
+    regime: Optional[object] = None,
+    position_sizing: Optional[object] = None,
+) -> float:
+    """Translate market posture into a bounded ranking modifier."""
+    if market is not None:
+        regime = getattr(market, "regime", regime)
+        position_sizing = getattr(market, "position_sizing", position_sizing)
+
+    modifier = 1.0
+    if position_sizing is not None:
+        modifier = _clamp(0.5 + (_safe_float(position_sizing, 1.0) * 0.5), 0.5, 1.0)
+
+    if regime == MarketRegime.CORRECTION:
+        modifier = min(modifier, 0.55)
+    elif regime == MarketRegime.UPTREND_UNDER_PRESSURE:
+        modifier = min(modifier, 0.82)
+
+    return round(modifier, 2)
+
+
+def build_trade_quality_score(
+    *,
+    raw_setup_score: object,
+    setup_scale: object,
+    confidence_pct: object,
+    uncertainty_pct: object,
+    regime_modifier: object,
+    cost_penalty: object = 0.0,
+    cost_penalty_reason: str = "",
+) -> Dict:
+    """
+    Build an explicit runtime trade-quality score from existing decision inputs.
+
+    The score is only for ordering. Hard vetoes, abstain logic, and regime gates
+    still determine BUY/WATCH/NO_BUY eligibility.
+    """
+    raw_setup_value = max(0.0, _safe_float(raw_setup_score, 0.0))
+    setup_scale_value = max(1.0, _safe_float(setup_scale, 1.0))
+    setup_component = round((raw_setup_value / setup_scale_value) * 55.0, 2)
+    confidence_value = _clamp(_safe_float(confidence_pct, 0.0), 0.0, 100.0)
+    uncertainty_value = _clamp(_safe_float(uncertainty_pct, 0.0), 0.0, 100.0)
+    regime_value = _clamp(_safe_float(regime_modifier, 1.0), 0.4, 1.05)
+    cost_value = _clamp(_safe_float(cost_penalty, 0.0), 0.0, 40.0)
+
+    score = round((setup_component + confidence_value - uncertainty_value - cost_value) * regime_value, 2)
+
+    return {
+        "score": score,
+        "setup_score": round(raw_setup_value, 2),
+        "setup_scale": round(setup_scale_value, 2),
+        "setup_component": setup_component,
+        "confidence_pct": round(confidence_value, 2),
+        "uncertainty_penalty": round(uncertainty_value, 2),
+        "regime_modifier": round(regime_value, 2),
+        "cost_penalty": round(cost_value, 2),
+        "cost_penalty_reason": cost_penalty_reason,
+    }
 
 
 def _normalize_codes(codes: Iterable[str]) -> list[str]:
