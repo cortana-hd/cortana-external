@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from data.adverse_regime import build_adverse_regime_indicator
 from data.confidence import (
     build_confidence_assessment,
     build_dip_confidence_assessment,
@@ -8,6 +9,13 @@ from data.confidence import (
     downside_risk_proxy,
     regime_quality_modifier,
     risk_adjusted_size_multiplier,
+)
+from scoring_tuning import (
+    AdverseRegimeCalibration,
+    ChurnPenaltyCalibration,
+    DownsideRiskCalibration,
+    RiskSizeCalibration,
+    TradeQualityCalibration,
 )
 from data.market_regime import MarketRegime
 
@@ -241,3 +249,123 @@ def test_adverse_regime_demotes_close_setups_when_market_stress_is_elevated():
     assert stressed_assessment["adverse_regime"]["label"] in {"elevated", "severe"}
     assert stressed_assessment["effective_confidence_pct"] < calm_assessment["effective_confidence_pct"]
     assert stressed_quality["score"] < calm_quality["score"]
+
+
+def test_default_calibration_values_preserve_current_trade_quality_and_penalty_outputs():
+    ugly = downside_risk_proxy([100, 98, 97, 96, 94, 93, 95, 92, 90, 91, 89, 88])
+    noisy = churn_penalty_proxy(exit_risk_score=4, recovery_ready=False, falling_knife=True)
+    trade_quality = build_trade_quality_score(
+        raw_setup_score=12,
+        setup_scale=16,
+        confidence_pct=86,
+        uncertainty_pct=34,
+        regime_modifier=0.82,
+        cost_penalty=18,
+    )
+    size_multiplier = risk_adjusted_size_multiplier(downside_penalty=14, churn_penalty=10)
+
+    assert ugly == {
+        "penalty": 14.85,
+        "drawdown_pct": 12.0,
+        "tail_loss_pct": 2.32,
+        "source": "63d_drawdown_tail_loss",
+    }
+    assert noisy == {
+        "penalty": 25.0,
+        "reason": "exit_risk_score+recovery_not_confirmed+falling_knife",
+    }
+    assert trade_quality["score"] == 61.7
+    assert trade_quality["setup_component"] == 41.25
+    assert size_multiplier == 0.52
+
+
+def test_custom_trade_quality_and_penalty_calibration_is_used():
+    downside = downside_risk_proxy(
+        [100, 98, 97, 96, 94, 93, 95, 92, 90, 91, 89, 88],
+        calibration=DownsideRiskCalibration(
+            drawdown_weight=0.5,
+            tail_loss_weight=1.0,
+            max_penalty=9.0,
+            source_label="tuned_downside",
+        ),
+    )
+    churn = churn_penalty_proxy(
+        exit_risk_score=4,
+        recovery_ready=False,
+        falling_knife=True,
+        calibration=ChurnPenaltyCalibration(
+            exit_risk_multiplier=2.0,
+            recovery_not_confirmed_penalty=3.0,
+            falling_knife_penalty=4.0,
+            max_penalty=20.0,
+        ),
+    )
+    trade_quality = build_trade_quality_score(
+        raw_setup_score=12,
+        setup_scale=16,
+        confidence_pct=86,
+        uncertainty_pct=34,
+        regime_modifier=0.82,
+        cost_penalty=18,
+        calibration=TradeQualityCalibration(setup_component_weight=60.0, cost_penalty_cap=12.0),
+    )
+    size_multiplier = risk_adjusted_size_multiplier(
+        downside_penalty=14,
+        churn_penalty=10,
+        calibration=RiskSizeCalibration(divisor=80.0, min_multiplier=0.6),
+    )
+
+    assert downside == {
+        "penalty": 8.32,
+        "drawdown_pct": 12.0,
+        "tail_loss_pct": 2.32,
+        "source": "tuned_downside",
+    }
+    assert churn == {
+        "penalty": 15.0,
+        "reason": "exit_risk_score+recovery_not_confirmed+falling_knife",
+    }
+    assert trade_quality["score"] == 69.7
+    assert trade_quality["setup_component"] == 45.0
+    assert trade_quality["cost_penalty"] == 12.0
+    assert size_multiplier == 0.7
+
+
+def test_adverse_regime_calibration_is_used_without_changing_default_contract():
+    market = SimpleNamespace(
+        regime=MarketRegime.UPTREND_UNDER_PRESSURE,
+        position_sizing=0.5,
+        distribution_days=5,
+        drawdown_pct=-7.2,
+        trend_direction="down",
+        price_vs_21d_pct=-1.8,
+        price_vs_50d_pct=-3.1,
+    )
+    risk_inputs = {
+        "vix_percentile": 85.0,
+        "hy_spread_percentile": 70.0,
+        "fear_greed": 60.0,
+        "hy_spread_change_10d": 75.0,
+    }
+
+    default = build_adverse_regime_indicator(market=market, risk_inputs=risk_inputs)
+    tuned = build_adverse_regime_indicator(
+        market=market,
+        risk_inputs=risk_inputs,
+        calibration=AdverseRegimeCalibration(
+            under_pressure_score=18.0,
+            severe_threshold=50.0,
+            trade_quality_penalty_divisor=5.0,
+            size_multiplier_divisor=200.0,
+            size_multiplier_floor=0.65,
+        ),
+    )
+
+    assert default["score"] == 58.0
+    assert default["label"] == "severe"
+    assert default["trade_quality_penalty"] == 8.29
+    assert default["size_multiplier"] == 0.55
+    assert tuned["score"] == 64.0
+    assert tuned["label"] == "severe"
+    assert tuned["trade_quality_penalty"] == 12.0
+    assert tuned["size_multiplier"] == 0.68

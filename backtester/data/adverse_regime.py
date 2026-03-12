@@ -5,6 +5,12 @@ from __future__ import annotations
 from typing import Dict, Optional
 
 from data.market_regime import MarketRegime
+from scoring_tuning import (
+    ADVERSE_REGIME_CALIBRATION,
+    AdverseRegimeCalibration,
+    ThresholdDetailBand,
+    ThresholdScoreBand,
+)
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -20,10 +26,25 @@ def _safe_float(value: object, default: float = 0.0) -> float:
         return default
 
 
+def _first_matching_band(value: float, bands: tuple[ThresholdScoreBand, ...]) -> float:
+    for band in bands:
+        if value >= band.threshold:
+            return band.score
+    return 0.0
+
+
+def _first_matching_detail_band(value: float, bands: tuple[ThresholdDetailBand, ...]) -> tuple[float, str]:
+    for band in bands:
+        if value >= band.threshold:
+            return band.score, band.detail
+    return 0.0, ""
+
+
 def build_adverse_regime_indicator(
     *,
     market: Optional[object],
     risk_inputs: Optional[Dict[str, object]] = None,
+    calibration: AdverseRegimeCalibration = ADVERSE_REGIME_CALIBRATION,
 ) -> Dict[str, object]:
     """Collapse existing market stress signals into one bounded runtime feature."""
     if market is None:
@@ -56,39 +77,38 @@ def build_adverse_regime_indicator(
     price_vs_50d_pct = _safe_float(getattr(market, "price_vs_50d_pct", 0.0), 0.0)
 
     if regime == MarketRegime.CORRECTION:
-        add_component("regime", 28.0, "market regime: correction")
+        add_component("regime", calibration.correction_score, "market regime: correction")
     elif regime == MarketRegime.UPTREND_UNDER_PRESSURE:
-        add_component("regime", 12.0, "market regime: uptrend under pressure")
+        add_component("regime", calibration.under_pressure_score, "market regime: uptrend under pressure")
     elif regime == MarketRegime.RALLY_ATTEMPT:
-        add_component("regime", 8.0, "market regime: rally attempt")
+        add_component("regime", calibration.rally_attempt_score, "market regime: rally attempt")
 
-    sizing_stress = round((1.0 - position_sizing) * 10.0, 2)
-    if sizing_stress >= 1.0:
+    sizing_stress = round((1.0 - position_sizing) * calibration.position_sizing_scale, 2)
+    if sizing_stress >= calibration.position_sizing_min_component:
         add_component("position_sizing", sizing_stress, f"position sizing capped at {position_sizing:.0%}")
 
-    if distribution_days >= 6:
-        add_component("distribution_days", 13.0, f"{distribution_days} recent distribution days")
-    elif distribution_days == 5:
-        add_component("distribution_days", 9.0, "5 recent distribution days")
-    elif distribution_days >= 3:
-        add_component("distribution_days", 5.0, f"{distribution_days} recent distribution days")
+    distribution_score = _first_matching_band(float(distribution_days), calibration.distribution_day_bands)
+    if distribution_score > 0:
+        detail = "5 recent distribution days" if distribution_days == 5 else f"{distribution_days} recent distribution days"
+        add_component("distribution_days", distribution_score, detail)
 
-    if drawdown_pct <= -10:
-        add_component("drawdown", 12.0, f"{abs(drawdown_pct):.1f}% drawdown from recent high")
-    elif drawdown_pct <= -6:
-        add_component("drawdown", 8.0, f"{abs(drawdown_pct):.1f}% drawdown from recent high")
-    elif drawdown_pct <= -3:
-        add_component("drawdown", 4.0, f"{abs(drawdown_pct):.1f}% drawdown from recent high")
+    drawdown_score = 0.0
+    for band in calibration.drawdown_bands:
+        if drawdown_pct <= band.threshold:
+            drawdown_score = band.score
+            break
+    if drawdown_score > 0:
+        add_component("drawdown", drawdown_score, f"{abs(drawdown_pct):.1f}% drawdown from recent high")
 
     if trend_direction == "down":
-        add_component("trend", 6.0, "trend direction remains down")
+        add_component("trend", calibration.down_trend_score, "trend direction remains down")
     elif trend_direction == "sideways" and regime != MarketRegime.CONFIRMED_UPTREND:
-        add_component("trend", 2.0, "trend direction is still sideways")
+        add_component("trend", calibration.sideways_trend_score, "trend direction is still sideways")
 
     if price_vs_21d_pct < 0:
-        add_component("price_vs_21d", 2.0, "index is below the 21-day trend")
+        add_component("price_vs_21d", calibration.below_21d_score, "index is below the 21-day trend")
     if price_vs_50d_pct < 0:
-        add_component("price_vs_50d", 4.0, "index is below the 50-day trend")
+        add_component("price_vs_50d", calibration.below_50d_score, "index is below the 50-day trend")
 
     macro_components: list[Dict[str, object]] = []
     risk_inputs = risk_inputs or {}
@@ -99,39 +119,30 @@ def build_adverse_regime_indicator(
     hy_change_10d = _safe_float(risk_inputs.get("hy_spread_change_10d"), float("nan"))
 
     if vix_percentile == vix_percentile:
-        if vix_percentile >= 85:
-            macro_components.append({"name": "vix_percentile", "score": 6.0, "detail": "VIX percentile is stretched"})
-        elif vix_percentile >= 70:
-            macro_components.append({"name": "vix_percentile", "score": 4.0, "detail": "VIX percentile is elevated"})
+        vix_score, vix_detail = _first_matching_detail_band(vix_percentile, calibration.vix_percentile_bands)
+        if vix_score > 0:
+            macro_components.append({"name": "vix_percentile", "score": vix_score, "detail": vix_detail})
 
     hy_stress_score = 0.0
     hy_stress_detail = ""
     if hy_percentile == hy_percentile:
-        if hy_percentile >= 85:
-            hy_stress_score, hy_stress_detail = 6.0, "HY spread percentile is stressed"
-        elif hy_percentile >= 70:
-            hy_stress_score, hy_stress_detail = 4.0, "HY spread percentile is elevated"
+        hy_stress_score, hy_stress_detail = _first_matching_detail_band(hy_percentile, calibration.hy_percentile_bands)
     elif hy_spread == hy_spread:
-        if hy_spread >= 650:
-            hy_stress_score, hy_stress_detail = 6.0, "HY spreads are in veto territory"
-        elif hy_spread >= 550:
-            hy_stress_score, hy_stress_detail = 4.0, "HY spreads remain wide"
+        hy_stress_score, hy_stress_detail = _first_matching_detail_band(hy_spread, calibration.hy_spread_bands)
     if hy_stress_score > 0:
         macro_components.append({"name": "hy_spread", "score": hy_stress_score, "detail": hy_stress_detail})
 
     if fear_greed == fear_greed:
-        if fear_greed >= 75:
-            macro_components.append({"name": "fear_greed", "score": 4.0, "detail": "fear proxy remains elevated"})
-        elif fear_greed >= 60:
-            macro_components.append({"name": "fear_greed", "score": 2.0, "detail": "fear proxy is leaning risk-off"})
+        fear_score, fear_detail = _first_matching_detail_band(fear_greed, calibration.fear_greed_bands)
+        if fear_score > 0:
+            macro_components.append({"name": "fear_greed", "score": fear_score, "detail": fear_detail})
 
     if hy_change_10d == hy_change_10d:
-        if hy_change_10d >= 75:
-            macro_components.append({"name": "hy_spread_change_10d", "score": 4.0, "detail": "HY spreads are widening fast"})
-        elif hy_change_10d >= 40:
-            macro_components.append({"name": "hy_spread_change_10d", "score": 2.0, "detail": "HY spreads are still widening"})
+        hy_change_score, hy_change_detail = _first_matching_detail_band(hy_change_10d, calibration.hy_change_10d_bands)
+        if hy_change_score > 0:
+            macro_components.append({"name": "hy_spread_change_10d", "score": hy_change_score, "detail": hy_change_detail})
 
-    macro_total = min(sum(float(item["score"]) for item in macro_components), 12.0)
+    macro_total = min(sum(float(item["score"]) for item in macro_components), calibration.macro_component_cap)
     if macro_total > 0:
         macro_detail = "; ".join(str(item["detail"]) for item in macro_components[:2])
         add_component("macro", macro_total, macro_detail)
@@ -139,11 +150,11 @@ def build_adverse_regime_indicator(
     ordered_components = sorted(components, key=lambda item: float(item["score"]), reverse=True)
     score = round(_clamp(sum(float(item["score"]) for item in ordered_components), 0.0, 100.0), 2)
 
-    if score >= 55:
+    if score >= calibration.severe_threshold:
         label = "severe"
-    elif score >= 35:
+    elif score >= calibration.elevated_threshold:
         label = "elevated"
-    elif score >= 18:
+    elif score >= calibration.caution_threshold:
         label = "caution"
     else:
         label = "normal"
@@ -157,8 +168,14 @@ def build_adverse_regime_indicator(
         "reason": reason,
         "reason_components": reason_components,
         "components": ordered_components,
-        "confidence_penalty": int(round(_clamp(score / 4.0, 0.0, 18.0))),
-        "trade_quality_penalty": round(_clamp(score / 7.0, 0.0, 12.0), 2),
-        "size_multiplier": round(_clamp(1.0 - (score / 120.0), 0.55, 1.0), 2),
+        "confidence_penalty": int(round(_clamp(score / calibration.confidence_penalty_divisor, 0.0, calibration.confidence_penalty_cap))),
+        "trade_quality_penalty": round(
+            _clamp(score / calibration.trade_quality_penalty_divisor, 0.0, calibration.trade_quality_penalty_cap),
+            2,
+        ),
+        "size_multiplier": round(
+            _clamp(1.0 - (score / calibration.size_multiplier_divisor), calibration.size_multiplier_floor, calibration.size_multiplier_ceiling),
+            2,
+        ),
         "source": "market_status_plus_macro" if risk_inputs else "market_status",
     }

@@ -8,6 +8,16 @@ import pandas as pd
 
 from data.adverse_regime import build_adverse_regime_indicator
 from data.market_regime import MarketRegime, MarketStatus
+from scoring_tuning import (
+    CHURN_PENALTY_CALIBRATION,
+    DOWNSIDE_RISK_CALIBRATION,
+    RISK_SIZE_CALIBRATION,
+    TRADE_QUALITY_CALIBRATION,
+    ChurnPenaltyCalibration,
+    DownsideRiskCalibration,
+    RiskSizeCalibration,
+    TradeQualityCalibration,
+)
 
 
 REASON_MESSAGES = {
@@ -106,7 +116,11 @@ def regime_quality_modifier(
     return round(modifier, 2)
 
 
-def downside_risk_proxy(prices: Optional[object]) -> Dict[str, float]:
+def downside_risk_proxy(
+    prices: Optional[object],
+    *,
+    calibration: DownsideRiskCalibration = DOWNSIDE_RISK_CALIBRATION,
+) -> Dict[str, float]:
     """Build a bounded downside-risk proxy from existing price history.
 
     This is intentionally simpler than true CVaR: we blend recent drawdown with
@@ -130,7 +144,7 @@ def downside_risk_proxy(prices: Optional[object]) -> Dict[str, float]:
             "source": "insufficient_history",
         }
 
-    window = series.tail(63)
+    window = series.tail(calibration.lookback_bars)
     rolling_high = window.cummax().replace(0, pd.NA)
     drawdowns = ((window / rolling_high) - 1.0).fillna(0.0)
     drawdown_pct = abs(float(drawdowns.min()) * 100.0)
@@ -140,19 +154,32 @@ def downside_risk_proxy(prices: Optional[object]) -> Dict[str, float]:
     if negative_returns.empty:
         tail_loss_pct = 0.0
     else:
-        worst_n = max(1, min(5, len(negative_returns)))
+        worst_n = max(1, min(calibration.tail_loss_sample_size, len(negative_returns)))
         tail_loss_pct = abs(float(negative_returns.nsmallest(worst_n).mean()) * 100.0)
 
-    penalty = round(_clamp(drawdown_pct * 0.85 + tail_loss_pct * 2.0, 0.0, 25.0), 2)
+    penalty = round(
+        _clamp(
+            drawdown_pct * calibration.drawdown_weight + tail_loss_pct * calibration.tail_loss_weight,
+            0.0,
+            calibration.max_penalty,
+        ),
+        2,
+    )
     return {
         "penalty": penalty,
         "drawdown_pct": round(drawdown_pct, 2),
         "tail_loss_pct": round(tail_loss_pct, 2),
-        "source": "63d_drawdown_tail_loss",
+        "source": calibration.source_label,
     }
 
 
-def churn_penalty_proxy(*, exit_risk_score: object = None, recovery_ready: Optional[bool] = None, falling_knife: Optional[bool] = None) -> Dict[str, object]:
+def churn_penalty_proxy(
+    *,
+    exit_risk_score: object = None,
+    recovery_ready: Optional[bool] = None,
+    falling_knife: Optional[bool] = None,
+    calibration: ChurnPenaltyCalibration = CHURN_PENALTY_CALIBRATION,
+) -> Dict[str, object]:
     """Build a bounded churn/flip-risk proxy from existing runtime signals."""
     reasons: list[str] = []
     penalty = 0.0
@@ -160,27 +187,39 @@ def churn_penalty_proxy(*, exit_risk_score: object = None, recovery_ready: Optio
     if exit_risk_score is not None:
         exit_score = max(0.0, _safe_float(exit_risk_score, 0.0))
         if exit_score > 0:
-            penalty += exit_score * 5.0
+            penalty += exit_score * calibration.exit_risk_multiplier
             reasons.append('exit_risk_score')
 
     if recovery_ready is not None and not bool(recovery_ready):
-        penalty += 8.0
+        penalty += calibration.recovery_not_confirmed_penalty
         reasons.append('recovery_not_confirmed')
 
     if falling_knife is not None and bool(falling_knife):
-        penalty += 10.0
+        penalty += calibration.falling_knife_penalty
         reasons.append('falling_knife')
 
     return {
-        "penalty": round(_clamp(penalty, 0.0, 25.0), 2),
+        "penalty": round(_clamp(penalty, 0.0, calibration.max_penalty), 2),
         "reason": "+".join(reasons) if reasons else "none",
     }
 
 
-def risk_adjusted_size_multiplier(*, downside_penalty: object = 0.0, churn_penalty: object = 0.0) -> float:
+def risk_adjusted_size_multiplier(
+    *,
+    downside_penalty: object = 0.0,
+    churn_penalty: object = 0.0,
+    calibration: RiskSizeCalibration = RISK_SIZE_CALIBRATION,
+) -> float:
     """Translate runtime downside/churn penalties into a bounded size multiplier."""
-    total_penalty = _clamp(_safe_float(downside_penalty, 0.0) + _safe_float(churn_penalty, 0.0), 0.0, 40.0)
-    return round(_clamp(1.0 - (total_penalty / 50.0), 0.45, 1.0), 2)
+    total_penalty = _clamp(
+        _safe_float(downside_penalty, 0.0) + _safe_float(churn_penalty, 0.0),
+        0.0,
+        calibration.combined_penalty_cap,
+    )
+    return round(
+        _clamp(1.0 - (total_penalty / calibration.divisor), calibration.min_multiplier, calibration.max_multiplier),
+        2,
+    )
 
 
 def build_trade_quality_score(
@@ -198,6 +237,7 @@ def build_trade_quality_score(
     churn_penalty_reason: str = "",
     adverse_regime_penalty: object = 0.0,
     adverse_regime_reason: str = "",
+    calibration: TradeQualityCalibration = TRADE_QUALITY_CALIBRATION,
 ) -> Dict:
     """
     Build an explicit runtime trade-quality score from existing decision inputs.
@@ -207,14 +247,18 @@ def build_trade_quality_score(
     """
     raw_setup_value = max(0.0, _safe_float(raw_setup_score, 0.0))
     setup_scale_value = max(1.0, _safe_float(setup_scale, 1.0))
-    setup_component = round((raw_setup_value / setup_scale_value) * 55.0, 2)
+    setup_component = round((raw_setup_value / setup_scale_value) * calibration.setup_component_weight, 2)
     confidence_value = _clamp(_safe_float(confidence_pct, 0.0), 0.0, 100.0)
     uncertainty_value = _clamp(_safe_float(uncertainty_pct, 0.0), 0.0, 100.0)
-    regime_value = _clamp(_safe_float(regime_modifier, 1.0), 0.4, 1.05)
-    cost_value = _clamp(_safe_float(cost_penalty, 0.0), 0.0, 40.0)
-    downside_value = _clamp(_safe_float(downside_penalty, 0.0), 0.0, 30.0)
-    churn_value = _clamp(_safe_float(churn_penalty, 0.0), 0.0, 25.0)
-    adverse_regime_value = _clamp(_safe_float(adverse_regime_penalty, 0.0), 0.0, 20.0)
+    regime_value = _clamp(
+        _safe_float(regime_modifier, 1.0),
+        calibration.regime_modifier_floor,
+        calibration.regime_modifier_ceiling,
+    )
+    cost_value = _clamp(_safe_float(cost_penalty, 0.0), 0.0, calibration.cost_penalty_cap)
+    downside_value = _clamp(_safe_float(downside_penalty, 0.0), 0.0, calibration.downside_penalty_cap)
+    churn_value = _clamp(_safe_float(churn_penalty, 0.0), 0.0, calibration.churn_penalty_cap)
+    adverse_regime_value = _clamp(_safe_float(adverse_regime_penalty, 0.0), 0.0, calibration.adverse_regime_penalty_cap)
 
     score = round(
         (setup_component + confidence_value - uncertainty_value - cost_value - downside_value - churn_value - adverse_regime_value)

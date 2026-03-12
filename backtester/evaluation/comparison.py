@@ -8,6 +8,8 @@ from typing import Dict, Iterable, Optional, Sequence
 
 import pandas as pd
 
+from scoring_tuning import MODEL_COMPARISON_CALIBRATION, ModelComparisonCalibration
+
 
 @dataclass(frozen=True)
 class ModelFamily:
@@ -27,15 +29,16 @@ def score_enhanced_rank(
     exit_risk_score: float,
     sector_score: float = 0.0,
     catalyst_score: float = 0.0,
+    calibration: ModelComparisonCalibration = MODEL_COMPARISON_CALIBRATION,
 ) -> float:
     """Shared overlay-aware rank used by advisor outputs and Wave 4 comparisons."""
     return round(
         float(total_score)
-        + float(breakout_score) * 0.75
-        + float(sentiment_score) * 0.5
-        + float(sector_score) * 0.75
-        + float(catalyst_score) * 0.5
-        - float(exit_risk_score) * 0.75,
+        + float(breakout_score) * calibration.breakout_weight
+        + float(sentiment_score) * calibration.sentiment_weight
+        + float(sector_score) * calibration.sector_weight
+        + float(catalyst_score) * calibration.catalyst_weight
+        - float(exit_risk_score) * calibration.exit_risk_weight,
         2,
     )
 
@@ -46,7 +49,11 @@ def _numeric(frame: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_numeric(frame[column], errors="coerce").fillna(0.0)
 
 
-def attach_model_family_scores(candidates: pd.DataFrame) -> pd.DataFrame:
+def attach_model_family_scores(
+    candidates: pd.DataFrame,
+    *,
+    calibration: ModelComparisonCalibration = MODEL_COMPARISON_CALIBRATION,
+) -> pd.DataFrame:
     """Add comparable score columns for baseline, tactical, and enhanced models."""
     if candidates is None:
         return pd.DataFrame()
@@ -64,17 +71,17 @@ def attach_model_family_scores(candidates: pd.DataFrame) -> pd.DataFrame:
     frame["baseline_score"] = total.round(2)
     frame["tactical_score"] = (
         total
-        + breakout * 0.75
-        - exit_risk * 0.75
+        + breakout * calibration.breakout_weight
+        - exit_risk * calibration.exit_risk_weight
     ).round(2)
 
     computed_enhanced = (
         total
-        + breakout * 0.75
-        + sentiment * 0.5
-        + sector * 0.75
-        + catalyst * 0.5
-        - exit_risk * 0.75
+        + breakout * calibration.breakout_weight
+        + sentiment * calibration.sentiment_weight
+        + sector * calibration.sector_weight
+        + catalyst * calibration.catalyst_weight
+        - exit_risk * calibration.exit_risk_weight
     ).round(2)
     if "rank_score" in frame.columns:
         frame["enhanced_score"] = pd.to_numeric(frame["rank_score"], errors="coerce").fillna(computed_enhanced)
@@ -87,9 +94,13 @@ def attach_model_family_scores(candidates: pd.DataFrame) -> pd.DataFrame:
 def build_default_model_families(
     *,
     top_n: int = 5,
-    baseline_min_score: Optional[float] = 7.0,
+    baseline_min_score: Optional[float] = None,
+    calibration: ModelComparisonCalibration = MODEL_COMPARISON_CALIBRATION,
 ) -> list[ModelFamily]:
     """Default Wave 4 comparison path from simple score to overlay-aware rank."""
+    if baseline_min_score is None:
+        baseline_min_score = calibration.baseline_min_score
+
     return [
         ModelFamily(
             name="baseline_total",
@@ -302,9 +313,10 @@ def compare_model_families(
     future_return_column: str = "future_return_pct",
     outcome_bucket_column: str = "outcome_bucket",
     action_column: str = "action",
+    calibration: ModelComparisonCalibration = MODEL_COMPARISON_CALIBRATION,
 ) -> tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
     """Compare how different score families rank and filter the same candidate set."""
-    frame = attach_model_family_scores(candidates)
+    frame = attach_model_family_scores(candidates, calibration=calibration)
     selections = {family.name: _select_candidates(frame, family) for family in families}
 
     if baseline_name is None and families:

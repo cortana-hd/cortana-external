@@ -10,6 +10,7 @@ from evaluation.comparison import (
     render_model_comparison_report,
     score_enhanced_rank,
 )
+from scoring_tuning import ModelComparisonCalibration
 
 
 def test_attach_model_family_scores_builds_wave4_comparison_columns():
@@ -434,3 +435,35 @@ def test_advisor_compare_model_families_reuses_scan_output():
     assert list(result["summary"]["model"]) == ["baseline_total", "tactical_overlay", "enhanced_rank"]
     assert "enhanced_rank" in result["report"]
     assert "BBB" in result["report"]
+
+
+def test_model_comparison_calibration_changes_overlay_weights_and_default_thresholds():
+    frame = pd.DataFrame(
+        [
+            {
+                "symbol": "NVDA",
+                "total_score": 8,
+                "breakout_score": 4,
+                "sentiment_score": 1,
+                "exit_risk_score": 1,
+                "sector_score": 1,
+                "catalyst_score": 0,
+            }
+        ]
+    )
+    calibration = ModelComparisonCalibration(
+        breakout_weight=1.0,
+        sentiment_weight=0.25,
+        sector_weight=0.5,
+        catalyst_weight=0.0,
+        exit_risk_weight=1.0,
+        baseline_min_score=8.5,
+    )
+
+    scored = attach_model_family_scores(frame, calibration=calibration)
+    families = build_default_model_families(top_n=3, calibration=calibration)
+
+    assert scored.loc[0, "tactical_score"] == 11.0
+    assert scored.loc[0, "enhanced_score"] == 11.75
+    assert score_enhanced_rank(8, 4, 1, 1, sector_score=1, catalyst_score=0, calibration=calibration) == 11.75
+    assert families[0].min_score == 8.5
