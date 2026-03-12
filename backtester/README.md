@@ -161,6 +161,8 @@ It feeds:
 
 ### Wave 4 evaluation layer
 - compare baseline vs enhanced scoring/model families
+- comparison summaries now surface trade quality, effective confidence, uncertainty, downside/churn penalties, and adverse-regime stress where those fields exist
+- rendered reports keep `BUY`/`WATCH`/`NO_BUY` and abstain states visible so operators can review risk-aware ranking without weakening veto logic
 - use this before adding more modeling complexity
 
 ## API Keys

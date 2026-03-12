@@ -136,3 +136,42 @@ def test_format_alert_reports_degraded_market_status_with_next_action():
     assert "Dip Buyer Scan" in text
     assert "Final action: DO NOT BUY — market regime veto (Cached market fallback active)" in text
     assert "Note: degraded market data (720s stale)" in text
+
+
+def test_format_alert_includes_risk_telemetry_for_top_leaders():
+    fake = _FakeAdvisor()
+    fake.risk_fetcher = SimpleNamespace(get_snapshot=lambda: {"vix": 24.0, "put_call": 1.01, "hy_spread": 500.0, "fear_greed": 28.0})
+    fake._scan = pd.DataFrame(
+        [
+            {"symbol": "MSFT", "total_score": 9},
+            {"symbol": "AAPL", "total_score": 7},
+        ]
+    )
+    fake._analysis = {
+        "MSFT": {
+            "total_score": 9,
+            "trade_quality_score": 91.0,
+            "effective_confidence": 79,
+            "uncertainty_pct": 7,
+            "downside_penalty": 3.0,
+            "churn_penalty": 1.0,
+            "adverse_regime": {"score": 18.0, "label": "caution"},
+            "data_source": "alpaca",
+            "recommendation": {"action": "BUY", "entry": 100.0, "stop_loss": 93.0},
+        },
+        "AAPL": {
+            "total_score": 7,
+            "trade_quality_score": 72.0,
+            "effective_confidence": 48,
+            "uncertainty_pct": 31,
+            "abstain": True,
+            "data_source": "yahoo",
+            "recommendation": {"action": "WATCH", "reason": "Watch setup", "abstain": True},
+        },
+    }
+
+    with patch("dipbuyer_alert.TradingAdvisor", return_value=fake):
+        text = format_alert(limit=8, min_score=6)
+
+    assert "Top leaders: MSFT BUY (9/12) 🐦 Neutral | AAPL WATCH (7/12) 🐦 Neutral" in text
+    assert "Leader telemetry: MSFT | tq 91.0 | conf 79% | u 7% | risk 3.0/1.0 | stress caution(18); AAPL | tq 72.0 | conf 48% | u 31% | ABSTAIN" in text

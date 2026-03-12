@@ -64,6 +64,37 @@ def _dedupe_reason(reason: str) -> str:
     return reason.rstrip(".")
 
 
+def _leader_risk_line(records: list[dict], limit: int = 3) -> str:
+    chunks = []
+    for rec in records[:limit]:
+        if not rec.get("has_risk_telemetry"):
+            continue
+
+        parts = [str(rec.get("symbol", ""))]
+        if rec.get("trade_quality_score") is not None:
+            parts.append(f"tq {float(rec['trade_quality_score']):.1f}")
+        if rec.get("effective_confidence"):
+            parts.append(f"conf {float(rec['effective_confidence']):.0f}%")
+        if rec.get("uncertainty_pct") is not None:
+            parts.append(f"u {float(rec['uncertainty_pct']):.0f}%")
+        downside_penalty = rec.get("downside_penalty")
+        churn_penalty = rec.get("churn_penalty")
+        if downside_penalty is not None or churn_penalty is not None:
+            parts.append(
+                f"risk {float(downside_penalty or 0.0):.1f}/{float(churn_penalty or 0.0):.1f}"
+            )
+        adverse_label = rec.get("adverse_regime_label")
+        adverse_score = rec.get("adverse_regime_score")
+        if (adverse_label and str(adverse_label).lower() != "normal") or float(adverse_score or 0.0) > 0:
+            label = adverse_label or "normal"
+            parts.append(f"stress {label}({float(adverse_score or 0.0):.0f})")
+        if rec.get("abstain"):
+            parts.append("ABSTAIN")
+        chunks.append(" | ".join(parts))
+
+    return f"Leader telemetry: {'; '.join(chunks)}" if chunks else ""
+
+
 def _load_priority_symbols() -> list[str]:
     out: list[str] = []
     csv_symbols = os.getenv("TRADING_PRIORITY_SYMBOLS", "")
@@ -137,6 +168,18 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
         action = rec.get("action", "NO_BUY")
         reason = rec.get("reason") or "No reason provided."
 
+        has_risk_telemetry = any(
+            key in rec or key in analysis
+            for key in (
+                "trade_quality_score",
+                "effective_confidence",
+                "uncertainty_pct",
+                "downside_penalty",
+                "churn_penalty",
+                "adverse_regime_score",
+                "adverse_regime_label",
+            )
+        ) or bool(rec.get("abstain", analysis.get("abstain", False)))
         record = {
             "symbol": symbol,
             "score": score,
@@ -146,7 +189,12 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
             "trade_quality_score": rec.get("trade_quality_score", analysis.get("trade_quality_score", score)),
             "effective_confidence": rec.get("effective_confidence", analysis.get("effective_confidence", analysis.get("confidence", 0))),
             "uncertainty_pct": rec.get("uncertainty_pct", analysis.get("uncertainty_pct", 0)),
+            "downside_penalty": rec.get("downside_penalty", analysis.get("downside_penalty")),
+            "churn_penalty": rec.get("churn_penalty", analysis.get("churn_penalty")),
+            "adverse_regime_score": rec.get("adverse_regime_score", analysis.get("adverse_regime_score", analysis.get("adverse_regime", {}).get("score", 0.0))),
+            "adverse_regime_label": rec.get("adverse_regime_label", analysis.get("adverse_regime_label", analysis.get("adverse_regime", {}).get("label", "normal"))),
             "abstain": rec.get("abstain", analysis.get("abstain", False)),
+            "has_risk_telemetry": has_risk_telemetry,
         }
         if score >= min_score:
             passed.append(record)
@@ -181,6 +229,9 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
         for c in candidates[: min(limit, 3)]:
             preview.append(f"{c['symbol']} {c['action']} ({c['score']}/12)")
         lines.append("Leaders: " + " | ".join(preview))
+        risk_line = _leader_risk_line(candidates, limit=min(limit, 3))
+        if risk_line:
+            lines.append(risk_line)
 
     if getattr(market, "status", "ok") == "degraded":
         lines.append(f"Note: degraded market data ({float(getattr(market, 'snapshot_age_seconds', 0.0) or 0.0):.0f}s stale)")
