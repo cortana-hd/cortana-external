@@ -6,7 +6,19 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from data.confidence import (
+    build_trade_quality_score as base_build_trade_quality_score,
+    churn_penalty_proxy as base_churn_penalty_proxy,
+    downside_risk_proxy as base_downside_risk_proxy,
+    risk_adjusted_size_multiplier as base_risk_adjusted_size_multiplier,
+)
 from data.market_regime import MarketRegime
+from scoring_tuning import (
+    ChurnPenaltyCalibration,
+    DownsideRiskCalibration,
+    RiskSizeCalibration,
+    TradeQualityCalibration,
+)
 from strategies.dip_buyer import DIPBUYER_CONFIG, DipBuyerStrategy
 
 
@@ -410,3 +422,52 @@ def test_evaluate_setup_exposes_shared_confidence_fields(price_data):
     assert "Effective_Confidence" in setup["score_frame"].columns
     assert "Uncertainty_Pct" in setup["score_frame"].columns
     assert setup["recommendation"]["confidence"] == setup["confidence"]
+
+
+def test_credit_veto_still_blocks_buy_with_more_permissive_scoring_calibration(price_data):
+    risk_df = _risk_history(price_data.index, hy_spread=700.0)
+    strategy = _build_strategy(MarketRegime.CORRECTION, risk_df)
+    market = SimpleNamespace(
+        regime=MarketRegime.CORRECTION,
+        position_sizing=0.5,
+        status="ok",
+        snapshot_age_seconds=0.0,
+    )
+
+    with _patch_fillna_method_compat(), patch(
+        "strategies.dip_buyer.rsi", return_value=pd.Series([30] * len(price_data), index=price_data.index)
+    ), patch(
+        "strategies.dip_buyer.build_trade_quality_score",
+        side_effect=lambda **kwargs: base_build_trade_quality_score(
+            **kwargs,
+            calibration=TradeQualityCalibration(setup_component_weight=80.0, cost_penalty_cap=4.0),
+        ),
+    ), patch(
+        "strategies.dip_buyer.downside_risk_proxy",
+        side_effect=lambda prices: base_downside_risk_proxy(
+            prices,
+            calibration=DownsideRiskCalibration(drawdown_weight=0.2, tail_loss_weight=0.5, max_penalty=4.0),
+        ),
+    ), patch(
+        "strategies.dip_buyer.churn_penalty_proxy",
+        side_effect=lambda **kwargs: base_churn_penalty_proxy(
+            **kwargs,
+            calibration=ChurnPenaltyCalibration(
+                exit_risk_multiplier=1.0,
+                recovery_not_confirmed_penalty=1.0,
+                falling_knife_penalty=1.0,
+                max_penalty=4.0,
+            ),
+        ),
+    ), patch(
+        "strategies.dip_buyer.risk_adjusted_size_multiplier",
+        side_effect=lambda **kwargs: base_risk_adjusted_size_multiplier(
+            **kwargs,
+            calibration=RiskSizeCalibration(divisor=120.0, min_multiplier=0.8),
+        ),
+    ):
+        result = strategy.evaluate_setup(price_data, market=market)
+
+    assert result["credit_veto"] is True
+    assert result["recommendation"]["action"] == "NO_BUY"
+    assert result["recommendation"]["reason"] == "Credit veto active (HY spread too high)."
