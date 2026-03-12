@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, Iterable, Optional, Sequence
 
@@ -170,6 +171,79 @@ def _safe_mean_with_fallback(frame: pd.DataFrame, primary: str, fallback: str) -
     return _safe_mean(frame, fallback)
 
 
+def _safe_label_mode(frame: pd.DataFrame, column: str, default: str = "n/a") -> str:
+    if column not in frame.columns or frame.empty:
+        return default
+    labels = [str(value).strip() for value in frame[column].fillna("").astype(str) if str(value).strip()]
+    if not labels:
+        return default
+    counts = Counter(labels)
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+
+def _format_pick_risk_details(record: Dict[str, object]) -> str:
+    symbol = str(record.get("symbol", "")).strip()
+    if not symbol:
+        return ""
+
+    action = str(record.get("action", "")).strip()
+    parts = [symbol]
+    if action:
+        parts.append(action)
+
+    trade_quality = record.get("trade_quality_score")
+    if trade_quality is not None:
+        try:
+            parts.append(f"tq {float(trade_quality):.1f}")
+        except (TypeError, ValueError):
+            pass
+
+    effective_confidence = record.get("effective_confidence", record.get("confidence"))
+    uncertainty_pct = record.get("uncertainty_pct")
+    confidence_bits = []
+    try:
+        confidence_bits.append(f"conf {float(effective_confidence):.0f}%")
+    except (TypeError, ValueError):
+        pass
+    try:
+        confidence_bits.append(f"u {float(uncertainty_pct):.0f}%")
+    except (TypeError, ValueError):
+        pass
+    if confidence_bits:
+        parts.append(" ".join(confidence_bits))
+
+    downside_penalty = record.get("downside_penalty")
+    churn_penalty = record.get("churn_penalty")
+    risk_bits = []
+    try:
+        risk_bits.append(f"down {float(downside_penalty):.1f}")
+    except (TypeError, ValueError):
+        pass
+    try:
+        risk_bits.append(f"churn {float(churn_penalty):.1f}")
+    except (TypeError, ValueError):
+        pass
+    if risk_bits:
+        parts.append(" ".join(risk_bits))
+
+    adverse_label = str(record.get("adverse_regime_label", "") or "").strip()
+    adverse_score = record.get("adverse_regime_score")
+    adverse_bits = []
+    if adverse_label:
+        adverse_bits.append(adverse_label)
+    try:
+        adverse_bits.append(f"{float(adverse_score):.0f}")
+    except (TypeError, ValueError):
+        pass
+    if adverse_bits and (adverse_label.lower() != "normal" or float(adverse_score or 0.0) > 0):
+        parts.append(f"stress {'/'.join(adverse_bits)}")
+
+    if bool(record.get("abstain", False)):
+        parts.append("ABSTAIN")
+
+    return " | ".join(parts)
+
+
 def _rate(frame: pd.DataFrame, series: pd.Series) -> float:
     if frame.empty or series.empty:
         return 0.0
@@ -206,9 +280,14 @@ def compare_model_families(
             "selected_count": int(len(selected)),
             "coverage_pct": round((len(selected) / universe_size) * 100.0, 1) if universe_size else 0.0,
             "avg_score": round(_safe_mean(selected, family.score_column), 2),
+            "avg_trade_quality_score": round(_safe_mean(selected, "trade_quality_score"), 2),
             "avg_confidence": round(_safe_mean_with_fallback(selected, "confidence", "effective_confidence"), 1),
             "avg_effective_confidence": round(_safe_mean_with_fallback(selected, "effective_confidence", "confidence"), 1),
             "avg_uncertainty_pct": round(_safe_mean(selected, "uncertainty_pct"), 1),
+            "avg_downside_penalty": round(_safe_mean(selected, "downside_penalty"), 2),
+            "avg_churn_penalty": round(_safe_mean(selected, "churn_penalty"), 2),
+            "avg_adverse_regime_score": round(_safe_mean(selected, "adverse_regime_score"), 2),
+            "top_adverse_regime_label": _safe_label_mode(selected, "adverse_regime_label", default="n/a"),
             "buy_count": int((selected.get(action_column) == "BUY").sum()) if action_column in selected.columns else 0,
             "watch_count": int((selected.get(action_column) == "WATCH").sum()) if action_column in selected.columns else 0,
             "no_buy_count": int((selected.get(action_column) == "NO_BUY").sum()) if action_column in selected.columns else 0,
@@ -271,12 +350,20 @@ def render_model_comparison_report(
         symbols = _symbol_list(selected)[:symbol_limit]
         line = (
             f"{model}: picked {row['selected_count']} | avg {row['score_column']} {row['avg_score']:.2f}"
-            f" | buys {row['buy_count']} | watches {row['watch_count']}"
+            f" | buys {row['buy_count']} | watches {row['watch_count']} | no-buy {row['no_buy_count']}"
         )
+        if row.get("avg_trade_quality_score", 0.0) > 0:
+            line += f" | avg tq {row['avg_trade_quality_score']:.2f}"
         if row["avg_confidence"] > 0:
             line += f" | avg conf {row['avg_confidence']:.1f}%"
+        if row.get("avg_effective_confidence", 0.0) > 0:
+            line += f" | eff conf {row['avg_effective_confidence']:.1f}%"
         if row.get("avg_uncertainty_pct", 0.0) > 0:
             line += f" | avg uncertainty {row['avg_uncertainty_pct']:.1f}%"
+        if row.get("avg_downside_penalty", 0.0) > 0 or row.get("avg_churn_penalty", 0.0) > 0:
+            line += f" | avg risk down/churn {row['avg_downside_penalty']:.2f}/{row['avg_churn_penalty']:.2f}"
+        if row.get("avg_adverse_regime_score", 0.0) > 0 or row.get("top_adverse_regime_label") not in {"", "n/a"}:
+            line += f" | avg stress {row['avg_adverse_regime_score']:.1f} ({row['top_adverse_regime_label']})"
         if row.get("abstain_count", 0) > 0:
             line += f" | abstain {row['abstain_count']}"
         if row["avg_future_return_pct"] != 0.0 or row["hit_rate_pct"] != 0.0:
@@ -298,5 +385,12 @@ def render_model_comparison_report(
 
         if symbols:
             lines.append(f"  picks: {', '.join(symbols)}")
+            pick_details = [
+                _format_pick_risk_details(record)
+                for record in selected.head(symbol_limit).to_dict(orient="records")
+            ]
+            pick_details = [detail for detail in pick_details if detail]
+            if pick_details:
+                lines.append(f"  risk: {'; '.join(pick_details)}")
 
     return "\n".join(lines)

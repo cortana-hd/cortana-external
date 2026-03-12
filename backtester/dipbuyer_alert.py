@@ -91,6 +91,37 @@ def _fmt_value(value, decimals: int = 1) -> str:
     return f"{value:.{decimals}f}" if decimals else f"{value:.0f}"
 
 
+def _leader_risk_line(records: list[dict], limit: int = 3) -> str:
+    chunks = []
+    for rec in records[:limit]:
+        if not rec.get("has_risk_telemetry"):
+            continue
+
+        parts = [str(rec.get("symbol", ""))]
+        if rec.get("trade_quality_score") is not None:
+            parts.append(f"tq {float(rec['trade_quality_score']):.1f}")
+        if rec.get("effective_confidence"):
+            parts.append(f"conf {float(rec['effective_confidence']):.0f}%")
+        if rec.get("uncertainty_pct") is not None:
+            parts.append(f"u {float(rec['uncertainty_pct']):.0f}%")
+        downside_penalty = rec.get("downside_penalty")
+        churn_penalty = rec.get("churn_penalty")
+        if downside_penalty is not None or churn_penalty is not None:
+            parts.append(
+                f"risk {float(downside_penalty or 0.0):.1f}/{float(churn_penalty or 0.0):.1f}"
+            )
+        adverse_label = rec.get("adverse_regime_label")
+        adverse_score = rec.get("adverse_regime_score")
+        if (adverse_label and str(adverse_label).lower() != "normal") or float(adverse_score or 0.0) > 0:
+            label = adverse_label or "normal"
+            parts.append(f"stress {label}({float(adverse_score or 0.0):.0f})")
+        if rec.get("abstain"):
+            parts.append("ABSTAIN")
+        chunks.append(" | ".join(parts))
+
+    return f"Leader telemetry: {'; '.join(chunks)}" if chunks else ""
+
+
 def _macro_gate_line(snapshot: dict) -> str:
     if not snapshot:
         return "Macro Gate: unavailable"
@@ -222,6 +253,18 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
                 if sentiment_value == "UNAVAILABLE":
                     sentiment_value = "NEUTRAL"
                 sentiment_tag = _sentiment_tag(sentiment_value)
+            has_risk_telemetry = any(
+                key in rec or key in analysis
+                for key in (
+                    "trade_quality_score",
+                    "effective_confidence",
+                    "uncertainty_pct",
+                    "downside_penalty",
+                    "churn_penalty",
+                    "adverse_regime_score",
+                    "adverse_regime_label",
+                )
+            ) or bool(rec.get("abstain", analysis.get("abstain", False)))
             passed.append({
                 "symbol": symbol,
                 "score": score,
@@ -232,7 +275,12 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
                 "trade_quality_score": rec.get("trade_quality_score", analysis.get("trade_quality_score", score)),
                 "effective_confidence": rec.get("effective_confidence", analysis.get("effective_confidence", analysis.get("confidence", 0))),
                 "uncertainty_pct": rec.get("uncertainty_pct", analysis.get("uncertainty_pct", 0)),
+                "downside_penalty": rec.get("downside_penalty", analysis.get("downside_penalty")),
+                "churn_penalty": rec.get("churn_penalty", analysis.get("churn_penalty")),
+                "adverse_regime_score": rec.get("adverse_regime_score", analysis.get("adverse_regime_score", analysis.get("adverse_regime", {}).get("score", 0.0))),
+                "adverse_regime_label": rec.get("adverse_regime_label", analysis.get("adverse_regime_label", analysis.get("adverse_regime", {}).get("label", "normal"))),
                 "abstain": rec.get("abstain", analysis.get("abstain", False)),
+                "has_risk_telemetry": has_risk_telemetry,
             })
         else:
             rejected.append({"symbol": symbol, "reason": f"Below min-score filter ({score}<{min_score})"})
@@ -267,6 +315,9 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
         preview.append(f"{c['symbol']} {c['action']} ({c['score']}/12){suffix}")
     leaders_line = " | ".join(preview) if preview else "none"
     lines.append("Top leaders: " + leaders_line)
+    risk_line = _leader_risk_line(candidates, limit=min(limit, 3))
+    if risk_line:
+        lines.append(risk_line)
     if sentiment_checked > 0:
         lines.append("Leaders: " + leaders_line)
 
