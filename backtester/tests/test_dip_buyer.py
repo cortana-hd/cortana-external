@@ -393,3 +393,20 @@ def test_falling_knife_filter_blocks_buy_and_forces_exit_signal():
     assert signals.iloc[-1] == -1
     assert bool(latest["Recovery_Ready"]) is False
     assert bool(latest["Falling_Knife"]) is True
+
+
+def test_evaluate_setup_exposes_shared_confidence_fields(price_data):
+    """Advisor-facing Dip Buyer evaluation should expose the shared confidence contract."""
+    strategy = _build_strategy(MarketRegime.CORRECTION, _risk_history(price_data.index))
+    strategy.symbol = "NVDA"
+
+    with _patch_fillna_method_compat(), patch(
+        "strategies.dip_buyer.rsi", return_value=pd.Series([30] * len(price_data), index=price_data.index)
+    ):
+        setup = strategy.evaluate_setup(price_data)
+
+    assert "confidence_assessment" in setup
+    assert setup["confidence"] == setup["effective_confidence"]
+    assert "Effective_Confidence" in setup["score_frame"].columns
+    assert "Uncertainty_Pct" in setup["score_frame"].columns
+    assert setup["recommendation"]["confidence"] == setup["confidence"]

@@ -70,3 +70,25 @@ def test_position_sizing_guidance_expands_only_for_high_quality_setup():
     assert report["label"] == "FULL"
     assert report["recommended_position_pct"] > 10.0
     assert report["recommended_position_pct"] <= 11.5
+
+
+def test_position_sizing_guidance_respects_uncertainty_assessment():
+    market = SimpleNamespace(regime=MarketRegime.CONFIRMED_UPTREND, position_sizing=1.0)
+
+    report = build_position_sizing_guidance(
+        market=market,
+        confidence=78,
+        confidence_assessment={
+            "effective_confidence_pct": 62,
+            "uncertainty_pct": 38,
+            "abstain": True,
+        },
+        breakout={"score": 4},
+        exit_risk={"score": 1},
+        sector_context={"score": 1},
+        catalyst={"score": 0},
+    )
+
+    assert report["label"] == "PROBE"
+    assert report["uncertainty_multiplier"] < 1.0
+    assert report["recommended_position_pct"] < 7.0

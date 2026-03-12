@@ -23,7 +23,7 @@ def _history(closes: list[float], volumes: list[float] | None = None) -> pd.Data
 
 
 def _market(regime: MarketRegime = MarketRegime.CONFIRMED_UPTREND):
-    return SimpleNamespace(regime=regime, position_sizing=1.0, notes="trend intact")
+    return SimpleNamespace(regime=regime, position_sizing=1.0, notes="trend intact", status="ok", snapshot_age_seconds=0.0)
 
 
 def test_analyze_stock_attaches_wave2_scores_and_buys_supportive_setup():
@@ -65,6 +65,8 @@ def test_analyze_stock_attaches_wave2_scores_and_buys_supportive_setup():
     assert analysis["sector_context"]["score"] > 0
     assert analysis["catalyst_weighting"]["score"] > 0
     assert analysis["rank_score"] > analysis["total_score"]
+    assert analysis["confidence_assessment"]["effective_confidence_pct"] == analysis["confidence"]
+    assert analysis["recommendation"]["confidence_assessment"]["effective_confidence_pct"] == analysis["recommendation"]["confidence"]
     assert analysis["recommendation"]["confidence"] >= 80
     assert analysis["recommendation"]["position_size_pct"] > 10.0
 
@@ -91,6 +93,39 @@ def test_analyze_stock_watch_when_sentiment_overlay_vetoes_setup():
 
     assert analysis["recommendation"]["action"] == "WATCH"
     assert "Sentiment overlay veto" in analysis["recommendation"]["reason"]
+
+
+def test_analyze_stock_uses_uncertainty_abstain_without_breaking_output_shape():
+    advisor = TradingAdvisor()
+    closes = [100 + i * 0.5 for i in range(60)]
+    history = _history(closes, [1_000_000.0] * 60)
+
+    advisor.market_data.get_history = MagicMock(return_value=SimpleNamespace(frame=history, source="cache", staleness_seconds=7200.0, status="degraded"))
+    advisor.fundamentals.get_fundamentals = MagicMock(return_value={"eps_growth": 30, "revenue_growth": 25})
+    advisor.fundamentals.score_canslim_fundamentals = MagicMock(return_value={"C": 2, "A": 2, "I": 1, "S": 1})
+    advisor.get_market_status = MagicMock(
+        return_value=SimpleNamespace(
+            regime=MarketRegime.CONFIRMED_UPTREND,
+            position_sizing=1.0,
+            notes="trend intact",
+            status="degraded",
+            snapshot_age_seconds=3600.0,
+        )
+    )
+    advisor.headline_sentiment.analyze = MagicMock(
+        return_value={"sentiment": "UNAVAILABLE", "article_count": 0, "bearish_pct": 0.0, "bullish_pct": 0.0}
+    )
+    advisor.x_sentiment.analyze = MagicMock(
+        return_value={"sentiment": "UNAVAILABLE", "tweet_count": 0, "bearish_pct": 0.0, "bullish_pct": 0.0}
+    )
+
+    analysis = advisor.analyze_stock("AMD", quiet=True)
+
+    assert analysis["abstain"] is True
+    assert analysis["confidence"] == analysis["effective_confidence"]
+    assert analysis["recommendation"]["action"] == "WATCH"
+    assert analysis["recommendation"]["abstain"] is True
+    assert "Uncertainty too high" in analysis["recommendation"]["reason"]
 
 
 def test_scan_for_opportunities_sorts_by_wave2_rank_score():

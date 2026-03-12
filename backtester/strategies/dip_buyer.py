@@ -43,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from strategies.base import Strategy
 from indicators import rsi
+from data.confidence import build_dip_confidence_assessment
 from data.fundamentals import FundamentalsFetcher
 from data.market_regime import MarketRegimeDetector, MarketRegime, MarketStatus
 from data.risk_signals import RiskSignalFetcher
@@ -334,6 +335,8 @@ class DipBuyerStrategy(Strategy):
         data: pd.DataFrame,
         market: Optional[MarketStatus] = None,
         risk_snapshot: Optional[dict] = None,
+        data_status: str = "ok",
+        data_staleness_seconds: float = 0.0,
     ) -> pd.DataFrame:
         """Build a reusable Dip Buyer score frame for scans, advisor analysis, and backtests."""
         data = data.copy()
@@ -364,29 +367,74 @@ class DipBuyerStrategy(Strategy):
         buy_threshold = profile.get("score_thresholds", {}).get("buy", self.min_buy_score)
         watch_threshold = profile.get("score_thresholds", {}).get("watch", self.min_watch_score)
 
-        return pd.DataFrame(
-            {
-                'Q': q_score,
-                'V': v_score,
-                'C': c_score,
-                'Total': total_score,
-                'RSI': rsi_values,
-                'VIX': risk['vix'],
-                'PutCall': risk['put_call'],
-                'HY_Spread': risk['hy_spread'],
-                'FearProxy': risk['fear_greed'],
-                'Market_Active': market_active,
-                'Credit_Veto': credit_veto.fillna(False),
-                'Buy_Threshold': buy_threshold,
-                'Watch_Threshold': watch_threshold,
-                'Profile': profile_name,
-                'Pullback_Pct': recovery['Pullback_Pct'],
-                'Rebound_Pct': recovery['Rebound_Pct'],
-                'FiveDay_Return': recovery['FiveDay_Return'],
-                'Recovery_Ready': recovery['Recovery_Ready'],
-                'Falling_Knife': recovery['Falling_Knife'],
-            },
-            index=data.index,
+        confidence_records = []
+        history_bars = len(data.index)
+        for idx in data.index:
+            risk_inputs = {}
+            for field in ("vix", "put_call", "hy_spread", "fear_greed"):
+                value = risk.at[idx, field] if field in risk.columns else None
+                risk_inputs[field] = None if pd.isna(value) else float(value)
+
+            assessment = build_dip_confidence_assessment(
+                symbol=self.symbol or "UNKNOWN",
+                market=market,
+                total_score=int(total_score.loc[idx]),
+                q_score=int(q_score.loc[idx]),
+                v_score=int(v_score.loc[idx]),
+                c_score=int(c_score.loc[idx]),
+                market_active=bool(market_active),
+                credit_veto=bool(credit_veto.loc[idx]),
+                recovery_ready=bool(recovery.loc[idx, "Recovery_Ready"]),
+                falling_knife=bool(recovery.loc[idx, "Falling_Knife"]),
+                risk_inputs=risk_inputs,
+                data_status=data_status,
+                data_staleness_seconds=data_staleness_seconds,
+                history_bars=history_bars,
+            )
+            confidence_records.append(
+                {
+                    "Raw_Confidence": assessment["raw_confidence_pct"],
+                    "Uncertainty_Pct": assessment["uncertainty_pct"],
+                    "Effective_Confidence": assessment["effective_confidence_pct"],
+                    "Confidence_Bucket": assessment["confidence_bucket"],
+                    "Size_Multiplier": assessment["size_multiplier"],
+                    "Abstain": assessment["abstain"],
+                    "Abstain_Reason_Codes": assessment["abstain_reason_codes"],
+                    "Abstain_Reasons": assessment["abstain_reasons"],
+                    "Confidence_Assessment": assessment,
+                }
+            )
+        confidence_frame = pd.DataFrame(confidence_records, index=data.index)
+
+        return pd.concat(
+            [
+                pd.DataFrame(
+                    {
+                        'Q': q_score,
+                        'V': v_score,
+                        'C': c_score,
+                        'Total': total_score,
+                        'RSI': rsi_values,
+                        'VIX': risk['vix'],
+                        'PutCall': risk['put_call'],
+                        'HY_Spread': risk['hy_spread'],
+                        'FearProxy': risk['fear_greed'],
+                        'Market_Active': market_active,
+                        'Credit_Veto': credit_veto.fillna(False),
+                        'Buy_Threshold': buy_threshold,
+                        'Watch_Threshold': watch_threshold,
+                        'Profile': profile_name,
+                        'Pullback_Pct': recovery['Pullback_Pct'],
+                        'Rebound_Pct': recovery['Rebound_Pct'],
+                        'FiveDay_Return': recovery['FiveDay_Return'],
+                        'Recovery_Ready': recovery['Recovery_Ready'],
+                        'Falling_Knife': recovery['Falling_Knife'],
+                    },
+                    index=data.index,
+                ),
+                confidence_frame,
+            ],
+            axis=1,
         )
 
     def evaluate_setup(
@@ -394,11 +442,19 @@ class DipBuyerStrategy(Strategy):
         data: pd.DataFrame,
         market: Optional[MarketStatus] = None,
         risk_snapshot: Optional[dict] = None,
+        data_status: str = "ok",
+        data_staleness_seconds: float = 0.0,
     ) -> dict:
         """Evaluate the latest Dip Buyer setup using the shared score frame."""
         data = data.copy()
         data.columns = [c.lower() for c in data.columns]
-        scores = self.build_score_frame(data, market=market, risk_snapshot=risk_snapshot)
+        scores = self.build_score_frame(
+            data,
+            market=market,
+            risk_snapshot=risk_snapshot,
+            data_status=data_status,
+            data_staleness_seconds=data_staleness_seconds,
+        )
         latest = scores.iloc[-1]
 
         market = market or self.market_detector.get_status()
@@ -415,21 +471,58 @@ class DipBuyerStrategy(Strategy):
         market_active = bool(latest['Market_Active'])
         recovery_ready = bool(latest['Recovery_Ready'])
         falling_knife = bool(latest['Falling_Knife'])
+        confidence_assessment = latest['Confidence_Assessment']
+        confidence = int(confidence_assessment["effective_confidence_pct"])
+        uncertainty_pct = int(confidence_assessment["uncertainty_pct"])
+        abstain = bool(confidence_assessment["abstain"])
+        size_multiplier = float(confidence_assessment["size_multiplier"])
+        base_position_pct = max_position_pct_cfg * market.position_sizing * 100
+        position_size_pct = round(max(1.0, base_position_pct * size_multiplier), 2)
+        size_label = (
+            "FULL"
+            if position_size_pct >= base_position_pct * 0.95
+            else "STANDARD"
+            if position_size_pct >= base_position_pct * 0.7
+            else "STARTER"
+        )
+
+        recommendation_base = {
+            'score': total_score,
+            'confidence': confidence,
+            'raw_confidence': int(confidence_assessment["raw_confidence_pct"]),
+            'effective_confidence': confidence,
+            'uncertainty_pct': uncertainty_pct,
+            'confidence_assessment': confidence_assessment,
+            'abstain': abstain,
+            'abstain_reason_codes': confidence_assessment.get('abstain_reason_codes', []),
+            'abstain_reasons': confidence_assessment.get('abstain_reasons', []),
+            'size_label': size_label,
+            'market_note': getattr(market, 'notes', ''),
+        }
 
         if credit_veto:
             recommendation = {
                 'action': 'NO_BUY',
                 'reason': 'Credit veto active (HY spread too high).',
+                **recommendation_base,
             }
         elif falling_knife:
             recommendation = {
                 'action': 'NO_BUY',
                 'reason': 'Falling-knife filter active: wait for bounce confirmation above the short-term trend.',
+                **recommendation_base,
             }
         elif not market_active:
             recommendation = {
                 'action': 'NO_BUY',
                 'reason': 'Dip Buyer inactive outside correction / under-pressure regimes.',
+                **recommendation_base,
+            }
+        elif abstain:
+            recommendation = {
+                'action': 'WATCH',
+                'reason': f"Uncertainty too high ({uncertainty_pct}%): {' | '.join(confidence_assessment.get('abstain_reasons', [])[:2])}",
+                **recommendation_base,
             }
         elif total_score >= buy_threshold and recovery_ready:
             stop_price = price * (1 - stop_loss_pct)
@@ -438,30 +531,33 @@ class DipBuyerStrategy(Strategy):
                 'entry': price,
                 'stop_loss': stop_price,
                 'stop_loss_pct': stop_loss_pct * 100,
-                'position_size_pct': max_position_pct_cfg * market.position_sizing * 100,
-                'score': total_score,
-                'market_note': market.notes,
+                'position_size_pct': position_size_pct,
                 'reasons': [
                     f"Quality score {int(latest['Q'])}/4",
                     f"Sentiment score {int(latest['V'])}/4",
                     f"Credit score {int(latest['C'])}/4",
                     f"Recovered {latest['Rebound_Pct'] * 100:.1f}% off the recent low",
+                    f"Size as {size_label.lower()} entry ({confidence}% confidence, {uncertainty_pct}% uncertainty)",
                 ],
+                **recommendation_base,
             }
         elif total_score >= buy_threshold and not recovery_ready:
             recommendation = {
                 'action': 'WATCH',
                 'reason': f'Score {total_score}/12 is buyable, but recovery confirmation is still missing.',
+                **recommendation_base,
             }
         elif total_score >= watch_threshold:
             recommendation = {
                 'action': 'WATCH',
                 'reason': f'Score {total_score}/12 in watch zone (need >= {buy_threshold} plus recovery confirmation for BUY).',
+                **recommendation_base,
             }
         else:
             recommendation = {
                 'action': 'NO_BUY',
                 'reason': f'Score too low ({total_score}/12). Need >= {watch_threshold} to WATCH.',
+                **recommendation_base,
             }
 
         return {
@@ -483,6 +579,14 @@ class DipBuyerStrategy(Strategy):
             'profile': profile_name,
             'buy_threshold': buy_threshold,
             'watch_threshold': watch_threshold,
+            'confidence': confidence,
+            'raw_confidence': int(confidence_assessment["raw_confidence_pct"]),
+            'effective_confidence': confidence,
+            'uncertainty_pct': uncertainty_pct,
+            'abstain': abstain,
+            'abstain_reason_codes': confidence_assessment.get('abstain_reason_codes', []),
+            'abstain_reasons': confidence_assessment.get('abstain_reasons', []),
+            'confidence_assessment': confidence_assessment,
             'recommendation': recommendation,
             'score_frame': scores,
         }
@@ -503,6 +607,7 @@ class DipBuyerStrategy(Strategy):
             & (~self._scores['Credit_Veto'])
             & self._scores['Recovery_Ready']
             & (~self._scores['Falling_Knife'])
+            & (~self._scores['Abstain'])
         )
         sell_condition = (~self._scores['Market_Active']) | self._scores['Credit_Veto'] | self._scores['Falling_Knife']
 

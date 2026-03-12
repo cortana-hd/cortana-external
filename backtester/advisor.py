@@ -31,11 +31,9 @@ USAGE
 """
 
 import argparse
-import sys
-from datetime import datetime
 from typing import List, Dict, Optional
-import numpy as np
 import pandas as pd
+from data.confidence import build_confidence_assessment
 from data.universe import UniverseScreener, GROWTH_WATCHLIST
 from data.market_data_provider import MarketDataProvider
 from data.market_regime import MarketRegimeDetector, MarketRegime, MarketStatus
@@ -60,7 +58,7 @@ from evaluation.comparison import (
     render_model_comparison_report,
     score_enhanced_rank,
 )
-from strategies.dip_buyer import DipBuyerStrategy, DIPBUYER_CONFIG
+from strategies.dip_buyer import DipBuyerStrategy
 
 
 class TradingAdvisor:
@@ -219,28 +217,20 @@ class TradingAdvisor:
             tech.get('N_score', 0) +
             tech.get('L_score', 0)
         )
-        base_confidence = int(
-            max(
-                5,
-                min(
-                    95,
-                    28 + total_score * 5 + breakout.get('score', 0) * 6 +
-                    int(sentiment_overlay.get('confidence_delta', 0)) -
-                    exit_risk.get('score', 0) * 7,
-                ),
-            )
+        confidence_assessment = build_confidence_assessment(
+            market=market,
+            total_score=total_score,
+            breakout=breakout,
+            sentiment_overlay=sentiment_overlay,
+            exit_risk=exit_risk,
+            sector_context=sector_context,
+            catalyst_weighting=catalyst_weighting,
+            data_status=history_result.status,
+            data_staleness_seconds=history_result.staleness_seconds,
+            history_bars=len(hist),
+            symbol=symbol,
         )
-        confidence = int(
-            max(
-                5,
-                min(
-                    95,
-                    base_confidence
-                    + int(sector_context.get("confidence_delta", 0))
-                    + int(catalyst_weighting.get("confidence_delta", 0)),
-                ),
-            )
-        )
+        confidence = int(confidence_assessment["effective_confidence_pct"])
         rank_score = self._rank_score(
             total_score,
             breakout.get('score', 0),
@@ -262,7 +252,7 @@ class TradingAdvisor:
             exit_risk=exit_risk,
             sector_context=sector_context,
             catalyst_weighting=catalyst_weighting,
-            confidence=confidence,
+            confidence_assessment=confidence_assessment,
             rank_score=rank_score,
         )
         
@@ -282,6 +272,13 @@ class TradingAdvisor:
             'sector_context': sector_context,
             'catalyst_weighting': catalyst_weighting,
             'confidence': confidence,
+            'raw_confidence': confidence_assessment["raw_confidence_pct"],
+            'effective_confidence': confidence,
+            'uncertainty_pct': confidence_assessment["uncertainty_pct"],
+            'abstain': confidence_assessment["abstain"],
+            'abstain_reason_codes': confidence_assessment["abstain_reason_codes"],
+            'abstain_reasons': confidence_assessment["abstain_reasons"],
+            'confidence_assessment': confidence_assessment,
             'data_source': history_result.source,
             'data_staleness_seconds': history_result.staleness_seconds,
             'data_status': history_result.status,
@@ -312,7 +309,13 @@ class TradingAdvisor:
         strategy = DipBuyerStrategy()
         strategy.set_symbol(symbol)
         strategy_data = pd.DataFrame({'close': hist['Close']}, index=hist.index)
-        setup = strategy.evaluate_setup(strategy_data, market=market, risk_snapshot=risk_snapshot)
+        setup = strategy.evaluate_setup(
+            strategy_data,
+            market=market,
+            risk_snapshot=risk_snapshot,
+            data_status=hist_result.status,
+            data_staleness_seconds=hist_result.staleness_seconds,
+        )
         scores = setup.get('scores', {})
 
         return {
@@ -321,6 +324,9 @@ class TradingAdvisor:
             'rsi': setup.get('rsi'),
             'fundamentals': strategy.fundamentals,
             'scores': scores,
+            'quality_score': scores.get('Q', 0),
+            'volatility_score': scores.get('V', 0),
+            'credit_score': scores.get('C', 0),
             'total_score': setup.get('total_score', 0),
             'market_regime': market.regime.value,
             'data_source': hist_result.source,
@@ -336,6 +342,14 @@ class TradingAdvisor:
             'profile': setup.get('profile'),
             'buy_threshold': setup.get('buy_threshold'),
             'watch_threshold': setup.get('watch_threshold'),
+            'confidence': setup.get('confidence', 0),
+            'raw_confidence': setup.get('raw_confidence', 0),
+            'effective_confidence': setup.get('effective_confidence', setup.get('confidence', 0)),
+            'uncertainty_pct': setup.get('uncertainty_pct', 0),
+            'abstain': setup.get('abstain', False),
+            'abstain_reason_codes': setup.get('abstain_reason_codes', []),
+            'abstain_reasons': setup.get('abstain_reasons', []),
+            'confidence_assessment': setup.get('confidence_assessment', {}),
             'recommendation': setup.get('recommendation', {}),
         }
 
@@ -409,7 +423,17 @@ class TradingAdvisor:
                 'Q_score': scores.get('Q', 0),
                 'V_score': scores.get('V', 0),
                 'C_score': scores.get('C', 0),
+                'C_credit_score': scores.get('C', 0),
                 'total_score': analysis.get('total_score', 0),
+                'confidence': analysis.get('confidence', 0),
+                'raw_confidence': analysis.get('raw_confidence', analysis.get('confidence', 0)),
+                'effective_confidence': analysis.get('effective_confidence', analysis.get('confidence', 0)),
+                'uncertainty_pct': analysis.get('uncertainty_pct', 0),
+                'abstain': analysis.get('abstain', False),
+                'abstain_reason_codes': analysis.get('abstain_reason_codes', []),
+                'action': analysis.get('recommendation', {}).get('action', 'NO_BUY'),
+                'position_size_pct': analysis.get('recommendation', {}).get('position_size_pct', 0.0),
+                'size_label': analysis.get('recommendation', {}).get('size_label', 'STANDARD'),
             })
 
         if not candidates:
@@ -431,7 +455,7 @@ class TradingAdvisor:
         exit_risk: Dict,
         sector_context: Dict,
         catalyst_weighting: Dict,
-        confidence: int,
+        confidence_assessment: Dict,
         rank_score: float,
     ) -> Dict:
         """
@@ -447,9 +471,13 @@ class TradingAdvisor:
         exit_risk_score = int(exit_risk.get('score', 0))
         sector_score = int(sector_context.get('score', 0))
         catalyst_score = int(catalyst_weighting.get('score', 0))
+        confidence = int(confidence_assessment.get('effective_confidence_pct', 0))
+        uncertainty_pct = int(confidence_assessment.get('uncertainty_pct', 0))
+        abstain = bool(confidence_assessment.get('abstain', False))
         sizing = build_position_sizing_guidance(
             market=market,
             confidence=confidence,
+            confidence_assessment=confidence_assessment,
             breakout=breakout,
             exit_risk=exit_risk,
             sector_context=sector_context,
@@ -460,6 +488,13 @@ class TradingAdvisor:
             'score': total_score,
             'rank_score': rank_score,
             'confidence': confidence,
+            'raw_confidence': int(confidence_assessment.get('raw_confidence_pct', confidence)),
+            'effective_confidence': confidence,
+            'uncertainty_pct': uncertainty_pct,
+            'confidence_assessment': confidence_assessment,
+            'abstain': abstain,
+            'abstain_reason_codes': confidence_assessment.get('abstain_reason_codes', []),
+            'abstain_reasons': confidence_assessment.get('abstain_reasons', []),
             'breakout_score': breakout_score,
             'sentiment_score': sentiment_score,
             'exit_risk_score': exit_risk_score,
@@ -467,6 +502,7 @@ class TradingAdvisor:
             'catalyst_score': catalyst_score,
             'market_note': market.notes,
             'sizing': sizing,
+            'size_label': sizing.get('label', 'STANDARD'),
         }
         
         # Check if we should buy
@@ -496,6 +532,14 @@ class TradingAdvisor:
             return {
                 'action': action,
                 'reason': f"Exit risk too high ({exit_risk.get('status', 'high')}): {', '.join(exit_risk.get('reasons', []))}.",
+                **base_fields,
+            }
+
+        if abstain:
+            abstain_reasons = confidence_assessment.get('abstain_reasons', [])
+            return {
+                'action': 'WATCH',
+                'reason': f"Uncertainty too high ({uncertainty_pct}%): {' | '.join(abstain_reasons[:2]) or 'confidence assessment abstained.'}",
                 **base_fields,
             }
 
@@ -638,7 +682,13 @@ class TradingAdvisor:
                     row_dict['catalyst_score'] = analysis.get('catalyst_weighting', {}).get('score', 0)
                     row_dict['rank_score'] = analysis.get('rank_score', analysis.get('total_score', 0))
                     row_dict['confidence'] = rec.get('confidence', analysis.get('confidence', 0))
+                    row_dict['raw_confidence'] = analysis.get('raw_confidence', row_dict['confidence'])
+                    row_dict['effective_confidence'] = analysis.get('effective_confidence', row_dict['confidence'])
+                    row_dict['uncertainty_pct'] = analysis.get('uncertainty_pct', 0)
+                    row_dict['abstain'] = analysis.get('abstain', False)
+                    row_dict['abstain_reason_codes'] = analysis.get('abstain_reason_codes', [])
                     row_dict['position_size_pct'] = rec.get('position_size_pct', 0.0)
+                    row_dict['size_label'] = rec.get('size_label', rec.get('sizing', {}).get('label', 'STANDARD'))
                     row_dict['action'] = rec.get('action', 'NO_BUY')
                     enriched.append(row_dict)
 
@@ -696,200 +746,6 @@ class TradingAdvisor:
             "report": report,
         }
     
-    def scan_dip_opportunities(
-        self,
-        quick: bool = False,
-        min_score: int = 6,
-    ) -> pd.DataFrame:
-        """
-        Scan for Dip Buyer candidates.
-
-        Args:
-            quick: Use watchlist only (faster)
-            min_score: Minimum Dip Buyer score to include
-
-        Returns:
-            DataFrame of Dip Buyer opportunities sorted by score
-        """
-        print("\n" + "="*60)
-        print("📉 SCANNING FOR DIP BUYER OPPORTUNITIES")
-        print("="*60 + "\n")
-
-        market = self.get_market_status(refresh=True)
-        print(market)
-
-        if market.regime not in [
-            MarketRegime.CORRECTION,
-            MarketRegime.UPTREND_UNDER_PRESSURE,
-        ]:
-            print("⚠️  Dip Buyer only active in correction / under-pressure regimes.")
-            return pd.DataFrame()
-
-        if quick:
-            symbols = GROWTH_WATCHLIST
-            results = self.screener.screen(symbols, min_technical_score=max(min_score - 3, 0))
-        else:
-            results = self.screener.screen(min_technical_score=max(min_score - 3, 0))
-
-        if results.empty:
-            print("No candidates found.")
-            return results
-
-        print("\n📊 Scoring candidates with Dip Buyer strategy...")
-
-        enriched = []
-        for _, row in results.head(20).iterrows():
-            symbol = row['symbol']
-
-            try:
-                analysis = self.analyze_dip_stock(symbol)
-                if 'error' in analysis:
-                    continue
-
-                rec = analysis.get('recommendation', {})
-                row_dict = row.to_dict()
-                row_dict['Q_score'] = analysis.get('quality_score', 0)
-                row_dict['V_score'] = analysis.get('volatility_score', 0)
-                row_dict['C_credit_score'] = analysis.get('credit_score', 0)
-                row_dict['total_score'] = analysis.get('total_score', 0)
-                row_dict['action'] = rec.get('action', 'NO_BUY')
-                enriched.append(row_dict)
-
-            except Exception as e:
-                print(f"   ⚠️ Error scoring {symbol}: {e}")
-                continue
-
-        if not enriched:
-            return pd.DataFrame()
-
-        enriched_df = pd.DataFrame(enriched)
-        enriched_df = enriched_df.sort_values('total_score', ascending=False)
-        enriched_df = enriched_df[enriched_df['total_score'] >= min_score]
-
-        return enriched_df
-
-    def analyze_dip_stock(self, symbol: str) -> Dict:
-        """
-        Full Dip Buyer analysis of a single stock.
-
-        Returns:
-            Dictionary with Dip Buyer scores and recommendation
-        """
-        print(f"\n{'='*60}")
-        print(f"📉 Analyzing {symbol} (Dip Buyer)")
-        print(f"{'='*60}\n")
-
-        strategy = DipBuyerStrategy()
-        strategy.set_symbol(symbol)
-
-        try:
-            history_result = self.market_data.get_history(symbol, period='1y', auto_adjust=False)
-            data = history_result.frame
-        except Exception as e:
-            return {'symbol': symbol, 'error': str(e)}
-        if data is None or data.empty:
-            return {'symbol': symbol, 'error': 'No price history available'}
-
-        if 'Close' not in data.columns:
-            return {'symbol': symbol, 'error': 'Close price not found in history'}
-
-        strategy_data = pd.DataFrame(index=data.index)
-        strategy_data['close'] = data['Close']
-
-        try:
-            strategy.generate_signals(strategy_data)
-            scores = strategy.get_current_scores()
-        except Exception as e:
-            return {'symbol': symbol, 'error': f'Dip Buyer scoring failed: {e}'}
-
-        if scores is None or scores.empty:
-            return {'symbol': symbol, 'error': 'No Dip Buyer scores generated'}
-
-        latest = scores.iloc[-1]
-
-        market = self.get_market_status()
-        risk_snapshot = self.risk_fetcher.get_snapshot()
-
-        price = float(strategy_data['close'].iloc[-1])
-        total_score = int(latest.get('Total', 0))
-        quality_score = int(latest.get('Q', 0))
-        volatility_score = int(latest.get('V', 0))
-        credit_score = int(latest.get('C', 0))
-        credit_veto = bool(latest.get('Credit_Veto', False))
-        market_active = bool(latest.get('Market_Active', False))
-
-        profile_name, profile_cfg = strategy.get_active_profile()
-        score_buy_threshold = latest.get('Buy_Threshold', DIPBUYER_CONFIG['score_thresholds']['buy'])
-        score_watch_threshold = latest.get('Watch_Threshold', DIPBUYER_CONFIG['score_thresholds']['watch'])
-        buy_threshold = int(score_buy_threshold) if pd.notna(score_buy_threshold) else DIPBUYER_CONFIG['score_thresholds']['buy']
-        watch_threshold = int(score_watch_threshold) if pd.notna(score_watch_threshold) else DIPBUYER_CONFIG['score_thresholds']['watch']
-
-        profile_risk = profile_cfg.get('risk', {}) if isinstance(profile_cfg, dict) else {}
-        stop_loss_pct = float(profile_risk.get('hard_stop', strategy.stop_loss_pct()))
-        max_position_pct_cfg = float(profile_risk.get('max_position_pct', DIPBUYER_CONFIG['risk']['max_position_pct']))
-
-        if credit_veto:
-            recommendation = {
-                'action': 'NO_BUY',
-                'reason': 'Credit veto active (HY spread too high).',
-            }
-        elif not market_active:
-            recommendation = {
-                'action': 'NO_BUY',
-                'reason': 'Dip Buyer inactive outside correction / under-pressure regimes.',
-            }
-        elif total_score >= buy_threshold:
-            stop_price = price * (1 - stop_loss_pct)
-            max_position_pct = max_position_pct_cfg * market.position_sizing
-
-            recommendation = {
-                'action': 'BUY',
-                'entry': price,
-                'stop_loss': stop_price,
-                'stop_loss_pct': stop_loss_pct * 100,
-                'position_size_pct': max_position_pct * 100,
-                'score': total_score,
-                'market_note': market.notes,
-                'reasons': [
-                    f"Quality score {quality_score}/4",
-                    f"Sentiment score {volatility_score}/4",
-                    f"Credit score {credit_score}/4",
-                ],
-            }
-        elif total_score >= watch_threshold:
-            recommendation = {
-                'action': 'WATCH',
-                'reason': f'Score {total_score}/12 in watch zone (need >= {buy_threshold} for BUY).',
-            }
-        else:
-            recommendation = {
-                'action': 'NO_BUY',
-                'reason': f'Score too low ({total_score}/12). Need >= {watch_threshold} to WATCH.',
-            }
-
-        return {
-            'symbol': symbol,
-            'price': price,
-            'fundamentals': strategy.fundamentals,
-            'total_score': total_score,
-            'quality_score': quality_score,
-            'volatility_score': volatility_score,
-            'credit_score': credit_score,
-            'rsi': float(latest.get('RSI', np.nan)) if pd.notna(latest.get('RSI', np.nan)) else np.nan,
-            'market_active': market_active,
-            'credit_veto': credit_veto,
-            'risk_snapshot': risk_snapshot,
-            'market_regime': market.regime.value,
-            'position_sizing': market.position_sizing,
-            'profile': profile_name,
-            'buy_threshold': buy_threshold,
-            'watch_threshold': watch_threshold,
-            'data_source': history_result.source,
-            'data_staleness_seconds': history_result.staleness_seconds,
-            'data_status': history_result.status,
-            'recommendation': recommendation,
-        }
-
     def get_recommendations(self, limit: int = 5) -> List[Dict]:
         """
         Get top trade recommendations.
@@ -951,65 +807,6 @@ class TradingAdvisor:
         print("⚠️  These are recommendations only. Execute at your own discretion.")
         print("="*70)
 
-
-
-def _resilient_scan_dip_opportunities(self, quick: bool = False, min_score: int = 6) -> pd.DataFrame:
-    """Scan for Dip Buyer candidates using the resilient market/risk path."""
-    print("\n" + "="*60)
-    print("📉 SCANNING FOR DIP BUYER OPPORTUNITIES")
-    print("="*60 + "\n")
-
-    market = self.get_market_status(refresh=True)
-    print(market)
-
-    if market.regime not in [MarketRegime.CORRECTION, MarketRegime.UPTREND_UNDER_PRESSURE]:
-        print("⚠️  Dip Buyer only active in correction / under-pressure regimes.")
-        return pd.DataFrame()
-
-    risk_snapshot = self.risk_fetcher.get_snapshot()
-    symbols = GROWTH_WATCHLIST if quick else self.screener.get_universe()
-
-    print("\n📊 Scoring candidates with Dip Buyer strategy...")
-
-    enriched = []
-    for symbol in symbols[:20]:
-        try:
-            analysis = self._analyze_dip_with_context(symbol, market, risk_snapshot, quiet=True)
-            if 'error' in analysis:
-                continue
-            rec = analysis.get('recommendation', {})
-            enriched.append({
-                'symbol': symbol,
-                'price': analysis.get('price'),
-                'rsi': analysis.get('rsi'),
-                'Q_score': analysis.get('scores', {}).get('Q', 0),
-                'V_score': analysis.get('scores', {}).get('V', 0),
-                'C_credit_score': analysis.get('scores', {}).get('C', 0),
-                'total_score': analysis.get('total_score', 0),
-                'action': rec.get('action', 'NO_BUY'),
-            })
-        except Exception as e:
-            print(f"   ⚠️ Error scoring {symbol}: {e}")
-            continue
-
-    if not enriched:
-        return pd.DataFrame()
-
-    enriched_df = pd.DataFrame(enriched)
-    enriched_df = enriched_df.sort_values('total_score', ascending=False)
-    enriched_df = enriched_df[enriched_df['total_score'] >= min_score]
-    return enriched_df
-
-
-def _resilient_analyze_dip_stock(self, symbol: str) -> Dict:
-    """Full Dip Buyer analysis using the resilient helper path."""
-    market = self.get_market_status()
-    risk_snapshot = self.risk_fetcher.get_snapshot()
-    return self._analyze_dip_with_context(symbol, market, risk_snapshot)
-
-
-TradingAdvisor.scan_dip_opportunities = _resilient_scan_dip_opportunities
-TradingAdvisor.analyze_dip_stock = _resilient_analyze_dip_stock
 
 def main():
     """Main entry point."""

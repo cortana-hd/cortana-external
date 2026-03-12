@@ -127,7 +127,7 @@ def _select_candidates(frame: pd.DataFrame, family: ModelFamily) -> pd.DataFrame
         selected = selected[pd.to_numeric(selected[family.score_column], errors="coerce") >= family.min_score]
 
     sort_columns = [family.score_column]
-    for column in ("confidence", "total_score", "symbol"):
+    for column in ("effective_confidence", "confidence", "uncertainty_pct", "total_score", "symbol"):
         if column in selected.columns and column not in sort_columns:
             sort_columns.append(column)
 
@@ -135,6 +135,8 @@ def _select_candidates(frame: pd.DataFrame, family: ModelFamily) -> pd.DataFrame
         return selected
 
     ascending = [False] * len(sort_columns)
+    if "uncertainty_pct" in sort_columns:
+        ascending[sort_columns.index("uncertainty_pct")] = True
     if "symbol" in sort_columns:
         ascending[sort_columns.index("symbol")] = True
 
@@ -160,6 +162,12 @@ def _safe_median(frame: pd.DataFrame, column: str) -> float:
     if series.empty:
         return 0.0
     return float(series.median())
+
+
+def _safe_mean_with_fallback(frame: pd.DataFrame, primary: str, fallback: str) -> float:
+    if primary in frame.columns:
+        return _safe_mean(frame, primary)
+    return _safe_mean(frame, fallback)
 
 
 def _rate(frame: pd.DataFrame, series: pd.Series) -> float:
@@ -198,10 +206,14 @@ def compare_model_families(
             "selected_count": int(len(selected)),
             "coverage_pct": round((len(selected) / universe_size) * 100.0, 1) if universe_size else 0.0,
             "avg_score": round(_safe_mean(selected, family.score_column), 2),
-            "avg_confidence": round(_safe_mean(selected, "confidence"), 1),
+            "avg_confidence": round(_safe_mean_with_fallback(selected, "confidence", "effective_confidence"), 1),
+            "avg_effective_confidence": round(_safe_mean_with_fallback(selected, "effective_confidence", "confidence"), 1),
+            "avg_uncertainty_pct": round(_safe_mean(selected, "uncertainty_pct"), 1),
             "buy_count": int((selected.get(action_column) == "BUY").sum()) if action_column in selected.columns else 0,
             "watch_count": int((selected.get(action_column) == "WATCH").sum()) if action_column in selected.columns else 0,
             "no_buy_count": int((selected.get(action_column) == "NO_BUY").sum()) if action_column in selected.columns else 0,
+            "abstain_count": int(pd.to_numeric(selected.get("abstain", pd.Series(dtype=float)), errors="coerce").fillna(0).astype(bool).sum()) if "abstain" in selected.columns else 0,
+            "abstain_rate_pct": 0.0,
             "avg_future_return_pct": round(_safe_mean(selected, future_return_column), 2),
             "median_future_return_pct": round(_safe_median(selected, future_return_column), 2),
             "hit_rate_pct": 0.0,
@@ -226,6 +238,9 @@ def compare_model_families(
             row["overlap_with_baseline"] = len(symbols.intersection(baseline_symbols))
             row["model_only_count"] = len(symbols - baseline_symbols)
             row["baseline_only_count"] = len(baseline_symbols - symbols)
+
+        if row["selected_count"]:
+            row["abstain_rate_pct"] = round((row["abstain_count"] / row["selected_count"]) * 100.0, 1)
 
         rows.append(row)
 
@@ -260,6 +275,10 @@ def render_model_comparison_report(
         )
         if row["avg_confidence"] > 0:
             line += f" | avg conf {row['avg_confidence']:.1f}%"
+        if row.get("avg_uncertainty_pct", 0.0) > 0:
+            line += f" | avg uncertainty {row['avg_uncertainty_pct']:.1f}%"
+        if row.get("abstain_count", 0) > 0:
+            line += f" | abstain {row['abstain_count']}"
         if row["avg_future_return_pct"] != 0.0 or row["hit_rate_pct"] != 0.0:
             line += (
                 f" | avg return {row['avg_future_return_pct']:+.2f}%"
