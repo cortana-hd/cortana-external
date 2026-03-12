@@ -171,6 +171,50 @@ def _safe_mean_with_fallback(frame: pd.DataFrame, primary: str, fallback: str) -
     return _safe_mean(frame, fallback)
 
 
+def _safe_bool_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    if frame.empty or column not in frame.columns:
+        return pd.Series(False, index=frame.index, dtype=bool)
+    values = frame[column]
+    if pd.api.types.is_bool_dtype(values):
+        return values.fillna(False).astype(bool)
+    return pd.to_numeric(values, errors="coerce").fillna(0).astype(bool)
+
+
+def _safe_action_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    if frame.empty or column not in frame.columns:
+        return pd.Series("", index=frame.index, dtype=object)
+    return frame[column].fillna("").astype(str).str.upper()
+
+
+def _outcome_mask(
+    frame: pd.DataFrame,
+    *,
+    future_return_column: str,
+    outcome_bucket_column: str,
+    positive: bool,
+) -> pd.Series:
+    if frame.empty:
+        return pd.Series(False, index=frame.index, dtype=bool)
+
+    mask = pd.Series(False, index=frame.index, dtype=bool)
+    if outcome_bucket_column in frame.columns:
+        buckets = frame[outcome_bucket_column].fillna("").astype(str).str.lower()
+        mask = mask | buckets.eq("win" if positive else "loss")
+    if future_return_column in frame.columns:
+        future_returns = pd.to_numeric(frame[future_return_column], errors="coerce")
+        mask = mask | (future_returns.gt(0) if positive else future_returns.le(0))
+    return mask.fillna(False).astype(bool)
+
+
+def _safe_masked_mean(frame: pd.DataFrame, column: str, mask: pd.Series) -> float:
+    if frame.empty or column not in frame.columns or mask.empty or not bool(mask.any()):
+        return 0.0
+    series = pd.to_numeric(frame.loc[mask, column], errors="coerce").dropna()
+    if series.empty:
+        return 0.0
+    return float(series.mean())
+
+
 def _safe_label_mode(frame: pd.DataFrame, column: str, default: str = "n/a") -> str:
     if column not in frame.columns or frame.empty:
         return default
@@ -265,13 +309,25 @@ def compare_model_families(
 
     if baseline_name is None and families:
         baseline_name = families[0].name
-    baseline_symbols = set(_symbol_list(selections.get(baseline_name, frame.iloc[0:0])))
+    baseline_selected = selections.get(baseline_name, frame.iloc[0:0])
+    baseline_symbols = set(_symbol_list(baseline_selected))
 
     rows = []
     universe_size = len(frame)
     for family in families:
         selected = selections[family.name]
         symbols = set(_symbol_list(selected))
+        action_series = _safe_action_series(selected, action_column)
+        abstain_series = _safe_bool_series(selected, "abstain")
+        buy_mask = action_series.eq("BUY") & ~abstain_series
+        restraint_mask = ~action_series.eq("BUY") | abstain_series
+        veto_mask = action_series.eq("NO_BUY") | abstain_series
+        bad_outcome_mask = _outcome_mask(
+            selected,
+            future_return_column=future_return_column,
+            outcome_bucket_column=outcome_bucket_column,
+            positive=False,
+        )
         row = {
             "model": family.name,
             "score_column": family.score_column,
@@ -288,11 +344,17 @@ def compare_model_families(
             "avg_churn_penalty": round(_safe_mean(selected, "churn_penalty"), 2),
             "avg_adverse_regime_score": round(_safe_mean(selected, "adverse_regime_score"), 2),
             "top_adverse_regime_label": _safe_label_mode(selected, "adverse_regime_label", default="n/a"),
-            "buy_count": int((selected.get(action_column) == "BUY").sum()) if action_column in selected.columns else 0,
-            "watch_count": int((selected.get(action_column) == "WATCH").sum()) if action_column in selected.columns else 0,
-            "no_buy_count": int((selected.get(action_column) == "NO_BUY").sum()) if action_column in selected.columns else 0,
-            "abstain_count": int(pd.to_numeric(selected.get("abstain", pd.Series(dtype=float)), errors="coerce").fillna(0).astype(bool).sum()) if "abstain" in selected.columns else 0,
+            "buy_count": int(action_series.eq("BUY").sum()),
+            "watch_count": int(action_series.eq("WATCH").sum()),
+            "no_buy_count": int(action_series.eq("NO_BUY").sum()),
+            "abstain_count": int(abstain_series.sum()),
             "abstain_rate_pct": 0.0,
+            "restraint_count": int(restraint_mask.sum()),
+            "restraint_rate_pct": 0.0,
+            "buy_avg_future_return_pct": round(_safe_masked_mean(selected, future_return_column, buy_mask), 2),
+            "restraint_avg_future_return_pct": round(_safe_masked_mean(selected, future_return_column, restraint_mask), 2),
+            "restraint_bad_outcome_count": int((restraint_mask & bad_outcome_mask).sum()),
+            "veto_preserved_bad_outcome_count": int((veto_mask & bad_outcome_mask).sum()),
             "avg_future_return_pct": round(_safe_mean(selected, future_return_column), 2),
             "median_future_return_pct": round(_safe_median(selected, future_return_column), 2),
             "hit_rate_pct": 0.0,
@@ -301,6 +363,8 @@ def compare_model_families(
             "overlap_with_baseline": 0,
             "model_only_count": 0,
             "baseline_only_count": 0,
+            "avoided_baseline_bad_outcome_count": 0,
+            "missed_baseline_good_outcome_count": 0,
         }
 
         if future_return_column in selected.columns and not selected.empty:
@@ -317,9 +381,30 @@ def compare_model_families(
             row["overlap_with_baseline"] = len(symbols.intersection(baseline_symbols))
             row["model_only_count"] = len(symbols - baseline_symbols)
             row["baseline_only_count"] = len(baseline_symbols - symbols)
+            if family.name != baseline_name and "symbol" in baseline_selected.columns:
+                baseline_only = baseline_selected[
+                    ~baseline_selected["symbol"].astype(str).isin(symbols)
+                ].reset_index(drop=True)
+                row["avoided_baseline_bad_outcome_count"] = int(
+                    _outcome_mask(
+                        baseline_only,
+                        future_return_column=future_return_column,
+                        outcome_bucket_column=outcome_bucket_column,
+                        positive=False,
+                    ).sum()
+                )
+                row["missed_baseline_good_outcome_count"] = int(
+                    _outcome_mask(
+                        baseline_only,
+                        future_return_column=future_return_column,
+                        outcome_bucket_column=outcome_bucket_column,
+                        positive=True,
+                    ).sum()
+                )
 
         if row["selected_count"]:
             row["abstain_rate_pct"] = round((row["abstain_count"] / row["selected_count"]) * 100.0, 1)
+            row["restraint_rate_pct"] = round((row["restraint_count"] / row["selected_count"]) * 100.0, 1)
 
         rows.append(row)
 
@@ -361,9 +446,11 @@ def render_model_comparison_report(
         if row.get("avg_uncertainty_pct", 0.0) > 0:
             line += f" | avg uncertainty {row['avg_uncertainty_pct']:.1f}%"
         if row.get("avg_downside_penalty", 0.0) > 0 or row.get("avg_churn_penalty", 0.0) > 0:
-            line += f" | avg risk down/churn {row['avg_downside_penalty']:.2f}/{row['avg_churn_penalty']:.2f}"
+            line += f" | avg downside/churn proxy {row['avg_downside_penalty']:.2f}/{row['avg_churn_penalty']:.2f}"
         if row.get("avg_adverse_regime_score", 0.0) > 0 or row.get("top_adverse_regime_label") not in {"", "n/a"}:
             line += f" | avg stress {row['avg_adverse_regime_score']:.1f} ({row['top_adverse_regime_label']})"
+        if row.get("restraint_count", 0) > 0:
+            line += f" | restraint {row['restraint_count']} ({row['restraint_rate_pct']:.1f}%)"
         if row.get("abstain_count", 0) > 0:
             line += f" | abstain {row['abstain_count']}"
         if row["avg_future_return_pct"] != 0.0 or row["hit_rate_pct"] != 0.0:
@@ -378,10 +465,28 @@ def render_model_comparison_report(
         lines.append(line)
 
         if model != baseline_name:
-            lines.append(
+            overlap_line = (
                 f"  overlap vs {baseline_name}: {row['overlap_with_baseline']} | "
                 f"model-only {row['model_only_count']} | baseline-only {row['baseline_only_count']}"
             )
+            if row.get("avoided_baseline_bad_outcome_count", 0) > 0 or row.get("missed_baseline_good_outcome_count", 0) > 0:
+                overlap_line += (
+                    f" | avoided baseline bad outcomes {row['avoided_baseline_bad_outcome_count']}"
+                    f" | missed baseline good outcomes {row['missed_baseline_good_outcome_count']}"
+                )
+            lines.append(overlap_line)
+
+        discipline_chunks = []
+        if row.get("buy_avg_future_return_pct", 0.0) != 0.0:
+            discipline_chunks.append(f"buy avg return {row['buy_avg_future_return_pct']:+.2f}%")
+        if row.get("restraint_count", 0) > 0 and row.get("restraint_avg_future_return_pct", 0.0) != 0.0:
+            discipline_chunks.append(f"restrained avg return {row['restraint_avg_future_return_pct']:+.2f}%")
+        if row.get("restraint_bad_outcome_count", 0) > 0:
+            discipline_chunks.append(f"restraint bad-outcome proxy {row['restraint_bad_outcome_count']}")
+        if row.get("veto_preserved_bad_outcome_count", 0) > 0:
+            discipline_chunks.append(f"veto-preserved bad outcomes {row['veto_preserved_bad_outcome_count']}")
+        if discipline_chunks:
+            lines.append(f"  discipline: {' | '.join(discipline_chunks)}")
 
         if symbols:
             lines.append(f"  picks: {', '.join(symbols)}")
