@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, Optional
 
+import pandas as pd
+
 from data.market_regime import MarketRegime, MarketStatus
 
 
@@ -97,6 +99,83 @@ def regime_quality_modifier(
     return round(modifier, 2)
 
 
+def downside_risk_proxy(prices: Optional[object]) -> Dict[str, float]:
+    """Build a bounded downside-risk proxy from existing price history.
+
+    This is intentionally simpler than true CVaR: we blend recent drawdown with
+    the average of the worst daily losses so runtime ranking can penalize setups
+    that have ugly left-tail behavior without adding a heavy portfolio model.
+    """
+    if prices is None:
+        return {
+            "penalty": 0.0,
+            "drawdown_pct": 0.0,
+            "tail_loss_pct": 0.0,
+            "source": "unavailable",
+        }
+
+    series = pd.Series(prices).dropna().astype(float)
+    if len(series) < 10:
+        return {
+            "penalty": 0.0,
+            "drawdown_pct": 0.0,
+            "tail_loss_pct": 0.0,
+            "source": "insufficient_history",
+        }
+
+    window = series.tail(63)
+    rolling_high = window.cummax().replace(0, pd.NA)
+    drawdowns = ((window / rolling_high) - 1.0).fillna(0.0)
+    drawdown_pct = abs(float(drawdowns.min()) * 100.0)
+
+    returns = window.pct_change().dropna()
+    negative_returns = returns[returns < 0]
+    if negative_returns.empty:
+        tail_loss_pct = 0.0
+    else:
+        worst_n = max(1, min(5, len(negative_returns)))
+        tail_loss_pct = abs(float(negative_returns.nsmallest(worst_n).mean()) * 100.0)
+
+    penalty = round(_clamp(drawdown_pct * 0.85 + tail_loss_pct * 2.0, 0.0, 25.0), 2)
+    return {
+        "penalty": penalty,
+        "drawdown_pct": round(drawdown_pct, 2),
+        "tail_loss_pct": round(tail_loss_pct, 2),
+        "source": "63d_drawdown_tail_loss",
+    }
+
+
+def churn_penalty_proxy(*, exit_risk_score: object = None, recovery_ready: Optional[bool] = None, falling_knife: Optional[bool] = None) -> Dict[str, object]:
+    """Build a bounded churn/flip-risk proxy from existing runtime signals."""
+    reasons: list[str] = []
+    penalty = 0.0
+
+    if exit_risk_score is not None:
+        exit_score = max(0.0, _safe_float(exit_risk_score, 0.0))
+        if exit_score > 0:
+            penalty += exit_score * 5.0
+            reasons.append('exit_risk_score')
+
+    if recovery_ready is not None and not bool(recovery_ready):
+        penalty += 8.0
+        reasons.append('recovery_not_confirmed')
+
+    if falling_knife is not None and bool(falling_knife):
+        penalty += 10.0
+        reasons.append('falling_knife')
+
+    return {
+        "penalty": round(_clamp(penalty, 0.0, 25.0), 2),
+        "reason": "+".join(reasons) if reasons else "none",
+    }
+
+
+def risk_adjusted_size_multiplier(*, downside_penalty: object = 0.0, churn_penalty: object = 0.0) -> float:
+    """Translate runtime downside/churn penalties into a bounded size multiplier."""
+    total_penalty = _clamp(_safe_float(downside_penalty, 0.0) + _safe_float(churn_penalty, 0.0), 0.0, 40.0)
+    return round(_clamp(1.0 - (total_penalty / 50.0), 0.45, 1.0), 2)
+
+
 def build_trade_quality_score(
     *,
     raw_setup_score: object,
@@ -106,6 +185,10 @@ def build_trade_quality_score(
     regime_modifier: object,
     cost_penalty: object = 0.0,
     cost_penalty_reason: str = "",
+    downside_penalty: object = 0.0,
+    downside_penalty_reason: str = "",
+    churn_penalty: object = 0.0,
+    churn_penalty_reason: str = "",
 ) -> Dict:
     """
     Build an explicit runtime trade-quality score from existing decision inputs.
@@ -120,8 +203,10 @@ def build_trade_quality_score(
     uncertainty_value = _clamp(_safe_float(uncertainty_pct, 0.0), 0.0, 100.0)
     regime_value = _clamp(_safe_float(regime_modifier, 1.0), 0.4, 1.05)
     cost_value = _clamp(_safe_float(cost_penalty, 0.0), 0.0, 40.0)
+    downside_value = _clamp(_safe_float(downside_penalty, 0.0), 0.0, 30.0)
+    churn_value = _clamp(_safe_float(churn_penalty, 0.0), 0.0, 25.0)
 
-    score = round((setup_component + confidence_value - uncertainty_value - cost_value) * regime_value, 2)
+    score = round((setup_component + confidence_value - uncertainty_value - cost_value - downside_value - churn_value) * regime_value, 2)
 
     return {
         "score": score,
@@ -133,6 +218,10 @@ def build_trade_quality_score(
         "regime_modifier": round(regime_value, 2),
         "cost_penalty": round(cost_value, 2),
         "cost_penalty_reason": cost_penalty_reason,
+        "downside_penalty": round(downside_value, 2),
+        "downside_penalty_reason": downside_penalty_reason,
+        "churn_penalty": round(churn_value, 2),
+        "churn_penalty_reason": churn_penalty_reason,
     }
 
 

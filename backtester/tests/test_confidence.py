@@ -4,7 +4,10 @@ from data.confidence import (
     build_confidence_assessment,
     build_dip_confidence_assessment,
     build_trade_quality_score,
+    churn_penalty_proxy,
+    downside_risk_proxy,
     regime_quality_modifier,
+    risk_adjusted_size_multiplier,
 )
 from data.market_regime import MarketRegime
 
@@ -117,3 +120,58 @@ def test_trade_quality_score_penalizes_uncertainty_hostile_regime_and_churn_prox
     assert degraded['regime_modifier'] < clean['regime_modifier']
     assert degraded['cost_penalty_reason'] == 'exit_risk_score proxy'
 
+
+
+def test_downside_risk_proxy_penalizes_uglier_left_tail():
+    clean = downside_risk_proxy([100, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112])
+    ugly = downside_risk_proxy([100, 98, 97, 96, 94, 93, 95, 92, 90, 91, 89, 88])
+
+    assert ugly['penalty'] > clean['penalty']
+    assert ugly['drawdown_pct'] > clean['drawdown_pct']
+
+
+def test_churn_penalty_proxy_prefers_confirmed_recoveries():
+    calm = churn_penalty_proxy(exit_risk_score=1)
+    noisy = churn_penalty_proxy(exit_risk_score=4, recovery_ready=False, falling_knife=True)
+
+    assert noisy['penalty'] > calm['penalty']
+    assert 'falling_knife' in noisy['reason']
+
+
+def test_risk_adjusted_size_multiplier_shrinks_for_downside_and_churn():
+    clean = risk_adjusted_size_multiplier(downside_penalty=2, churn_penalty=1)
+    risky = risk_adjusted_size_multiplier(downside_penalty=14, churn_penalty=10)
+
+    assert risky < clean
+    assert 0.45 <= risky <= 1.0
+
+
+def test_trade_quality_score_penalizes_downside_and_churn_layers():
+    stable = build_trade_quality_score(
+        raw_setup_score=11,
+        setup_scale=16,
+        confidence_pct=84,
+        uncertainty_pct=6,
+        regime_modifier=1.0,
+        cost_penalty=3,
+        downside_penalty=2,
+        downside_penalty_reason='63d_drawdown_tail_loss',
+        churn_penalty=1,
+        churn_penalty_reason='exit_risk_score',
+    )
+    fragile = build_trade_quality_score(
+        raw_setup_score=12,
+        setup_scale=16,
+        confidence_pct=85,
+        uncertainty_pct=6,
+        regime_modifier=1.0,
+        cost_penalty=3,
+        downside_penalty=14,
+        downside_penalty_reason='63d_drawdown_tail_loss',
+        churn_penalty=8,
+        churn_penalty_reason='falling_knife',
+    )
+
+    assert fragile['score'] < stable['score']
+    assert fragile['downside_penalty_reason'] == '63d_drawdown_tail_loss'
+    assert fragile['churn_penalty_reason'] == 'falling_knife'

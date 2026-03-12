@@ -36,7 +36,10 @@ import pandas as pd
 from data.confidence import (
     build_confidence_assessment,
     build_trade_quality_score,
+    churn_penalty_proxy,
+    downside_risk_proxy,
     regime_quality_modifier,
+    risk_adjusted_size_multiplier,
 )
 from data.universe import UniverseScreener, GROWTH_WATCHLIST
 from data.market_data_provider import MarketDataProvider
@@ -142,6 +145,7 @@ class TradingAdvisor:
             'pct_from_high': pct_from_high * 100,
             'momentum_6m': momentum_6m,
             'volume_ratio': vol_ratio,
+            'price_history': close,
             'N_score': n_score,
             'L_score': l_score,
             'S_score': s_score,
@@ -173,16 +177,22 @@ class TradingAdvisor:
         rank_score: float,
         confidence_assessment: Dict,
         exit_risk: Dict,
+        price_history: Optional[pd.Series] = None,
     ) -> Dict:
-        # Exit-risk is the cleanest current churn proxy in the CANSLIM path.
+        churn_proxy = churn_penalty_proxy(exit_risk_score=(exit_risk or {}).get('score', 0))
+        downside_proxy = downside_risk_proxy(price_history)
         return build_trade_quality_score(
             raw_setup_score=rank_score,
             setup_scale=16,
             confidence_pct=confidence_assessment.get('raw_confidence_pct', confidence_assessment.get('effective_confidence_pct', 0)),
             uncertainty_pct=confidence_assessment.get('uncertainty_pct', 0),
             regime_modifier=regime_quality_modifier(market=market),
-            cost_penalty=int((exit_risk or {}).get('score', 0)) * 6,
+            cost_penalty=round(churn_proxy['penalty'] * 0.5, 2),
             cost_penalty_reason='exit_risk_score proxy',
+            downside_penalty=downside_proxy['penalty'],
+            downside_penalty_reason=downside_proxy['source'],
+            churn_penalty=round(churn_proxy['penalty'] * 0.5, 2),
+            churn_penalty_reason=churn_proxy['reason'],
         )
 
     @staticmethod
@@ -193,21 +203,22 @@ class TradingAdvisor:
         confidence_assessment: Dict,
         recovery_ready: bool,
         falling_knife: bool,
+        price_history: Optional[pd.Series] = None,
     ) -> Dict:
-        # Dip Buyer does not have explicit cost data, so structural churn risk is proxied by recovery readiness.
-        cost_penalty = 0.0
-        if not recovery_ready:
-            cost_penalty += 10.0
-        if falling_knife:
-            cost_penalty += 12.0
+        churn_proxy = churn_penalty_proxy(recovery_ready=recovery_ready, falling_knife=falling_knife)
+        downside_proxy = downside_risk_proxy(price_history)
         return build_trade_quality_score(
             raw_setup_score=total_score,
             setup_scale=12,
             confidence_pct=confidence_assessment.get('raw_confidence_pct', confidence_assessment.get('effective_confidence_pct', 0)),
             uncertainty_pct=confidence_assessment.get('uncertainty_pct', 0),
             regime_modifier=regime_quality_modifier(market=market),
-            cost_penalty=cost_penalty,
+            cost_penalty=round(churn_proxy['penalty'] * 0.5, 2),
             cost_penalty_reason='recovery_ready/falling_knife proxy',
+            downside_penalty=downside_proxy['penalty'],
+            downside_penalty_reason=downside_proxy['source'],
+            churn_penalty=round(churn_proxy['penalty'] * 0.5, 2),
+            churn_penalty_reason=churn_proxy['reason'],
         )
 
     @staticmethod
@@ -244,6 +255,8 @@ class TradingAdvisor:
 
         for column, column_ascending in (
             ('trade_quality_score', False),
+            ('downside_penalty', True),
+            ('churn_penalty', True),
             ('effective_confidence', False),
             ('confidence', False),
             ('uncertainty_pct', True),
@@ -342,6 +355,7 @@ class TradingAdvisor:
             rank_score=rank_score,
             confidence_assessment=confidence_assessment,
             exit_risk=exit_risk,
+            price_history=hist['Close'],
         )
 
         recommendation = self._generate_recommendation(
@@ -384,6 +398,8 @@ class TradingAdvisor:
             'confidence_assessment': confidence_assessment,
             'trade_quality_score': trade_quality['score'],
             'trade_quality': trade_quality,
+            'downside_penalty': trade_quality.get('downside_penalty', 0.0),
+            'churn_penalty': trade_quality.get('churn_penalty', 0.0),
             'data_source': history_result.source,
             'data_staleness_seconds': history_result.staleness_seconds,
             'data_status': history_result.status,
@@ -457,6 +473,8 @@ class TradingAdvisor:
             'confidence_assessment': setup.get('confidence_assessment', {}),
             'trade_quality_score': setup.get('trade_quality_score', setup.get('recommendation', {}).get('trade_quality_score', 0.0)),
             'trade_quality': setup.get('trade_quality', setup.get('recommendation', {}).get('trade_quality', {})),
+            'downside_penalty': setup.get('trade_quality', setup.get('recommendation', {}).get('trade_quality', {})).get('downside_penalty', 0.0),
+            'churn_penalty': setup.get('trade_quality', setup.get('recommendation', {}).get('trade_quality', {})).get('churn_penalty', 0.0),
             'recommendation': setup.get('recommendation', {}),
         }
 
@@ -542,6 +560,8 @@ class TradingAdvisor:
                 'position_size_pct': analysis.get('recommendation', {}).get('position_size_pct', 0.0),
                 'size_label': analysis.get('recommendation', {}).get('size_label', 'STANDARD'),
                 'trade_quality_score': analysis.get('trade_quality_score', analysis.get('effective_confidence', analysis.get('confidence', 0))),
+                'downside_penalty': analysis.get('downside_penalty', analysis.get('trade_quality', {}).get('downside_penalty', 0.0)),
+                'churn_penalty': analysis.get('churn_penalty', analysis.get('trade_quality', {}).get('churn_penalty', 0.0)),
             })
 
         if not candidates:
@@ -550,7 +570,7 @@ class TradingAdvisor:
         df = pd.DataFrame(candidates)
         return self._sort_runtime_candidates(
             df,
-            primary_desc_columns=['trade_quality_score', 'effective_confidence', 'position_size_pct', 'total_score'],
+            primary_desc_columns=['trade_quality_score', 'position_size_pct', 'total_score'],
         )
     
     def _generate_recommendation(
@@ -599,13 +619,30 @@ class TradingAdvisor:
             rank_score=rank_score,
             confidence_assessment=confidence_assessment,
             exit_risk=exit_risk,
+            price_history=tech_scores.get('price_history'),
         )
+        risk_size_multiplier = risk_adjusted_size_multiplier(
+            downside_penalty=trade_quality.get('downside_penalty', 0.0),
+            churn_penalty=trade_quality.get('churn_penalty', 0.0),
+        )
+        sizing['recommended_position_pct'] = round(sizing.get('recommended_position_pct', 0.0) * risk_size_multiplier, 2)
+        if sizing['recommended_position_pct'] <= 0:
+            sizing['label'] = 'OFF'
+        elif sizing['recommended_position_pct'] >= sizing.get('base_position_pct', sizing['recommended_position_pct']) * 0.95:
+            sizing['label'] = 'FULL'
+        elif sizing['recommended_position_pct'] >= sizing.get('base_position_pct', sizing['recommended_position_pct']) * 0.7:
+            sizing['label'] = 'STANDARD'
+        else:
+            sizing['label'] = 'STARTER'
+        sizing['risk_adjusted_multiplier'] = risk_size_multiplier
 
         base_fields = {
             'score': total_score,
             'rank_score': rank_score,
             'trade_quality_score': trade_quality['score'],
             'trade_quality': trade_quality,
+            'downside_penalty': trade_quality.get('downside_penalty', 0.0),
+            'churn_penalty': trade_quality.get('churn_penalty', 0.0),
             'confidence': confidence,
             'raw_confidence': int(confidence_assessment.get('raw_confidence_pct', confidence)),
             'effective_confidence': confidence,
@@ -895,6 +932,8 @@ class TradingAdvisor:
             sort_columns = ['trade_quality_score']
             ascending = [False]
             for column, column_ascending in (
+                ('downside_penalty', True),
+                ('churn_penalty', True),
                 ('effective_confidence', False),
                 ('confidence', False),
                 ('uncertainty_pct', True),

@@ -43,7 +43,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from strategies.base import Strategy
 from indicators import rsi
-from data.confidence import build_dip_confidence_assessment, build_trade_quality_score, regime_quality_modifier
+from data.confidence import (
+    build_dip_confidence_assessment,
+    build_trade_quality_score,
+    churn_penalty_proxy,
+    downside_risk_proxy,
+    regime_quality_modifier,
+    risk_adjusted_size_multiplier,
+)
 from data.fundamentals import FundamentalsFetcher
 from data.market_regime import MarketRegimeDetector, MarketRegime, MarketStatus
 from data.risk_signals import RiskSignalFetcher
@@ -486,21 +493,40 @@ class DipBuyerStrategy(Strategy):
             else "STARTER"
         )
 
-        # Dip Buyer does not have explicit cost data, so use recovery structure as a churn proxy.
+        churn_proxy = churn_penalty_proxy(recovery_ready=recovery_ready, falling_knife=falling_knife)
+        downside_proxy = downside_risk_proxy(data['close'])
         trade_quality = build_trade_quality_score(
             raw_setup_score=total_score,
             setup_scale=12,
             confidence_pct=confidence_assessment.get('raw_confidence_pct', confidence),
             uncertainty_pct=uncertainty_pct,
             regime_modifier=regime_quality_modifier(market=market),
-            cost_penalty=(0.0 if recovery_ready else 10.0) + (12.0 if falling_knife else 0.0),
+            cost_penalty=round(churn_proxy['penalty'] * 0.5, 2),
             cost_penalty_reason='recovery_ready/falling_knife proxy',
+            downside_penalty=downside_proxy['penalty'],
+            downside_penalty_reason=downside_proxy['source'],
+            churn_penalty=round(churn_proxy['penalty'] * 0.5, 2),
+            churn_penalty_reason=churn_proxy['reason'],
+        )
+        risk_size_multiplier = risk_adjusted_size_multiplier(
+            downside_penalty=trade_quality.get('downside_penalty', 0.0),
+            churn_penalty=trade_quality.get('churn_penalty', 0.0),
+        )
+        position_size_pct = round(max(1.0, position_size_pct * risk_size_multiplier), 2)
+        size_label = (
+            "FULL"
+            if position_size_pct >= base_position_pct * 0.95
+            else "STANDARD"
+            if position_size_pct >= base_position_pct * 0.7
+            else "STARTER"
         )
 
         recommendation_base = {
             'score': total_score,
             'trade_quality_score': trade_quality['score'],
             'trade_quality': trade_quality,
+            'downside_penalty': trade_quality.get('downside_penalty', 0.0),
+            'churn_penalty': trade_quality.get('churn_penalty', 0.0),
             'confidence': confidence,
             'raw_confidence': int(confidence_assessment["raw_confidence_pct"]),
             'effective_confidence': confidence,

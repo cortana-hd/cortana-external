@@ -250,3 +250,38 @@ def test_get_recommendations_uses_buy_rows_in_trade_quality_order():
 
     assert [item["symbol"] for item in recommendations] == ["BBB", "AAA"]
     assert [call.args[0] for call in advisor.analyze_stock.call_args_list] == ["BBB", "AAA"]
+
+
+def test_get_recommendations_prefers_lower_downside_when_trade_quality_close():
+    advisor = TradingAdvisor()
+    advisor.scan_for_opportunities = MagicMock(
+        return_value=pd.DataFrame(
+            [
+                {"symbol": "AAA", "action": "BUY", "trade_quality_score": 88.0, "effective_confidence": 78, "uncertainty_pct": 8, "downside_penalty": 14.0, "churn_penalty": 4.0, "total_score": 9},
+                {"symbol": "BBB", "action": "BUY", "trade_quality_score": 87.0, "effective_confidence": 77, "uncertainty_pct": 8, "downside_penalty": 4.0, "churn_penalty": 2.0, "total_score": 8},
+            ]
+        )
+    )
+    advisor.analyze_stock = MagicMock(
+        side_effect=[
+            {"symbol": "BBB", "total_score": 8, "recommendation": {"action": "BUY", "position_size_pct": 7.0}},
+            {"symbol": "AAA", "total_score": 9, "recommendation": {"action": "BUY", "position_size_pct": 4.0}},
+        ]
+    )
+
+    recommendations = advisor.get_recommendations(limit=2)
+
+    assert [item["symbol"] for item in recommendations] == ["BBB", "AAA"]
+
+
+def test_sort_runtime_candidates_uses_lower_risk_penalties_as_tiebreakers():
+    frame = pd.DataFrame(
+        [
+            {"symbol": "AAA", "action": "BUY", "abstain": False, "trade_quality_score": 90.0, "effective_confidence": 75, "uncertainty_pct": 8, "downside_penalty": 12.0, "churn_penalty": 6.0, "position_size_pct": 4.0, "total_score": 9},
+            {"symbol": "BBB", "action": "BUY", "abstain": False, "trade_quality_score": 90.0, "effective_confidence": 75, "uncertainty_pct": 8, "downside_penalty": 5.0, "churn_penalty": 2.0, "position_size_pct": 4.0, "total_score": 9},
+        ]
+    )
+
+    ranked = TradingAdvisor._sort_runtime_candidates(frame, primary_desc_columns=['trade_quality_score'])
+
+    assert list(ranked['symbol']) == ['BBB', 'AAA']

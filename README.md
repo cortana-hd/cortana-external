@@ -237,6 +237,7 @@ Python CANSLIM advisor/backtesting engine with Telegram-ready alert output.
 ### Uncertainty-aware confidence runtime (new)
 - The backtester now ranks live candidates by final runtime action first, then by uncertainty-aware confidence quality, instead of letting a high raw score outrank a cleaner buyable setup.
 - In plain English: a `BUY` with solid evidence now surfaces ahead of a higher-score `WATCH` that is abstaining because the inputs are stale, degraded, or conflicted.
+- Phase 2 adds a bounded downside proxy (63-day drawdown + worst-loss blend) and clearer churn proxies so sketchier left-tail / flip-prone setups get smaller size and worse runtime ranking without weakening any veto gates.
 - Doc: [`backtester/docs/uncertainty-confidence-runtime-wiring.md`](backtester/docs/uncertainty-confidence-runtime-wiring.md)
 
 ### Core files
@@ -419,4 +420,4 @@ Update whenever any of these change:
 - Backtester entrypoints/dependencies
 - New top-level services/apps/tools
 
-Last refreshed: **2026-03-12** (README + docs update for uncertainty-aware runtime wiring)
+Last refreshed: **2026-03-12** (README updated for uncertainty-aware runtime wiring + Phase 2 downside/churn note)
