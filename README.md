@@ -234,6 +234,11 @@ These tables back `/council`, `/approvals`, and `/feedback` and support remediat
 ### What it does
 Python CANSLIM advisor/backtesting engine with Telegram-ready alert output.
 
+### Uncertainty-aware confidence runtime (new)
+- The backtester now ranks live candidates by final runtime action first, then by uncertainty-aware confidence quality, instead of letting a high raw score outrank a cleaner buyable setup.
+- In plain English: a `BUY` with solid evidence now surfaces ahead of a higher-score `WATCH` that is abstaining because the inputs are stale, degraded, or conflicted.
+- Doc: [`backtester/docs/uncertainty-confidence-runtime-wiring.md`](backtester/docs/uncertainty-confidence-runtime-wiring.md)
+
 ### Core files
 - `advisor.py` (market/symbol analysis)
 - `canslim_alert.py` (signal summary)
@@ -414,5 +419,4 @@ Update whenever any of these change:
 - Backtester entrypoints/dependencies
 - New top-level services/apps/tools
 
-Last refreshed: **2026-02-27** (README + test/status cross-check)
-
+Last refreshed: **2026-03-12** (README + docs update for uncertainty-aware runtime wiring)
