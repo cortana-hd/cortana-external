@@ -111,8 +111,10 @@ def test_canslim_alert_uses_trade_quality_order_for_leaders():
             "trade_quality_score": 94.0,
             "effective_confidence": 80,
             "uncertainty_pct": 8,
+            "downside_penalty": 2.0,
+            "churn_penalty": 1.0,
             "abstain": False,
-            "recommendation": {"action": "BUY", "reason": "clean", "trade_quality_score": 94.0, "effective_confidence": 80, "uncertainty_pct": 8, "abstain": False},
+            "recommendation": {"action": "BUY", "reason": "clean", "trade_quality_score": 94.0, "effective_confidence": 80, "uncertainty_pct": 8, "downside_penalty": 2.0, "churn_penalty": 1.0, "abstain": False},
         },
     }
 
@@ -121,5 +123,5 @@ def test_canslim_alert_uses_trade_quality_order_for_leaders():
 
     assert "Top names considered: BBB, AAA" in text
     assert "Leaders: BBB BUY (8/12) | AAA WATCH (9/12)" in text
-    assert "Leader telemetry: BBB | tq 94.0 | conf 80% | u 8%; AAA | tq 71.0 | conf 52% | u 31% | ABSTAIN" in text
+    assert "Leader telemetry: BBB | tq 94.0 | conf 80% | u 8% | down/churn 2.0/1.0; AAA | tq 71.0 | conf 52% | u 31% | ABSTAIN" in text
 

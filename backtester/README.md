@@ -30,6 +30,35 @@ python canslim_alert.py --limit 8 --min-score 6
 python main.py --symbol AAPL --years 2 --compare
 ```
 
+## Operator workflow
+
+Use the surfaces in this order when you are reviewing the stack end to end:
+- `python advisor.py --market` checks the regime gate and sizing posture before you read any single-name output.
+- `python advisor.py --symbol NVDA` is the fastest single-name diagnostic when you want factor detail plus the current recommendation.
+- `python canslim_alert.py --limit 8 --min-score 6` and `python dipbuyer_alert.py --limit 8 --min-score 6` generate the compact operator summaries used for daily review.
+- `TradingAdvisor().compare_model_families(...)["report"]` is the review surface for Wave 4 model-family deltas, restraint metrics, and review slices.
+
+Example report command:
+
+```bash
+python - <<'PY'
+from advisor import TradingAdvisor
+
+report = TradingAdvisor().compare_model_families(quick=True, min_score=6, top_n=5)["report"]
+print(report)
+PY
+```
+
+## How to read runtime output
+
+- `tq`: trade-quality score after setup, confidence, downside/churn, and adverse-regime penalties are combined.
+- `conf` / `eff conf`: effective confidence after uncertainty and market-stress adjustments.
+- `u`: uncertainty percent. Higher means the setup is being discounted more heavily.
+- `down/churn`: bounded downside and churn penalty layers. Lower is cleaner.
+- `stress`: adverse-regime label plus score. Anything above `normal` means the market backdrop is leaning against the setup.
+- `restraint`: how often a model kept capital out of `BUY`; use it with restrained-return splits to judge whether caution helped.
+- `Review slices`: compact regime/time spot checks to see whether performance differences are broad or concentrated in one market pocket.
+
 ## What was added in the recent buildout
 
 The recent wave-based buildout added:

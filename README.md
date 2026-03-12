@@ -240,6 +240,11 @@ Python CANSLIM advisor/backtesting engine with Telegram-ready alert output.
 - Phase 2 adds a bounded downside proxy (63-day drawdown + worst-loss blend) and clearer churn proxies so sketchier left-tail / flip-prone setups get smaller size and worse runtime ranking without weakening any veto gates.
 - Doc: [`backtester/docs/uncertainty-confidence-runtime-wiring.md`](backtester/docs/uncertainty-confidence-runtime-wiring.md)
 
+### Start here
+- Operator workflow + output guide: [`backtester/README.md`](backtester/README.md)
+- Runtime wiring note: [`backtester/docs/uncertainty-confidence-runtime-wiring.md`](backtester/docs/uncertainty-confidence-runtime-wiring.md)
+- Calibration reference: [`backtester/docs/scoring-calibration.md`](backtester/docs/scoring-calibration.md)
+
 ### Core files
 - `advisor.py` (market/symbol analysis)
 - `canslim_alert.py` (signal summary)

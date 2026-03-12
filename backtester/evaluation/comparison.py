@@ -626,7 +626,12 @@ def render_model_comparison_report(
         baseline_name = str(summary.iloc[0]["model"])
 
     universe_size = int(summary.iloc[0].get("universe_size", 0))
-    lines = [title, f"Universe: {universe_size} candidates"]
+    lines = [
+        title,
+        f"Universe: {universe_size} candidates",
+        "Guide: avg tq=trade quality, eff conf=effective confidence after uncertainty/stress, downside/churn=bounded penalty layers, restraint=capital the model kept out of BUY.",
+        "Guide: picks keep BUY/WATCH/NO_BUY and ABSTAIN visible; review slices check whether model behavior changes by regime or time split.",
+    ]
 
     for row in summary.to_dict(orient="records"):
         model = row["model"]
@@ -645,7 +650,7 @@ def render_model_comparison_report(
         if row.get("avg_uncertainty_pct", 0.0) > 0:
             line += f" | avg uncertainty {row['avg_uncertainty_pct']:.1f}%"
         if row.get("avg_downside_penalty", 0.0) > 0 or row.get("avg_churn_penalty", 0.0) > 0:
-            line += f" | avg downside/churn proxy {row['avg_downside_penalty']:.2f}/{row['avg_churn_penalty']:.2f}"
+            line += f" | avg downside/churn {row['avg_downside_penalty']:.2f}/{row['avg_churn_penalty']:.2f}"
         if row.get("avg_adverse_regime_score", 0.0) > 0 or row.get("top_adverse_regime_label") not in {"", "n/a"}:
             line += f" | avg stress {row['avg_adverse_regime_score']:.1f} ({row['top_adverse_regime_label']})"
         if row.get("restraint_count", 0) > 0:
@@ -699,7 +704,7 @@ def render_model_comparison_report(
 
     review_slices = summary.attrs.get("review_slices", [])
     if review_slices:
-        lines.append("Review slices:")
+        lines.append("Review slices (regime/time spot checks):")
         for section in review_slices:
             lines.append(f"  {section['title']}:")
             for slice_row in section.get("slices", []):

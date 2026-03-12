@@ -174,4 +174,4 @@ def test_format_alert_includes_risk_telemetry_for_top_leaders():
         text = format_alert(limit=8, min_score=6)
 
     assert "Top leaders: MSFT BUY (9/12) 🐦 Neutral | AAPL WATCH (7/12) 🐦 Neutral" in text
-    assert "Leader telemetry: MSFT | tq 91.0 | conf 79% | u 7% | risk 3.0/1.0 | stress caution(18); AAPL | tq 72.0 | conf 48% | u 31% | ABSTAIN" in text
+    assert "Leader telemetry: MSFT | tq 91.0 | conf 79% | u 7% | down/churn 3.0/1.0 | stress caution(18); AAPL | tq 72.0 | conf 48% | u 31% | ABSTAIN" in text

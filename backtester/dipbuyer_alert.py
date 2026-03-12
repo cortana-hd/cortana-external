@@ -108,7 +108,7 @@ def _leader_risk_line(records: list[dict], limit: int = 3) -> str:
         churn_penalty = rec.get("churn_penalty")
         if downside_penalty is not None or churn_penalty is not None:
             parts.append(
-                f"risk {float(downside_penalty or 0.0):.1f}/{float(churn_penalty or 0.0):.1f}"
+                f"down/churn {float(downside_penalty or 0.0):.1f}/{float(churn_penalty or 0.0):.1f}"
             )
         adverse_label = rec.get("adverse_regime_label")
         adverse_score = rec.get("adverse_regime_score")
