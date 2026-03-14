@@ -57,7 +57,7 @@ pnpm report --output compact
 pnpm report --output verbose --persist
 pnpm report --output json --regime /Users/hd/Developer/cortana-external/.cache/market_regime_snapshot_SPY.json
 pnpm smoke
-pnpm watchdog
+pnpm watchdog -- --regime /Users/hd/Developer/cortana-external/.cache/market_regime_snapshot_SPY.json --require-regime
 pnpm registry-audit
 ```
 
@@ -78,6 +78,7 @@ Options:
 - `1h` and `24h` changes come from Polymarket fields when present.
 - `4h` change is derived from local history if available.
 - If Polymarket or regime data is unavailable, the package degrades safely and still returns a usable report object.
+- Compact watchlist output is intentionally capped to keep alert-sized summaries short; verbose and JSON output stay richer.
 
 ## Tests
 
@@ -88,7 +89,7 @@ pnpm test
 ## Production Notes
 
 - `pnpm smoke` exits non-zero if the package cannot produce a sane report from the live feed.
-- `pnpm watchdog` exits non-zero if the materialized artifacts are missing, stale, empty, or below minimum market/watchlist thresholds.
+- `pnpm watchdog` exits non-zero if the materialized artifacts are missing, stale, empty, below minimum market/watchlist thresholds, or still show `insufficient_data` overlay when a fresh regime snapshot is available.
 - `pnpm registry-audit` exits non-zero if required registry entries have gone dark or too many entries are running on keyword fallback only.
 - The smoke command emits structured JSON logs for automation and log shipping.
 - History writes are atomic to reduce the chance of corrupting `latest.json` or timestamped history snapshots during interrupted runs.

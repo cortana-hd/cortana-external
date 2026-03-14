@@ -4,6 +4,7 @@ import {
   DEFAULT_COMPACT_REPORT_PATH,
   DEFAULT_REGISTRY_PATH,
   DEFAULT_REPORT_JSON_PATH,
+  DEFAULT_REGIME_PATH,
   DEFAULT_WATCHLIST_JSON_PATH,
 } from "./paths.js";
 import { PolymarketClient } from "./polymarket-client.js";
@@ -49,38 +50,78 @@ export async function auditRegistryHealth(options: {
 }
 
 export async function assessArtifactHealth(options: {
+  regimePath?: string;
   reportJsonPath?: string;
   compactReportPath?: string;
   watchlistJsonPath?: string;
   maxAgeHours?: number;
   minTopMarkets?: number;
   minWatchlistCount?: number;
+  requireRegime?: boolean;
+  requireOverlayWithRegime?: boolean;
   now?: Date;
 } = {}): Promise<ArtifactHealthReport> {
+  const regimePath = options.regimePath ?? DEFAULT_REGIME_PATH;
   const reportJsonPath = options.reportJsonPath ?? DEFAULT_REPORT_JSON_PATH;
   const compactReportPath = options.compactReportPath ?? DEFAULT_COMPACT_REPORT_PATH;
   const watchlistJsonPath = options.watchlistJsonPath ?? DEFAULT_WATCHLIST_JSON_PATH;
   const maxAgeHours = options.maxAgeHours ?? 8;
   const minTopMarkets = options.minTopMarkets ?? 1;
   const minWatchlistCount = options.minWatchlistCount ?? 1;
+  const requireRegime = options.requireRegime ?? false;
+  const requireOverlayWithRegime = options.requireOverlayWithRegime ?? true;
   const now = options.now ?? new Date();
   const failures: string[] = [];
 
-  const [reportFile, compactFile, watchlistFile] = await Promise.all([
+  const [regimeFile, reportFile, compactFile, watchlistFile] = await Promise.all([
+    readTextFile(regimePath),
     readTextFile(reportJsonPath),
     readTextFile(compactReportPath),
     readTextFile(watchlistJsonPath),
   ]);
 
+  const regimeJsonHealth = buildFileHealth(regimePath, regimeFile);
   const reportJsonHealth = buildFileHealth(reportJsonPath, reportFile);
   const compactTextHealth = buildFileHealth(compactReportPath, compactFile);
   const watchlistJsonHealth = buildFileHealth(watchlistJsonPath, watchlistFile);
 
   let generatedAt: string | null = null;
+  let regimeGeneratedAt: string | null = null;
   let ageHours: number | null = null;
+  let regimeAgeHours: number | null = null;
   let topMarkets = 0;
   let watchlistCount = 0;
   let overlay: string | null = null;
+  let regimeAvailable = false;
+
+  if (regimeFile.contents != null) {
+    try {
+      const payload = JSON.parse(regimeFile.contents) as {
+        generated_at_utc?: string;
+        market_status?: { regime?: string };
+      };
+      regimeGeneratedAt = payload.generated_at_utc ?? null;
+      regimeAvailable = Boolean(regimeGeneratedAt && payload.market_status?.regime);
+
+      if (!regimeGeneratedAt) {
+        failures.push("regime snapshot is missing generated_at_utc");
+      } else {
+        regimeAgeHours = (now.getTime() - new Date(regimeGeneratedAt).getTime()) / 3_600_000;
+        if (!Number.isFinite(regimeAgeHours)) {
+          failures.push("regime snapshot has an invalid generated_at_utc timestamp");
+          regimeAgeHours = null;
+        } else if (regimeAgeHours > maxAgeHours) {
+          failures.push(`regime snapshot is stale (${regimeAgeHours.toFixed(2)}h old)`);
+          regimeJsonHealth.fresh = false;
+        }
+      }
+    } catch {
+      failures.push("regime snapshot JSON is invalid");
+      regimeJsonHealth.detail = "invalid JSON";
+    }
+  } else if (requireRegime) {
+    failures.push("regime snapshot JSON is missing");
+  }
 
   if (!reportFile.exists) failures.push("latest report JSON is missing");
   if (!compactFile.exists) failures.push("latest compact report is missing");
@@ -115,6 +156,14 @@ export async function assessArtifactHealth(options: {
       if (topMarkets < minTopMarkets) {
         failures.push(`top market count ${topMarkets} is below threshold ${minTopMarkets}`);
       }
+
+      if (
+        requireOverlayWithRegime &&
+        regimeAvailable &&
+        overlay === "insufficient_data"
+      ) {
+        failures.push("overlay stayed insufficient_data even though a regime snapshot was available");
+      }
     } catch {
       failures.push("latest report JSON is invalid");
       reportJsonHealth.detail = "invalid JSON";
@@ -148,11 +197,14 @@ export async function assessArtifactHealth(options: {
     ok,
     stale: failures.some((failure) => failure.includes("stale")),
     generatedAt,
+    regimeGeneratedAt,
     ageHours: ageHours == null ? null : round(ageHours, 2),
+    regimeAgeHours: regimeAgeHours == null ? null : round(regimeAgeHours, 2),
     topMarkets,
     watchlistCount,
     overlay,
     files: {
+      regimeJson: regimeJsonHealth,
       reportJson: reportJsonHealth,
       compactText: compactTextHealth,
       watchlistJson: watchlistJsonHealth,
@@ -185,7 +237,9 @@ export function formatRegistryHealthReport(report: RegistryHealthReport): string
 export function formatArtifactHealthReport(report: ArtifactHealthReport): string {
   const lines = [
     `Artifact watchdog: ${report.ok ? "ok" : "failed"}`,
+    `- regimeGeneratedAt: ${report.regimeGeneratedAt ?? "missing"}`,
     `- generatedAt: ${report.generatedAt ?? "missing"}`,
+    `- regimeAgeHours: ${report.regimeAgeHours == null ? "unknown" : report.regimeAgeHours}`,
     `- ageHours: ${report.ageHours == null ? "unknown" : report.ageHours}`,
     `- topMarkets: ${report.topMarkets}`,
     `- watchlistCount: ${report.watchlistCount}`,

@@ -1,7 +1,7 @@
 import type { MarketIntelReport, NormalizedMarketSnapshot } from "./types.js";
 
 const REPORT_WATCHLIST_LIMIT = 10;
-const COMPACT_WATCHLIST_LIMIT = 8;
+const COMPACT_WATCHLIST_LIMIT = 5;
 
 export function formatCompactReport(report: MarketIntelReport): string {
   const lines: string[] = [];

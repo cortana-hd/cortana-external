@@ -256,6 +256,6 @@ describe("service, reports, and cli helpers", () => {
       suppressedMarkets: [],
     } as never);
 
-    expect(compact).toContain("Watchlist: A, B, C, D, E, F, G, H (+2 more)");
+    expect(compact).toContain("Watchlist: A, B, C, D, E (+5 more)");
   });
 });

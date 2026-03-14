@@ -60,11 +60,11 @@
       "impactModel": "inflation_upside",
       "notes": "Prefer CPI/PCE style markets over generic sentiment contracts.",
       "selectors": {
-        "marketSlugs": [],
-        "eventSlugs": [],
-        "keywords": ["inflation", "cpi", "pce", "core cpi"],
-        "includeKeywords": ["inflation"],
-        "excludeKeywords": ["gta vi", "world cup"]
+        "marketSlugs": ["will-inflation-reach-more-than-4-in-2026"],
+        "eventSlugs": ["how-high-will-inflation-get-in-2026"],
+        "keywords": ["inflation reaccelerate", "inflation 2026", "cpi 2026", "pce 2026"],
+        "includeKeywords": ["inflation", "2026"],
+        "excludeKeywords": ["gta vi", "world cup", "egg prices"]
       }
     },
     {
@@ -82,11 +82,14 @@
       "impactModel": "tariff_risk",
       "notes": "Use only when contract wording is specific enough to matter.",
       "selectors": {
-        "marketSlugs": [],
+        "marketSlugs": [
+          "will-trump-create-a-tariff-dividend-by-june-30",
+          "will-trump-create-a-tariff-dividend-by-march-31"
+        ],
         "eventSlugs": [],
-        "keywords": ["tariff", "tariffs", "trade war"],
+        "keywords": ["tariff dividend", "reciprocal tariff", "trade war", "tariff"],
         "includeKeywords": ["tariff"],
-        "excludeKeywords": ["dividend", "gta vi", "world cup"]
+        "excludeKeywords": ["gta vi", "world cup", "visit taiwan"]
       }
     },
     {

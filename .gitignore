@@ -13,6 +13,7 @@ __pycache__/
 *.pyc
 
 # Data cache
+.cache/
 backtester/data/cache/
 backtester/.cache/
 

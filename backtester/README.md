@@ -44,6 +44,14 @@ cd /Users/hd/Developer/cortana-external
 ./tools/market-intel/run_market_intel.sh
 ```
 
+Production order is explicit:
+1. refresh SPY regime snapshot with `backtester/data/market_regime.py`
+2. run the TypeScript Polymarket integration against that snapshot
+3. verify Python can read the resulting artifacts
+4. run CANSLIM / Dip Buyer alerts
+
+The wrapper above already executes steps 1-3 in that order.
+
 This writes:
 - `/Users/hd/Developer/cortana-external/var/market-intel/polymarket/latest-compact.txt`
 - `/Users/hd/Developer/cortana-external/var/market-intel/polymarket/latest-report.json`
@@ -54,11 +62,12 @@ Runtime effects:
 - `UniverseScreener.get_dynamic_tickers()` merges the Polymarket-derived watchlist with the existing dynamic watchlist.
 - The integration is read-only and does not place trades or interact with wallets/accounts.
 - The wrapper now fails fast if artifacts are stale or required registry themes lose coverage.
+- overlay should be populated whenever a fresh regime snapshot is available; the health path treats missing overlay in that situation as a failure.
 
 ## Operator workflow
 
 Use the surfaces in this order when you are reviewing the stack end to end:
-- `./tools/market-intel/run_market_intel.sh` refreshes the external macro/event context and Polymarket-derived watchlist used by the Python alerts.
+- `./tools/market-intel/run_market_intel.sh` refreshes the Python regime snapshot first, then rebuilds and verifies the external Polymarket context consumed by the Python alerts.
 - `python advisor.py --market` checks the regime gate and sizing posture before you read any single-name output.
 - `python advisor.py --symbol NVDA` is the fastest single-name diagnostic when you want factor detail plus the current recommendation.
 - `python canslim_alert.py --limit 8 --min-score 6` and `python dipbuyer_alert.py --limit 8 --min-score 6` generate the compact operator summaries used for daily review.
