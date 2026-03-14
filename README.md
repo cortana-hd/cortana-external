@@ -13,6 +13,7 @@ If `~/clawd` is strategy/memory/policy, **cortana-external is execution runtime*
 - Go service exposing **Whoop + Tonal + Alpaca** APIs (loopback on port `3033`)
 - Mission Control dashboard app (`apps/mission-control`, Next.js)
 - CANSLIM backtester/advisor (`backtester/`)
+- Read-only Polymarket market-intel + quick-check overlay path for the backtester
 - Watchdog reliability service (`watchdog/`, launchd)
 - `packages/` – typed client libraries (`fitness-client`, `fitness-types`)
 - Supporting docs and stock-discovery scripts
@@ -48,6 +49,34 @@ If `~/clawd` is strategy/memory/policy, **cortana-external is execution runtime*
 ```
 
 Note: there is currently **no top-level `services/` or `scripts/` directory** in this repo; service entrypoints are at repo root and in feature folders above.
+
+Backtester/Polymarket operator surfaces now include:
+- `python advisor.py --quick-check NVDA`
+- `python advisor.py --quick-check BTC`
+- `python experimental_alpha.py --symbols NVDA,BTC,COIN`
+- `python experimental_alpha.py --persist`
+- `python experimental_alpha.py --settle`
+- `python experimental_alpha.py --calibrate --minimum-samples 20`
+- `python nightly_discovery.py --limit 20`
+- `./tools/market-intel/run_market_intel.sh`
+
+Research-only surface:
+- `backtester/experimental_alpha.py` is a paper-only Polymarket alpha report built on top of `quick_check`
+- it now supports snapshot persistence, forward-settlement, calibration, and promotion-gate reporting for research validation
+- it is not wired into cron, alerts, or execution
+- promotion into a permanent production role is only allowed after the calibration gate clears on settled forward samples, and even then it should first land as a bounded annotation or small modifier inside the existing Python regime/technical engine
+
+Backtester universe tiers now separate:
+- fast operator review (`quick`)
+- standard daytime scanning (`standard`)
+- broader overnight discovery (`nightly_discovery`)
+
+Plain-English backtester model:
+- Python backtester = main decision engine
+- TypeScript Polymarket layer = macro/event context only
+- daytime alerts = compact operator view
+- nightly discovery = broader overnight scan
+- experimental alpha = research only, not live trade authority
 
 ---
 

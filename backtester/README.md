@@ -8,6 +8,103 @@ A Python-based backtesting engine and trading advisor for:
 
 This repo now includes a practical multi-wave market-intelligence stack layered on top of the original backtester.
 
+## Start Here
+
+If you are new, the easiest mental model is:
+
+1. the Python backtester is the main decision engine
+2. the TypeScript Polymarket layer is extra context
+3. the market regime decides how aggressive you are allowed to be
+4. the alerts and quick-check commands are the main things you read
+
+Put differently:
+- the Python side decides whether a stock setup is good or bad
+- the Polymarket side adds macro/event context around that setup
+- nothing in the Polymarket path directly places trades
+
+## Read More
+
+If you want more detail while reading this README, these are the best follow-up docs:
+- [System flow diagram](/Users/hd/Developer/cortana-external/backtester/docs/polymarket-backtester-flow.md)
+- [Wave buildout overview](/Users/hd/Developer/cortana-external/backtester/docs/docs-wave-overview.md)
+- [Decision review loop](/Users/hd/Developer/cortana-external/backtester/docs/decision-review-loop.md)
+- [Scoring and calibration notes](/Users/hd/Developer/cortana-external/backtester/docs/scoring-calibration.md)
+- [Uncertainty/confidence PRD](/Users/hd/Developer/cortana-external/backtester/docs/uncertainty-confidence-prd.md)
+- [Uncertainty runtime wiring](/Users/hd/Developer/cortana-external/backtester/docs/uncertainty-confidence-runtime-wiring.md)
+
+## How Everything Connects
+
+Think of the system as four layers:
+
+1. Market context layer
+- `./tools/market-intel/run_market_intel.sh`
+- recalculates the current market state from `SPY` and saves that result to a cache file
+- fetches Polymarket macro/event data
+- writes fresh artifact files the Python side can read
+
+2. Decision layer
+- `advisor.py`
+- scores stocks and dip setups
+- checks the market regime first
+- combines technicals, fundamentals, Wave 2/3 scoring, and Polymarket context
+
+3. Operator layer
+- `canslim_alert.py`
+- `dipbuyer_alert.py`
+- `advisor.py --quick-check`
+- these are the commands you actually read during the day
+
+4. Research layer
+- `nightly_discovery.py`
+- `experimental_alpha.py`
+- these help discover more names and test ideas, but they do not own trade authority
+
+## What Runs Automatically vs Manually
+
+Usually this is the split:
+
+Automatic / cron-friendly:
+- `./tools/market-intel/run_market_intel.sh`
+- `python canslim_alert.py --limit 8 --min-score 6`
+- `python dipbuyer_alert.py --limit 8 --min-score 6`
+- `python nightly_discovery.py --limit 20`
+
+Manual / operator-driven:
+- `python advisor.py --market`
+- `python advisor.py --symbol NVDA`
+- `python advisor.py --quick-check BTC`
+- `python main.py --symbol NVDA --years 2 --compare`
+- `python experimental_alpha.py --symbols NVDA,BTC,COIN`
+
+## What Each Command Is For
+
+Use these questions:
+
+- "What is the market environment right now?"
+  Run `python advisor.py --market`
+
+- "Is this single stock or coin worth looking at?"
+  Run `python advisor.py --quick-check NVDA`
+  Run `python advisor.py --quick-check BTC`
+
+- "Give me the fuller explanation for one stock."
+  Run `python advisor.py --symbol NVDA`
+
+- "Give me the compact daily stock summary."
+  Run `python canslim_alert.py --limit 8 --min-score 6`
+
+- "Give me the compact dip-buying summary."
+  Run `python dipbuyer_alert.py --limit 8 --min-score 6`
+
+- "Show me what the old-style backtest says over 2 years."
+  Run `python main.py --symbol NVDA --years 2 --compare`
+
+- "Show me more names overnight without slowing the daytime loop."
+  Run `python nightly_discovery.py --limit 20`
+
+- "Test research math in paper-only mode."
+  Run `python experimental_alpha.py --symbols NVDA,BTC,COIN`
+
 ## Quick Start
 
 ```bash
@@ -20,6 +117,15 @@ python advisor.py --market
 # Analyze a specific stock
 python advisor.py --symbol NVDA
 
+# Fast stock / coin / proxy verdict
+python advisor.py --quick-check BTC
+
+# Experimental paper-only alpha report
+python experimental_alpha.py --symbols NVDA,BTC,COIN
+
+# Broader nightly discovery scan
+python nightly_discovery.py --limit 20
+
 # Quick scan for opportunities (watchlist)
 python advisor.py --quick
 
@@ -29,6 +135,99 @@ python canslim_alert.py --limit 8 --min-score 6
 # Run a backtest
 python main.py --symbol AAPL --years 2 --compare
 ```
+
+Backtest data path:
+- `main.py` now uses the same resilient `MarketDataProvider` layer as `advisor.py`
+- it can run against Yahoo or cached data without requiring Alpaca credentials
+- Alpaca remains useful as an optional live-data source, but it is no longer a hard requirement for routine backtests
+
+Universe tiers:
+- `quick`: growth watchlist only, used for fast operator loops
+- `standard`: current curated broad universe plus dynamic additions, used by the live daytime stack
+- `nightly_discovery`: broader nightly sweep using live S&P 500 constituents when available, then layering growth and dynamic additions on top
+
+## Daily Flow
+
+This is the simplest practical workflow:
+
+1. refresh context
+```bash
+cd /Users/hd/Developer/cortana-external
+./tools/market-intel/run_market_intel.sh
+```
+
+What "refresh context" means:
+- update the `SPY` market-regime snapshot
+- fetch the latest Polymarket context
+- write fresh files that the Python alert layer reads
+
+What "SPY market-regime snapshot" means:
+- `SPY` is the S&P 500 ETF
+- the system uses `SPY` as the main proxy for "what is the overall stock market doing right now?"
+- it calculates whether the market is in a state like:
+  - `confirmed_uptrend`
+  - `uptrend_under_pressure`
+  - `correction`
+- it saves that result so later commands do not have to guess the market state again
+
+Simple example:
+- if `SPY` looks weak and the regime snapshot says `correction`, the system becomes defensive
+- if `SPY` looks healthy and the regime snapshot says `confirmed_uptrend`, the system is allowed to be more constructive
+
+2. check the market regime
+```bash
+cd /Users/hd/Developer/cortana-external/backtester
+python advisor.py --market
+```
+
+3. read the compact daytime summaries
+```bash
+python canslim_alert.py --limit 8 --min-score 6
+python dipbuyer_alert.py --limit 8 --min-score 6
+```
+
+4. deep-dive one name if needed
+```bash
+python advisor.py --symbol NVDA
+python advisor.py --quick-check BTC
+```
+
+What this means in plain English:
+- if the market regime is bad, the system should get defensive
+- if a stock looks good technically, Polymarket can support or conflict with that idea
+- if Polymarket conflicts, you should become more cautious, not blindly short or buy
+- if Polymarket supports and the technicals are also good, the setup becomes more interesting
+
+## Night Flow
+
+Nightly discovery is separate on purpose.
+
+During the day:
+- keep the scan smaller and faster
+- focus on names already most worth your attention
+
+At night:
+- run a broader discovery pass
+- let new names surface from a wider universe
+- review them the next morning
+
+Typical nightly command:
+
+```bash
+cd /Users/hd/Developer/cortana-external/backtester
+python nightly_discovery.py --limit 20
+```
+
+What it does:
+- scans a broader universe than the daytime alerts
+- tries to use fresh S&P 500 constituents
+- merges in growth names and dynamic names
+- returns a ranked list of leaders for review
+
+What it does not do:
+- it does not buy anything
+- it does not replace the daytime alert path
+- it does not override the main regime/technical engine
 
 ## Polymarket Context Integration
 
@@ -45,7 +244,7 @@ cd /Users/hd/Developer/cortana-external
 ```
 
 Production order is explicit:
-1. refresh SPY regime snapshot with `backtester/data/market_regime.py`
+1. recalculate the overall stock-market state from `SPY` and save it as a fresh regime snapshot
 2. run the TypeScript Polymarket integration against that snapshot
 3. verify Python can read the resulting artifacts
 4. run CANSLIM / Dip Buyer alerts
@@ -58,11 +257,23 @@ This writes:
 - `/Users/hd/Developer/cortana-external/backtester/data/polymarket_watchlist.json`
 
 Runtime effects:
-- `canslim_alert.py` and `dipbuyer_alert.py` prepend the compact Polymarket macro/context summary when the artifact is fresh.
-- `UniverseScreener.get_dynamic_tickers()` merges the Polymarket-derived watchlist with the existing dynamic watchlist.
+- `canslim_alert.py` and `dipbuyer_alert.py` prepend the compact Polymarket macro/context summary and now also render structured posture/focus lines when the JSON artifact is fresh.
+- `UniverseScreener.get_dynamic_tickers()` merges the Polymarket-derived watchlist with the existing dynamic watchlist, but only for stock / ETF / crypto-proxy names. Direct crypto symbols remain contextual and do not enter the stock screener.
 - The integration is read-only and does not place trades or interact with wallets/accounts.
 - The wrapper now fails fast if artifacts are stale or required registry themes lose coverage.
 - overlay should be populated whenever a fresh regime snapshot is available; the health path treats missing overlay in that situation as a failure.
+
+Plain-English meaning:
+- Polymarket is not the boss
+- it is extra context that can make you more confident or more cautious
+- the Python stock engine still decides whether a setup is actually buyable
+- direct crypto can inform context, but it does not automatically enter the stock screener
+
+Simple example:
+- `NVDA` can look technically strong
+- Polymarket might say macro context is `supportive`, which makes the setup more interesting
+- or Polymarket might say macro context is `conflicting`, which means you should be more careful
+- but the Python stock engine still makes the final `BUY / WATCH / NO_BUY` call
 
 ## Operator workflow
 
@@ -70,8 +281,120 @@ Use the surfaces in this order when you are reviewing the stack end to end:
 - `./tools/market-intel/run_market_intel.sh` refreshes the Python regime snapshot first, then rebuilds and verifies the external Polymarket context consumed by the Python alerts.
 - `python advisor.py --market` checks the regime gate and sizing posture before you read any single-name output.
 - `python advisor.py --symbol NVDA` is the fastest single-name diagnostic when you want factor detail plus the current recommendation.
+- `python advisor.py --quick-check BTC` is the fast verdict path for a stock, crypto proxy, or direct crypto alias when you want one bounded answer without reading the full alert.
 - `python canslim_alert.py --limit 8 --min-score 6` and `python dipbuyer_alert.py --limit 8 --min-score 6` generate the compact operator summaries used for daily review.
 - `TradingAdvisor().compare_model_families(...)["report"]` is the review surface for Wave 4 model-family deltas, restraint metrics, and review slices.
+
+When Polymarket context is available, the alert surface now gives you:
+- `Polymarket posture`: bounded `supportive | neutral | conflicting` context plus a lightweight aggression dial
+- `Polymarket focus`: overlap names already on the technical watchlist, early-runway names, and crypto/crypto-proxy names worth checking next
+- direct crypto remains context-only here; it does not override the stock regime/technical engine and it does not auto-enter the stock universe
+
+The quick-check command follows the same guardrails:
+- stocks and crypto proxies use the base stock-analysis path
+- direct crypto aliases like `BTC`, `ETH`, and `SOL` map to `BTC-USD`, `ETH-USD`, and `SOL-USD` and use the existing dip/recovery path
+- Polymarket can downgrade or annotate the verdict, but it does not create a trade by itself
+
+## Nightly discovery
+
+There is now a separate broader discovery surface at [`nightly_discovery.py`](/Users/hd/Developer/cortana-external/backtester/nightly_discovery.py).
+
+Use it when you want wider overnight coverage without slowing the daytime alert loop:
+
+```bash
+cd /Users/hd/Developer/cortana-external/backtester
+python nightly_discovery.py --limit 20
+python nightly_discovery.py --limit 30 --refresh-sp500 --json
+```
+
+What it does:
+- uses the `nightly_discovery` universe profile
+- pulls live S&P 500 constituents from a public source when available and caches them locally
+- falls back to the repo’s static constituent list if live refresh is unavailable
+- layers in the growth watchlist and fresh dynamic names
+- ranks the surfaced leaders through the existing Python analysis path
+
+Current source note:
+- the live constituent refresh currently comes from a public Wikipedia S&P 500 table
+- that is acceptable for a fallback-tolerant overnight discovery job, but it is still an HTML scrape
+- if the live refresh fails, the code now logs a warning and falls back to cache, then to the bundled static list
+
+What it does not do:
+- it does not replace the daytime alert path
+- it does not override the Python regime/technical engine
+- it does not place trades
+
+Recommended use:
+- keep the live alert path on the current `standard` universe
+- schedule `python nightly_discovery.py --limit 20` after market close or overnight
+- review the nightly leaders the next morning and let only the best names graduate into the normal operator workflow
+
+## Experimental alpha research
+
+There is now a separate paper-only research surface at [`experimental_alpha.py`](/Users/hd/Developer/cortana-external/backtester/experimental_alpha.py).
+
+Use it for equation/algorithm experiments only:
+- it reuses `quick_check` plus fresh Polymarket structured context
+- it computes a paper-only calibrated probability, edge, capped Kelly fraction, and expected move estimate
+- it outputs `paper_long`, `track`, `reduce_or_wait`, or `skip`
+- it does not place orders
+- it is not wired into cron or the production alert path
+
+Run it manually:
+
+```bash
+cd /Users/hd/Developer/cortana-external/backtester
+python experimental_alpha.py --symbols NVDA,BTC,COIN
+python experimental_alpha.py --json
+python experimental_alpha.py --persist
+python experimental_alpha.py --settle
+python experimental_alpha.py --calibrate --minimum-samples 20
+```
+
+Guardrails:
+- treat the formulas as research heuristics, not truth
+- keep it paper-only until forward-tested
+- do not route this into the production buy/no-buy path without separate validation
+
+Execution-readiness research workflow:
+1. `python experimental_alpha.py --persist`
+   This snapshots the current paper candidates under `.cache/experimental_alpha/snapshots/`.
+2. `python experimental_alpha.py --settle`
+   This settles prior snapshots against later market data and writes forward returns under `.cache/experimental_alpha/settled/`.
+3. `python experimental_alpha.py --calibrate --minimum-samples 20`
+   This builds the calibration and promotion-gate report from the settled sample set.
+
+Promotion gate intent:
+- `ready` means the current `paper_long` bucket cleared the present research thresholds for sample count, 5d hit rate, average 5d return, and Brier score.
+- `blocked` means the sample is still too small or too weak to justify promoting any part of the heuristic into the live production decision path.
+
+Settlement semantics:
+- snapshot entry uses the first trading bar at or after the snapshot timestamp
+- `1d`, `5d`, and `10d` mean trading-bar offsets, not calendar days
+- partially matured snapshots are intentionally included
+- if a horizon is not mature yet, that horizon stays empty instead of being fabricated
+
+When experimental alpha can be promoted:
+- It stays paper-only by default. No production promotion happens just because the report looks good for a few days.
+- The first eligible promotion target is a bounded annotation layer, not direct trade authority. In practice that means watchlist priority, quick-check commentary, or a small conviction modifier inside the existing Python regime/technical engine.
+- Promotion is only allowed when all of the following are true:
+  1. `python experimental_alpha.py --calibrate --minimum-samples 20` returns `Promotion gate: ready`
+  2. the settled sample includes at least `20` `paper_long` candidates
+  3. `paper_long` 5d hit rate is at least `55%`
+  4. `paper_long` average 5d return is at least `+1.0%`
+  5. `paper_long` 5d Brier score is at most `0.23`
+  6. the broader backtester test suite still passes after the integration change
+  7. the promoted logic remains bounded so Polymarket stays contextual and does not replace the Python regime/technical engine
+- Even after the gate clears, promotion should happen in stages:
+  1. research report only
+  2. watchlist / quick-check annotation
+  3. small bounded decision modifier
+  4. anything larger only after another forward-test cycle
+- This research path should not become a permanent live input if:
+  - the gate falls back to `blocked`
+  - calibration degrades after rollout
+  - results are concentrated in one short regime pocket instead of holding across multiple conditions
+  - the logic starts overriding base regime/technical discipline instead of supplementing it
 
 Example report command:
 

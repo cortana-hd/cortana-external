@@ -31,6 +31,8 @@ USAGE
 """
 
 import argparse
+import io
+from contextlib import redirect_stderr, redirect_stdout
 from typing import List, Dict, Optional
 import pandas as pd
 from data.confidence import (
@@ -41,7 +43,14 @@ from data.confidence import (
     regime_quality_modifier,
     risk_adjusted_size_multiplier,
 )
-from data.universe import UniverseScreener, GROWTH_WATCHLIST
+from data.polymarket_context import load_symbol_context
+from data.universe import (
+    UniverseScreener,
+    GROWTH_WATCHLIST,
+    UNIVERSE_PROFILE_QUICK,
+    UNIVERSE_PROFILE_STANDARD,
+    UNIVERSE_PROFILE_NIGHTLY_DISCOVERY,
+)
 from data.market_data_provider import MarketDataProvider
 from data.market_regime import MarketRegimeDetector, MarketRegime, MarketStatus
 from data.fundamentals import FundamentalsFetcher
@@ -66,6 +75,14 @@ from evaluation.comparison import (
     score_enhanced_rank,
 )
 from strategies.dip_buyer import DipBuyerStrategy
+
+CRYPTO_ALIAS_MAP = {
+    "BTC": "BTC-USD",
+    "ETH": "ETH-USD",
+    "SOL": "SOL-USD",
+}
+
+CRYPTO_PROXY_SYMBOLS = {"COIN", "HOOD", "MSTR", "MARA", "RIOT", "CLSK", "BITO", "IBIT", "ETHA"}
 
 
 class TradingAdvisor:
@@ -486,7 +503,7 @@ class TradingAdvisor:
             'recommendation': setup.get('recommendation', {}),
         }
 
-    def analyze_dip_stock(self, symbol: str) -> Dict:
+    def analyze_dip_stock(self, symbol: str, quiet: bool = False) -> Dict:
         """
         Dip Buyer analysis of a single stock.
 
@@ -495,12 +512,228 @@ class TradingAdvisor:
         """
         market = self.get_market_status()
         risk_snapshot = self.risk_fetcher.get_snapshot()
-        return self._analyze_dip_with_context(symbol, market, risk_snapshot)
+        return self._analyze_dip_with_context(symbol, market, risk_snapshot, quiet=quiet)
+
+    @staticmethod
+    def _normalize_quick_check_symbol(symbol: str) -> Dict[str, str]:
+        raw = str(symbol or "").strip().upper()
+        if raw.endswith("-USD"):
+            base = raw[:-4]
+            if base in CRYPTO_ALIAS_MAP:
+                return {
+                    "input_symbol": raw,
+                    "display_symbol": base,
+                    "provider_symbol": raw,
+                    "asset_class": "crypto",
+                }
+
+        if raw in CRYPTO_ALIAS_MAP:
+            return {
+                "input_symbol": raw,
+                "display_symbol": raw,
+                "provider_symbol": CRYPTO_ALIAS_MAP[raw],
+                "asset_class": "crypto",
+            }
+
+        if raw in CRYPTO_PROXY_SYMBOLS:
+            return {
+                "input_symbol": raw,
+                "display_symbol": raw,
+                "provider_symbol": raw,
+                "asset_class": "crypto_proxy",
+            }
+
+        return {
+            "input_symbol": raw,
+            "display_symbol": raw,
+            "provider_symbol": raw,
+            "asset_class": "stock",
+        }
+
+    def quick_check(self, symbol: str) -> Dict:
+        target = self._normalize_quick_check_symbol(symbol)
+        display_symbol = target["display_symbol"]
+        provider_symbol = target["provider_symbol"]
+        asset_class = target["asset_class"]
+        polymarket = load_symbol_context(display_symbol)
+
+        if asset_class == "crypto":
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                analysis = self.analyze_dip_stock(provider_symbol, quiet=True)
+            path = "dip_buyer"
+            verdict, reason = self._quick_check_dip_verdict(analysis)
+        else:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                analysis = self.analyze_stock(provider_symbol, quiet=True)
+            path = "canslim"
+            verdict, reason = self._quick_check_stock_verdict(analysis)
+
+        verdict, modifier = self._apply_polymarket_quick_check_overlay(
+            verdict=verdict,
+            asset_class=asset_class,
+            polymarket=polymarket,
+        )
+
+        if modifier:
+            reason = f"{reason} {modifier}".strip()
+
+        return {
+            "input_symbol": target["input_symbol"],
+            "symbol": display_symbol,
+            "provider_symbol": provider_symbol,
+            "asset_class": asset_class,
+            "analysis_path": path,
+            "verdict": verdict,
+            "reason": reason,
+            "analysis": analysis,
+            "polymarket": polymarket,
+        }
+
+    @staticmethod
+    def _quick_check_stock_verdict(analysis: Dict) -> tuple[str, str]:
+        if analysis.get("error"):
+            return "avoid for now", str(analysis.get("error"))
+
+        rec = analysis.get("recommendation", {})
+        tech = analysis.get("technical_scores", {})
+        action = str(rec.get("action", "NO_BUY")).upper()
+        breakout_score = int(analysis.get("breakout_follow_through", {}).get("score", rec.get("breakout_score", 0)) or 0)
+        exit_risk_score = int(analysis.get("exit_risk", {}).get("score", rec.get("exit_risk_score", 0)) or 0)
+        confidence = int(rec.get("effective_confidence", analysis.get("effective_confidence", analysis.get("confidence", 0))) or 0)
+        pct_from_high = float(tech.get("pct_from_high", 0.0) or 0.0)
+        total_score = int(analysis.get("total_score", rec.get("score", 0)) or 0)
+
+        if action == "BUY":
+            if pct_from_high >= 99.5 and exit_risk_score >= 2:
+                return "extended", "Setup is working, but extension and exit risk are rising."
+            if breakout_score >= 4 and confidence >= 70:
+                return "actionable", "Base stock setup is valid and follow-through is strong enough to act on."
+            return "needs confirmation", "Setup is close, but still needs cleaner follow-through."
+
+        if action == "WATCH":
+            if breakout_score >= 3 and confidence >= 60:
+                return "needs confirmation", "Setup is constructive, but confirmation is still incomplete."
+            if total_score >= 7 and pct_from_high >= 90:
+                return "early / interesting", "Name is technically relevant, but it is still early rather than actionable."
+            return "avoid for now", str(rec.get("reason", "Setup quality is not high enough right now."))
+
+        if action == "NO_BUY" and exit_risk_score >= 3 and pct_from_high >= 98:
+            return "manage winners / exhaustion risk", "Risk is skewing toward exhaustion rather than a fresh entry."
+
+        return "avoid for now", str(rec.get("reason", "Base setup did not clear the current stock filters."))
+
+    @staticmethod
+    def _quick_check_dip_verdict(analysis: Dict) -> tuple[str, str]:
+        if analysis.get("error"):
+            return "avoid for now", str(analysis.get("error"))
+
+        rec = analysis.get("recommendation", {})
+        action = str(rec.get("action", "NO_BUY")).upper()
+        recovery_ready = bool(analysis.get("recovery_ready", False))
+        falling_knife = bool(analysis.get("falling_knife", False))
+        total_score = int(analysis.get("total_score", 0) or 0)
+        confidence = int(rec.get("effective_confidence", analysis.get("effective_confidence", analysis.get("confidence", 0))) or 0)
+        rebound_pct = float(analysis.get("rebound_pct", 0.0) or 0.0)
+
+        if action == "BUY":
+            if rebound_pct >= 0.12:
+                return "extended", "Bounce is real, but a lot of the easy recovery may already be behind it."
+            return "actionable", "Dip/recovery setup is valid enough to act on if execution conditions still look clean."
+
+        if action == "WATCH":
+            if recovery_ready and not falling_knife and total_score >= 6 and confidence >= 50:
+                return "needs confirmation", "Recovery is improving, but the dip setup still needs confirmation."
+            if not falling_knife and total_score >= 5:
+                return "early / interesting", "Recovery context is starting to improve, but it is still early."
+            return "avoid for now", str(rec.get("reason", "Crypto setup quality is not strong enough yet."))
+
+        return "avoid for now", str(rec.get("reason", "Recovery setup is not ready."))
+
+    @staticmethod
+    def _apply_polymarket_quick_check_overlay(
+        *,
+        verdict: str,
+        asset_class: str,
+        polymarket: Optional[Dict],
+    ) -> tuple[str, str]:
+        if not polymarket:
+            return verdict, ""
+
+        matched = polymarket.get("matched") if isinstance(polymarket, dict) else None
+        conviction = str(polymarket.get("conviction", "")).strip().lower() if isinstance(polymarket, dict) else ""
+        divergence_state = str(polymarket.get("divergence_state", "")).strip().lower() if isinstance(polymarket, dict) else ""
+        severity = str((matched or {}).get("severity", "")).strip().lower() if isinstance(matched, dict) else ""
+        persistence = str((matched or {}).get("persistence", "")).strip().lower() if isinstance(matched, dict) else ""
+        themes = ", ".join((matched or {}).get("themes", [])[:2]) if isinstance(matched, dict) else ""
+
+        if conviction == "conflicting" and verdict == "actionable":
+            note = "Polymarket context is conflicting, so this is downgraded to confirmation-only."
+            if themes:
+                note += f" Themes: {themes}."
+            return "needs confirmation", note
+
+        if (
+            asset_class == "crypto"
+            and verdict == "early / interesting"
+            and conviction == "supportive"
+            and severity in {"notable", "major"}
+            and persistence in {"persistent", "accelerating"}
+        ):
+            note = "Supportive Polymarket context lifts this from curiosity to confirmation-watch only."
+            if themes:
+                note += f" Themes: {themes}."
+            return "needs confirmation", note
+
+        if conviction == "conflicting" and divergence_state == "persistent" and verdict == "needs confirmation":
+            note = "Persistent divergence keeps the bar high even though the setup is worth tracking."
+            if themes:
+                note += f" Themes: {themes}."
+            return verdict, note
+
+        if matched and themes:
+            return verdict, f"Polymarket context: {conviction or 'neutral'} on {themes}."
+
+        return verdict, ""
+
+    @staticmethod
+    def format_quick_check(result: Dict) -> str:
+        lines = [
+            f"Quick check: {result.get('symbol')} -> {result.get('verdict')}",
+            f"Path: {result.get('analysis_path')} | Asset: {result.get('asset_class')}",
+        ]
+
+        polymarket = result.get("polymarket") or {}
+        if polymarket:
+            divergence = polymarket.get("divergence_summary", "")
+            conviction = polymarket.get("conviction", "") or "neutral"
+            matched = polymarket.get("matched") or {}
+            themes = ", ".join(matched.get("themes", [])[:3]) if isinstance(matched, dict) else ""
+            if themes or divergence:
+                lines.append(
+                    f"Polymarket: {conviction}"
+                    + (f" | {divergence}" if divergence else "")
+                    + (f" | themes {themes}" if themes else "")
+                )
+
+        analysis = result.get("analysis", {})
+        rec = analysis.get("recommendation", {}) if isinstance(analysis, dict) else {}
+        if analysis.get("error"):
+            lines.append(f"Reason: {analysis.get('error')}")
+            return "\n".join(lines)
+
+        lines.append(f"Reason: {result.get('reason')}")
+        lines.append(
+            f"Base action: {rec.get('action', 'N/A')} | Score {analysis.get('total_score', 0)}/12 | Confidence {analysis.get('effective_confidence', analysis.get('confidence', 0))}%"
+        )
+        return "\n".join(lines)
 
     def scan_dip_opportunities(
         self,
         quick: bool = False,
         min_score: int = 6,
+        universe_profile: str = UNIVERSE_PROFILE_STANDARD,
+        enforce_market_gate: bool = True,
+        refresh_sp500: bool = False,
     ) -> pd.DataFrame:
         """
         Scan the universe for Dip Buyer opportunities.
@@ -519,16 +752,14 @@ class TradingAdvisor:
         market = self.get_market_status(refresh=True)
         print(market)
 
-        if market.regime not in [MarketRegime.CORRECTION, MarketRegime.UPTREND_UNDER_PRESSURE]:
+        if enforce_market_gate and market.regime not in [MarketRegime.CORRECTION, MarketRegime.UPTREND_UNDER_PRESSURE]:
             print("⚠️  Dip Buyer active only in corrections or pressured uptrends.")
             return pd.DataFrame()
 
         risk_snapshot = self.risk_fetcher.get_snapshot()
 
-        if quick:
-            symbols = GROWTH_WATCHLIST
-        else:
-            symbols = self.screener.get_universe()
+        profile = UNIVERSE_PROFILE_QUICK if quick else universe_profile
+        symbols = self.screener.get_universe_for_profile(profile, refresh_sp500=refresh_sp500)
 
         candidates = []
         for i, symbol in enumerate(symbols):
@@ -791,6 +1022,9 @@ class TradingAdvisor:
         self,
         quick: bool = False,
         min_score: int = 6,
+        universe_profile: str = UNIVERSE_PROFILE_STANDARD,
+        enforce_market_gate: bool = True,
+        refresh_sp500: bool = False,
     ) -> pd.DataFrame:
         """
         Scan the universe for trading opportunities.
@@ -810,16 +1044,14 @@ class TradingAdvisor:
         market = self.get_market_status(refresh=True)
         print(market)
         
-        if market.regime == MarketRegime.CORRECTION:
+        if enforce_market_gate and market.regime == MarketRegime.CORRECTION:
             print("⚠️  Market in correction. Skipping scan.")
             return pd.DataFrame()
         
         # Run screen
-        if quick:
-            symbols = GROWTH_WATCHLIST
-            results = self.screener.screen(symbols, min_technical_score=min_score - 2)
-        else:
-            results = self.screener.screen(min_technical_score=min_score - 2)
+        profile = UNIVERSE_PROFILE_QUICK if quick else universe_profile
+        symbols = self.screener.get_universe_for_profile(profile, refresh_sp500=refresh_sp500)
+        results = self.screener.screen(symbols, min_technical_score=min_score - 2)
         
         if results.empty:
             print("No candidates found.")
@@ -878,10 +1110,10 @@ class TradingAdvisor:
                     continue
         finally:
             self._candidate_context_by_symbol = previous_context
-        
+
         if not enriched:
             return results
-        
+
         enriched_df = pd.DataFrame(enriched)
         enriched_df = self._sort_runtime_candidates(
             enriched_df,
@@ -891,6 +1123,61 @@ class TradingAdvisor:
         # Filter by minimum total score
         enriched_df = enriched_df[enriched_df['total_score'] >= min_score]
         return attach_model_family_scores(enriched_df)
+
+    def run_nightly_discovery(
+        self,
+        *,
+        limit: int = 25,
+        min_technical_score: int = 3,
+        refresh_sp500: bool = False,
+    ) -> pd.DataFrame:
+        """Run a broader nightly discovery pass without the live market gate."""
+        symbols = self.screener.get_universe_for_profile(
+            UNIVERSE_PROFILE_NIGHTLY_DISCOVERY,
+            refresh_sp500=refresh_sp500,
+        )
+        results = self.screener.screen(symbols, min_technical_score=min_technical_score, verbose=True)
+        if results.empty:
+            return results
+
+        market = self.get_market_status(refresh=True)
+        enriched = []
+        previous_context = dict(self._candidate_context_by_symbol)
+        self._candidate_context_by_symbol = {
+            row['symbol']: row.to_dict()
+            for _, row in results.head(limit).iterrows()
+        }
+
+        try:
+            for _, row in results.head(limit).iterrows():
+                symbol = row['symbol']
+                analysis = self.analyze_stock(symbol, quiet=True)
+                if 'error' in analysis:
+                    continue
+
+                rec = analysis.get('recommendation', {})
+                row_dict = row.to_dict()
+                row_dict['market_regime'] = getattr(getattr(market, 'regime', None), 'value', 'unknown')
+                row_dict['total_score'] = analysis.get('total_score', 0)
+                row_dict['rank_score'] = analysis.get('rank_score', analysis.get('total_score', 0))
+                row_dict['action'] = rec.get('action', 'NO_BUY')
+                row_dict['reason'] = rec.get('reason', '')
+                row_dict['confidence'] = rec.get('confidence', analysis.get('confidence', 0))
+                row_dict['trade_quality_score'] = rec.get(
+                    'trade_quality_score',
+                    analysis.get('trade_quality_score', analysis.get('total_score', 0)),
+                )
+                enriched.append(row_dict)
+        finally:
+            self._candidate_context_by_symbol = previous_context
+
+        if not enriched:
+            return pd.DataFrame()
+
+        return pd.DataFrame(enriched).sort_values(
+            ['rank_score', 'technical_score', 'confidence', 'symbol'],
+            ascending=[False, False, False, True],
+        ).reset_index(drop=True)
 
     def compare_model_families(
         self,
@@ -1030,6 +1317,8 @@ def main():
                        help='Show market status only')
     parser.add_argument('--symbol', '-s', type=str,
                        help='Analyze specific stock')
+    parser.add_argument('--quick-check', type=str,
+                       help='Run a fast stock/coin/proxy verdict with Polymarket context')
     parser.add_argument('--scan', action='store_true',
                        help='Full universe scan')
     
@@ -1089,6 +1378,11 @@ def main():
         else:
             print(f"   Reason: {rec.get('reason', 'N/A')}")
         
+        return
+
+    if args.quick_check:
+        result = advisor.quick_check(args.quick_check)
+        print("\n" + advisor.format_quick_check(result))
         return
     
     # Default: get recommendations
