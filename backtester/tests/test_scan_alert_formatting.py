@@ -2,10 +2,18 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 
 from canslim_alert import format_alert as format_canslim
 from data.market_regime import MarketRegime
 from dipbuyer_alert import format_alert as format_dipbuyer
+
+
+@pytest.fixture(autouse=True)
+def _disable_polymarket_artifacts(monkeypatch, tmp_path):
+    monkeypatch.setenv("POLYMARKET_COMPACT_REPORT_PATH", str(tmp_path / "missing-compact.txt"))
+    monkeypatch.setenv("POLYMARKET_REPORT_JSON_PATH", str(tmp_path / "missing-report.json"))
+    monkeypatch.setenv("POLYMARKET_WATCHLIST_PATH", str(tmp_path / "missing-watchlist.json"))
 
 
 class _FakeCanSlimAdvisor:
