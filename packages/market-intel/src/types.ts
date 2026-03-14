@@ -287,11 +287,14 @@ export interface ArtifactHealthReport {
   ok: boolean;
   stale: boolean;
   generatedAt: string | null;
+  regimeGeneratedAt: string | null;
   ageHours: number | null;
+  regimeAgeHours: number | null;
   topMarkets: number;
   watchlistCount: number;
   overlay: string | null;
   files: {
+    regimeJson: ArtifactFileHealth;
     reportJson: ArtifactFileHealth;
     compactText: ArtifactFileHealth;
     watchlistJson: ArtifactFileHealth;

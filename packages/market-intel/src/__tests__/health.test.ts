@@ -164,4 +164,49 @@ describe("health", () => {
       ]),
     );
   });
+
+  it("requires a fresh regime snapshot and populated overlay when regime data is present", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "market-intel-regime-health-"));
+    tempDirs.push(dir);
+    const regimePath = path.join(dir, "market_regime_snapshot_SPY.json");
+    const reportPath = path.join(dir, "latest-report.json");
+    const compactPath = path.join(dir, "latest-compact.txt");
+    const watchlistPath = path.join(dir, "polymarket_watchlist.json");
+
+    await writeFile(
+      regimePath,
+      JSON.stringify({
+        generated_at_utc: "2026-03-13T11:00:00.000Z",
+        market_status: {
+          regime: "confirmed_uptrend",
+        },
+      }),
+      "utf8",
+    );
+    await writeFile(
+      reportPath,
+      JSON.stringify({
+        metadata: { generatedAt: "2026-03-13T11:30:00.000Z" },
+        topMarkets: [{ id: "fed" }],
+        overlay: { alignment: "insufficient_data" },
+      }),
+      "utf8",
+    );
+    await writeFile(compactPath, "Polymarket: Fed easing odds 77%", "utf8");
+    await writeFile(watchlistPath, JSON.stringify({ tickers: [{ symbol: "QQQ" }] }), "utf8");
+
+    const report = await assessArtifactHealth({
+      regimePath,
+      reportJsonPath: reportPath,
+      compactReportPath: compactPath,
+      watchlistJsonPath: watchlistPath,
+      requireRegime: true,
+      now: new Date("2026-03-13T12:00:00.000Z"),
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.failures).toContain(
+      "overlay stayed insufficient_data even though a regime snapshot was available",
+    );
+  });
 });

@@ -6,12 +6,15 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const logger = createConsoleLogger(true);
   const report = await assessArtifactHealth({
+    regimePath: args.regimePath,
     reportJsonPath: args.reportJsonPath,
     compactReportPath: args.compactReportPath,
     watchlistJsonPath: args.watchlistJsonPath,
     maxAgeHours: args.maxAgeHours,
     minTopMarkets: args.minTopMarkets,
     minWatchlistCount: args.minWatchlistCount,
+    requireRegime: args.requireRegime,
+    requireOverlayWithRegime: args.requireOverlayWithRegime,
   });
 
   if (args.output === "json") {
@@ -31,16 +34,21 @@ async function main() {
 function parseArgs(argv: string[]) {
   const parsed: {
     reportJsonPath?: string;
+    regimePath?: string;
     compactReportPath?: string;
     watchlistJsonPath?: string;
     maxAgeHours: number;
     minTopMarkets: number;
     minWatchlistCount: number;
+    requireRegime: boolean;
+    requireOverlayWithRegime: boolean;
     output: "text" | "json";
   } = {
     maxAgeHours: 8,
     minTopMarkets: 1,
     minWatchlistCount: 1,
+    requireRegime: false,
+    requireOverlayWithRegime: true,
     output: "text",
   };
 
@@ -50,6 +58,10 @@ function parseArgs(argv: string[]) {
     switch (arg) {
       case "--report-json":
         parsed.reportJsonPath = next;
+        index += 1;
+        break;
+      case "--regime":
+        parsed.regimePath = next;
         index += 1;
         break;
       case "--compact":
@@ -75,6 +87,12 @@ function parseArgs(argv: string[]) {
       case "--output":
         parsed.output = next === "json" ? "json" : "text";
         index += 1;
+        break;
+      case "--require-regime":
+        parsed.requireRegime = true;
+        break;
+      case "--allow-missing-overlay":
+        parsed.requireOverlayWithRegime = false;
         break;
       default:
         break;
