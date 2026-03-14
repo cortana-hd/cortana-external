@@ -36,6 +36,13 @@ This is the single production health path. It verifies, in order:
 4. Python can read the compact context and watchlist artifacts
 5. only then should CANSLIM / Dip Buyer alerts run
 
+Run tests from the actual package directory:
+
+```bash
+cd /Users/hd/Developer/cortana-external/packages/market-intel
+pnpm test
+```
+
 Plain-English meaning of "SPY regime snapshot":
 - `SPY` is the S&P 500 ETF
 - the backtester uses it as the main proxy for the overall U.S. stock market

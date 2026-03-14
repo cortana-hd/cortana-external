@@ -27,12 +27,16 @@ from typing import List, Dict, Optional, Set
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 import json
+import logging
 import os
 from pathlib import Path
 import time
 import requests
 
 from .polymarket_context import load_watchlist_entries
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 # S&P 500 tickers (we'll use this as our base universe)
@@ -254,10 +258,13 @@ class UniverseScreener:
             symbols = self._dedupe_symbols(self._fetch_live_sp500_constituents())
             self._write_sp500_constituents_cache(symbols)
             return symbols
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning("Live S&P 500 constituent refresh failed; falling back to cache/static list: %s", exc)
             cached = self._load_cached_sp500_constituents(max_age_hours=24 * 365)
             if cached:
+                LOGGER.warning("Using cached S&P 500 constituents for nightly discovery")
                 return cached
+            LOGGER.warning("Using static bundled S&P 500 constituents for nightly discovery")
             return self._dedupe_symbols(SP500_TICKERS)
     
     def _dynamic_watchlist_path(self) -> Path:

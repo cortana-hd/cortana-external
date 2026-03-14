@@ -1,4 +1,5 @@
 import json
+import logging
 
 from data.universe import (
     GROWTH_WATCHLIST,
@@ -51,6 +52,21 @@ def test_sp500_constituents_fall_back_to_static_list_when_live_fetch_and_cache_f
     symbols = screener.load_sp500_constituents(refresh=True)
 
     assert symbols == screener._dedupe_symbols(SP500_TICKERS)
+
+
+def test_sp500_constituents_logs_when_live_refresh_falls_back(tmp_path, monkeypatch, caplog):
+    screener = UniverseScreener(cache_dir=str(tmp_path))
+    monkeypatch.setattr(
+        screener,
+        "_fetch_live_sp500_constituents",
+        lambda: (_ for _ in ()).throw(RuntimeError("network down")),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        screener.load_sp500_constituents(refresh=True)
+
+    assert "Live S&P 500 constituent refresh failed" in caplog.text
+    assert "Using static bundled S&P 500 constituents" in caplog.text
 
 
 def test_nightly_discovery_profile_merges_live_constituents_growth_and_dynamic(tmp_path, monkeypatch):

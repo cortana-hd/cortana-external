@@ -316,6 +316,13 @@ def settle_alpha_snapshots(
     market_data: Optional[MarketDataProvider] = None,
     horizons: Sequence[int] = DEFAULT_HORIZONS,
 ) -> list[SettledAlphaCandidate]:
+    """Settle persisted paper candidates against later price history.
+
+    Semantics:
+    - entry is anchored to the first trading bar at or after the snapshot timestamp
+    - horizon labels like ``1d``/``5d``/``10d`` mean trading-bar offsets, not calendar days
+    - runs can include partially matured snapshots; unavailable forward horizons remain ``None``
+    """
     root = root or default_alpha_root()
     now = normalize_datetime(now or datetime.now(UTC))
     market_data = market_data or MarketDataProvider(provider_order="yahoo")
@@ -408,6 +415,12 @@ def evaluate_forward_returns(
     entry_price: float | None,
     horizons: Sequence[int] = DEFAULT_HORIZONS,
 ) -> dict[str, float | None]:
+    """Evaluate forward returns using trading-bar offsets from the entry anchor.
+
+    The entry anchor is the first bar at or after ``as_of``.
+    A horizon like ``5d`` means five future trading bars, not five calendar days.
+    If a snapshot has not fully matured yet, that horizon is left as ``None``.
+    """
     if frame is None or frame.empty:
         return {f"{horizon}d": None for horizon in horizons}
 
@@ -478,6 +491,11 @@ def build_calibration_report(
     generated_at: Optional[datetime] = None,
     minimum_samples: int = 20,
 ) -> CalibrationReport:
+    """Build calibration metrics from settled paper candidates.
+
+    Partially matured records are intentionally included. Any record contributes to a given
+    horizon only when that forward return is available.
+    """
     generated_at = normalize_datetime(generated_at or datetime.now(UTC))
     settled = [
         record

@@ -309,10 +309,15 @@ python nightly_discovery.py --limit 30 --refresh-sp500 --json
 
 What it does:
 - uses the `nightly_discovery` universe profile
-- pulls live S&P 500 constituents when available and caches them locally
+- pulls live S&P 500 constituents from a public source when available and caches them locally
 - falls back to the repo’s static constituent list if live refresh is unavailable
 - layers in the growth watchlist and fresh dynamic names
 - ranks the surfaced leaders through the existing Python analysis path
+
+Current source note:
+- the live constituent refresh currently comes from a public Wikipedia S&P 500 table
+- that is acceptable for a fallback-tolerant overnight discovery job, but it is still an HTML scrape
+- if the live refresh fails, the code now logs a warning and falls back to cache, then to the bundled static list
 
 What it does not do:
 - it does not replace the daytime alert path
@@ -362,6 +367,12 @@ Execution-readiness research workflow:
 Promotion gate intent:
 - `ready` means the current `paper_long` bucket cleared the present research thresholds for sample count, 5d hit rate, average 5d return, and Brier score.
 - `blocked` means the sample is still too small or too weak to justify promoting any part of the heuristic into the live production decision path.
+
+Settlement semantics:
+- snapshot entry uses the first trading bar at or after the snapshot timestamp
+- `1d`, `5d`, and `10d` mean trading-bar offsets, not calendar days
+- partially matured snapshots are intentionally included
+- if a horizon is not mature yet, that horizon stays empty instead of being fabricated
 
 When experimental alpha can be promoted:
 - It stays paper-only by default. No production promotion happens just because the report looks good for a few days.
