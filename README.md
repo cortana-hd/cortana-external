@@ -10,7 +10,7 @@ If `~/clawd` is strategy/memory/policy, **cortana-external is execution runtime*
 
 ## 1) What this repo contains
 
-- Go service exposing **Whoop + Tonal + Alpaca** APIs (loopback on port `3033`)
+- TypeScript Hono service (`@cortana/external-service`) exposing **Whoop + Tonal + Alpaca** APIs (loopback on port `3033`)
 - Mission Control dashboard app (`apps/mission-control`, Next.js)
 - CANSLIM backtester/advisor (`backtester/`)
 - Read-only Polymarket market-intel + quick-check overlay path for the backtester
@@ -26,20 +26,18 @@ If `~/clawd` is strategy/memory/policy, **cortana-external is execution runtime*
 ~/Developer/cortana-external
 ├── README.md
 ├── .env
-├── main.go
-├── run.sh
+├── apps/
+│   ├── external-service/        # TypeScript external API service (Hono + Node)
+│   └── mission-control/         # Next.js ops dashboard
 ├── launchd-run.sh
-├── go.mod / go.sum
 │
 ├── whoop/                       # Whoop API/auth handlers
 ├── tonal/                       # Tonal auth/data/health handlers
 ├── alpaca/                      # Alpaca service handlers
 ├── backtester/                  # CANSLIM engine + alerts
 ├── watchdog/                    # launchd reliability monitor
-├── apps/
-│   └── mission-control/         # Next.js ops dashboard
 ├── packages/
-│   ├── fitness-client/           # Typed TS client for Go fitness service
+│   ├── fitness-client/           # Typed TS client for external fitness/trading service
 │   ├── fitness-types/            # Shared TypeScript types for fitness data
 │   └── market-intel/             # Read-only Polymarket market-intelligence package
 ├── tools/
@@ -48,7 +46,7 @@ If `~/clawd` is strategy/memory/policy, **cortana-external is execution runtime*
 └── docs/                        # runbooks + architecture notes
 ```
 
-Note: there is currently **no top-level `services/` or `scripts/` directory** in this repo; service entrypoints are at repo root and in feature folders above.
+Note: there is currently **no top-level `services/` or `scripts/` directory** in this repo; service entrypoints live under app folders and feature folders above.
 
 Backtester/Polymarket operator surfaces now include:
 - `python advisor.py --quick-check NVDA`
@@ -82,7 +80,7 @@ Plain-English backtester model:
 
 ## 3) Service/app catalog
 
-## A) Go fitness + trading API service
+## A) External fitness + trading API service (`@cortana/external-service`)
 
 ### What it does
 Single HTTP service for:
@@ -91,18 +89,19 @@ Single HTTP service for:
 - Alpaca account/positions/portfolio/trade tracking
 
 ### Entry points
-- `main.go`
-- `run.sh` (loads `.env`, then `go run main.go`)
-- `launchd-run.sh` (launchd-safe runner, enforces `PORT=3033` default)
+- `apps/external-service/src/index.ts`
+- `apps/external-service/src/app.ts`
+- `launchd-run.sh` (launchd-safe runner, enforces `PORT=3033` default and runs `pnpm --filter @cortana/external-service start`)
 
 ### Bind/port
 - `127.0.0.1:${PORT}`
 - Default: `127.0.0.1:3033`
 
-### API surface (from `main.go`)
-- Whoop: `/auth/url`, `/auth/callback`, `/whoop/data`
+### API surface
+- Aggregate health: `/health`
+- Whoop: `/auth/url`, `/auth/callback`, `/auth/status`, `/whoop/health`, `/whoop/data`, `/whoop/recovery`, `/whoop/recovery/latest`
 - Tonal: `/tonal/health`, `/tonal/data`
-- Alpaca: `/alpaca/health`, `/alpaca/account`, `/alpaca/positions`, `/alpaca/portfolio`, `/alpaca/trades` (GET/POST/PUT), `/alpaca/stats`, `/alpaca/performance`, `/alpaca/earnings`
+- Alpaca: `/alpaca/health`, `/alpaca/account`, `/alpaca/positions`, `/alpaca/portfolio`, `/alpaca/earnings`, `/alpaca/quote/:symbol`, `/alpaca/snapshot/:symbol`, `/alpaca/bars/:symbol`, `/alpaca/trades` (GET/POST), `/alpaca/trades/:id` (PUT), `/alpaca/stats`, `/alpaca/performance`
 
 ### Earnings endpoint (new)
 - `GET /alpaca/earnings?symbol=NVDA` returns upcoming/recent earnings context.
@@ -120,11 +119,11 @@ Single HTTP service for:
 ### Run locally
 ```bash
 cd ~/Developer/cortana-external
-bash run.sh
+pnpm --filter @cortana/external-service start
 ```
 
 ### Dependencies
-- Go toolchain
+- Node.js + pnpm workspace tooling
 - `.env` values (Whoop/Tonal creds)
 - Local token/key files (`whoop_tokens.json`, `tonal_tokens.json`, `alpaca_keys.json`)
 
@@ -385,7 +384,7 @@ python canslim_alert.py --limit 8 --min-score 6
 
 ## 6) Environment variables and local secrets
 
-## Root `.env` (Go service)
+## Root `.env` (external service)
 - `WHOOP_CLIENT_ID`
 - `WHOOP_CLIENT_SECRET`
 - `WHOOP_REDIRECT_URL`
@@ -409,7 +408,7 @@ python canslim_alert.py --limit 8 --min-score 6
 ## 7) Quick health checks
 
 ```bash
-# Go service
+# External service
 curl -s http://127.0.0.1:3033/tonal/health
 curl -s http://127.0.0.1:3033/alpaca/health
 
@@ -429,10 +428,11 @@ launchctl list | grep -E "cortana.watchdog|cortana.fitness-service"
 
 - **Fitness dashboard** in Mission Control (`/fitness`) — full recovery/sleep/strain/workout dashboard with threshold alerting
 - **Typed fitness packages** (`packages/fitness-client`, `packages/fitness-types`) for type-safe fitness service consumption
+- **TypeScript external runtime** (`apps/external-service`) replacing Go startup on `3033` while preserving API parity
 - **Whoop OAuth fix** — redirect_uri consistency (http vs https) resolved for token exchange + refresh
 - **Cron Health Dashboard** in Mission Control (`/api/cron-health`) with real-time OpenClaw-first state, smart fire timestamps, and triage-friendly collapse defaults
 - **Vitest unit tests** for Mission Control lib functions and API helpers
-- **Go unit tests** for Alpaca service logic/endpoints
+- **TypeScript unit tests** for external service routes/health logic
 - **Earnings endpoint**: `GET /alpaca/earnings` with Alpaca-first + Yahoo fallback data path
 - **Tonal self-heal**: auth token auto-reset/re-auth on `401/403`
 - **Task board pagination** for completed tasks
@@ -449,11 +449,11 @@ launchctl list | grep -E "cortana.watchdog|cortana.fitness-service"
 ## 9) Maintenance rules for this README
 
 Update whenever any of these change:
-- Endpoint surface in `main.go`
+- Endpoint surface in `apps/external-service/src/app.ts` and route modules
 - Service ports/bind model
 - LaunchAgent scripts/plists
 - Mission Control routes/runtime model
 - Backtester entrypoints/dependencies
 - New top-level services/apps/tools
 
-Last refreshed: **2026-03-12** (README updated for uncertainty-aware runtime wiring + Phase 2 downside/churn note)
+Last refreshed: **2026-03-18** (runtime docs updated for TypeScript external-service migration)
