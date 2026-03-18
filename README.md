@@ -31,9 +31,6 @@ If `~/clawd` is strategy/memory/policy, **cortana-external is execution runtime*
 │   └── mission-control/         # Next.js ops dashboard
 ├── launchd-run.sh
 │
-├── whoop/                       # Whoop API/auth handlers
-├── tonal/                       # Tonal auth/data/health handlers
-├── alpaca/                      # Alpaca service handlers
 ├── backtester/                  # CANSLIM engine + alerts
 ├── watchdog/                    # launchd reliability monitor
 ├── packages/
@@ -47,6 +44,7 @@ If `~/clawd` is strategy/memory/policy, **cortana-external is execution runtime*
 ```
 
 Note: there is currently **no top-level `services/` or `scripts/` directory** in this repo; service entrypoints live under app folders and feature folders above.
+Provider implementations for Whoop, Tonal, and Alpaca now live under `apps/external-service/src/`.
 
 Backtester/Polymarket operator surfaces now include:
 - `python advisor.py --quick-check NVDA`

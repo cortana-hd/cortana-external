@@ -4,6 +4,8 @@
 
 Retire the current Go entrypoint and replace it with a TypeScript service that owns `127.0.0.1:3033`, preserves the existing public HTTP contract, and keeps behavior parity unless a hardening improvement is explicitly called out.
 
+Status: completed. The Go runtime has been removed from the repo, and `apps/external-service` is now the only local service implementation on `3033`.
+
 This is no longer a fitness-only refactor. The discovered live scope includes:
 
 - Full Whoop surface
@@ -16,7 +18,7 @@ This is no longer a fitness-only refactor. The discovered live scope includes:
 
 Repo inspection showed the original fitness-only framing was too narrow:
 
-- [main.go](/Users/hd/Developer/cortana-external/main.go) serves Whoop, Tonal, Alpaca, and `/health` on the same public port.
+- The former Go entrypoint served Whoop, Tonal, Alpaca, and `/health` on the same public port.
 - “TS owns `3033`” is incompatible with “Alpaca stays in Go” unless a proxy layer or second migration exists.
 - The current TS schema package already drifts from live Go behavior:
   - [packages/fitness-types/src/common.ts](/Users/hd/Developer/cortana-external/packages/fitness-types/src/common.ts) does not allow `/health` status `degraded`.
@@ -226,7 +228,7 @@ These are improvements, not parity requirements, and should be called out as suc
 - Run TS on a shadow port with shadow file paths.
 - Diff live responses against Go fixtures and exercise watchdog-visible endpoints.
 - Cut over `3033` to TS only after shadow validation passes.
-- Remove the Go entrypoint after stable cutover.
+- Remove the Go entrypoint after stable cutover. Completed.
 
 ## Test Plan
 
@@ -256,12 +258,12 @@ The write scopes must stay disjoint to avoid coordination waste and token churn.
 
 ## Acceptance Criteria
 
-- TS can fully replace `main.go` on `127.0.0.1:3033`.
+- TS fully replaces the former Go entrypoint on `127.0.0.1:3033`.
 - Public routes, status codes, headers, and core response shapes match current Go behavior.
 - Watchdog checks continue to pass after cutover.
 - OpenClaw cron consumers continue to work without changes.
 - Alpaca trade workflows still function against PostgreSQL.
-- The remaining Go service entrypoint is removable after successful cutover validation.
+- The Go service entrypoint has been removed after successful cutover validation.
 
 ## Implementation Gate
 
