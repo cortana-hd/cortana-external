@@ -122,14 +122,59 @@ cd ~/Developer/cortana-external
 pnpm --filter @cortana/external-service start
 ```
 
+### Common operator commands
+```bash
+# launchd-managed runtime
+launchctl kickstart -k gui/$(id -u)/com.cortana.fitness-service
+
+# local dev
+cd ~/Developer/cortana-external
+pnpm --filter @cortana/external-service dev
+
+# tests
+cd ~/Developer/cortana-external
+pnpm --filter @cortana/external-service test
+pnpm --filter @cortana/external-service typecheck
+```
+
 ### Dependencies
 - Node.js + pnpm workspace tooling
 - `.env` values (Whoop/Tonal creds)
 - Local token/key files (`whoop_tokens.json`, `tonal_tokens.json`, `alpaca_keys.json`)
 
+### Runtime files + logs
+- Tokens/data live at repo root by default:
+  - `whoop_tokens.json`
+  - `whoop_data.json`
+  - `tonal_tokens.json`
+  - `tonal_data.json`
+  - `alpaca_keys.json`
+- `launchd-run.sh` loads the repo-root `.env`, defaults `PORT=3033`, and sets `ALPACA_KEYS_PATH` to the repo-local key file for launchd runs.
+- Launchd logs:
+  - `/tmp/fitness-service.log`
+  - `/tmp/fitness-service-error.log`
+
+### Health semantics
+- `/health` returns:
+  - `ok` when Whoop, Tonal, and Alpaca are all healthy
+  - `degraded` when at least one provider is healthy and at least one is unhealthy
+  - `unhealthy` with HTTP `503` only when all providers are unhealthy
+- `/whoop/health` is intentionally lenient and can still report an operationally usable `200` shape even when auth is not ready.
+- `/tonal/health` is stricter and returns unhealthy when auth is broken.
+
+### Whoop behavior notes
+- OAuth redirect defaults to `http://localhost:3033/auth/callback`.
+- Token refresh is automatic.
+- Concurrent refreshes are deduplicated to avoid parallel refresh storms.
+- On refresh failure, stale cached Whoop data may be served with `Warning: 110` if a prior cache is available.
+
 ### Tonal auth self-heal (new)
 - Tonal auth now auto-recovers from `401/403` by resetting stale tokens and re-authing.
 - No manual token surgery needed during routine expiry/failure cycles.
+
+### Architectural direction
+- This service is now the single local runtime edge for provider integrations.
+- The immediate providers are Whoop, Tonal, and Alpaca, but the shape is intended to make future providers easier to add without changing downstream consumers that rely on `localhost:3033`.
 
 ---
 
