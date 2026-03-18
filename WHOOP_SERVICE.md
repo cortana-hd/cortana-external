@@ -1,189 +1,82 @@
 # Whoop Service
 
-A simplified Whoop API service for personal use with clawd bot.
+Whoop integration now runs inside the TypeScript external service package:
+`apps/external-service` (`@cortana/external-service`).
 
-## What This Service Does
+## Runtime
 
-Provides a single HTTP endpoint that returns all your Whoop data (profile, body measurements, cycles, recovery, sleep, workouts). The service handles OAuth token management automatically, including refreshing expired tokens.
+- Framework: Hono on Node.js
+- Bind: `127.0.0.1:${PORT}` (default `3033`)
+- Startup command:
+  ```bash
+  cd ~/Developer/cortana-external
+  pnpm --filter @cortana/external-service start
+  ```
+- Launchd command path:
+  - `launchd-run.sh` -> `pnpm --filter @cortana/external-service start`
 
-## Architecture
-
-```
-/services/
-├── .env                    # WHOOP_CLIENT_ID, WHOOP_CLIENT_SECRET, WHOOP_REDIRECT_URL
-├── go.mod
-├── main.go                 # Starts Gin server on :3033
-├── whoop_tokens.json             # OAuth tokens (created after first auth)
-└── whoop/
-    ├── api.go              # Whoop API client
-    ├── handler.go          # HTTP handlers
-    └── token_store.go      # JSON token storage
-```
-
-## API Endpoints
+## Endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/auth/url` | Returns Whoop authorization URL |
-| GET | `/auth/callback` | OAuth callback (handles token exchange) |
-| GET | `/whoop/data` | Returns all Whoop data as JSON |
+| GET | `/auth/callback` | OAuth callback (token exchange) |
+| GET | `/auth/status` | Auth/token readiness status |
+| GET | `/whoop/health` | Service/auth health snapshot |
+| GET | `/whoop/data` | Full Whoop payload |
+| GET | `/whoop/recovery` | Recovery array only |
+| GET | `/whoop/recovery/latest` | Latest recovery object |
 
-## Setup (One-Time)
+All routes are unauthenticated on localhost and keep the same contract expected by OpenClaw and downstream digest jobs.
 
-1. Start the server:
-   ```bash
-   cd /Users/hameldesai/Desktop/services
-   source .env && go run main.go
-   ```
+## Auth + Token Storage
 
-2. Visit `http://localhost:3033/auth/url` and open the returned URL in browser
+- Required env vars:
+  - `WHOOP_CLIENT_ID`
+  - `WHOOP_CLIENT_SECRET`
+  - `WHOOP_REDIRECT_URL` (default `http://localhost:3033/auth/callback`)
+- Token file defaults:
+  - `whoop_tokens.json`
+  - `whoop_data.json`
 
-3. Authorize with Whoop - tokens are saved to `whoop_tokens.json`
+Token/data paths can be overridden with:
+- `WHOOP_TOKEN_PATH`
+- `WHOOP_DATA_PATH`
 
-4. Server is now ready to serve data
+## Behavior Notes
 
-## Running the Service
-
-```bash
-cd /Users/hameldesai/Desktop/services
-source .env && go run main.go
-```
-
-Server runs on `http://localhost:3033`
-
----
-
-# Instructions for Clawd Bot
-
-## How to Get Whoop Data
-
-Make an HTTP GET request to:
-```
-http://localhost:3033/whoop/data
-```
-
-No authentication headers needed. The service handles everything.
-
-## Response Format
-
-```json
-{
-  "profile": {
-    "user_id": 123456,
-    "first_name": "Hamel",
-    "last_name": "Desai",
-    "email": "..."
-  },
-  "body_measurement": {
-    "height_meter": 1.83,
-    "weight_kilogram": 82.5,
-    "max_heart_rate": 190
-  },
-  "cycles": [
-    {
-      "id": 123,
-      "start": "2024-01-01T00:00:00Z",
-      "end": "2024-01-02T00:00:00Z",
-      "strain": 12.5,
-      "kilojoules": 8500
-    }
-  ],
-  "recovery": [
-    {
-      "cycle_id": 123,
-      "score": 85,
-      "hrv": 45.2,
-      "resting_heart_rate": 52
-    }
-  ],
-  "sleep": [
-    {
-      "id": 456,
-      "start": "2024-01-01T22:00:00Z",
-      "end": "2024-01-02T06:30:00Z",
-      "score": 88,
-      "quality_duration": 28800
-    }
-  ],
-  "workouts": [
-    {
-      "id": 789,
-      "sport_id": 1,
-      "start": "2024-01-01T07:00:00Z",
-      "end": "2024-01-01T08:00:00Z",
-      "strain": 15.2
-    }
-  ]
-}
-```
+- Automatic token refresh is built in.
+- Refresh calls are deduplicated to avoid parallel refresh storms.
+- If refresh fails but stale cache exists, the service can return stale data with:
+  - `Warning: 110 - "Serving stale Whoop cache after token refresh failure"`
 
 ## Token Refresh
 
-**You do not need to handle token refresh.** The `/whoop/data` endpoint automatically:
+You do not need to handle token refresh in the client. The Whoop routes automatically:
 
-1. Checks if the access token is expired (or expires within 1 minute)
-2. Uses the refresh token to get a new access token from Whoop
-3. Saves the new tokens to `whoop_tokens.json`
-4. Returns the data
+1. Check whether the access token is expired or about to expire.
+2. Use the refresh token to obtain a new access token from Whoop.
+3. Persist the refreshed tokens back to `whoop_tokens.json`.
+4. Continue serving the request with the fresh token when refresh succeeds.
 
-The refresh token has a long lifespan. As long as the service is called periodically (at least once every few months), tokens will stay valid indefinitely through automatic refresh.
-
-## Error Responses
-
-| Status | Meaning |
-|--------|---------|
-| 200 | Success - data returned |
-| 401 | Not authenticated - need to run OAuth flow again |
-| 502 | Whoop API error or token refresh failed |
-
-## Example Usage (curl)
-
-```bash
-curl http://localhost:3033/whoop/data
-```
-
-## Example Usage (Python)
-
-```python
-import requests
-
-response = requests.get("http://localhost:3033/whoop/data")
-data = response.json()
-
-# Access specific data
-recovery_score = data["recovery"][0]["score"]
-last_sleep = data["sleep"][0]
-```
+As long as the integration is exercised periodically, the stored refresh token should keep the local auth state alive without repeated manual OAuth.
 
 ## Rate Limits
 
-The Whoop API has the following rate limits:
+The upstream Whoop API limits are still relevant operationally:
 
 | Limit | Value |
 |-------|-------|
 | Per Minute | 100 requests |
 | Per Day | 10,000 requests |
 
-**Note**: Each call to `/whoop/data` makes ~6 internal Whoop API requests (profile, body measurement, cycles, recovery, sleep, workouts). So you're effectively using 6 requests per call.
+Each call to `/whoop/data` fans out into multiple upstream requests, so repeated polling can consume the quota faster than the single local route suggests.
 
-**Recommendation**: Don't call `/whoop/data` more than a few times per minute. For typical bot usage (checking recovery/sleep once or twice a day), you'll never hit these limits.
+## Verification
 
----
-
-## Data Definitions
-
-### Recovery Score
-- 0-33: Red (poor recovery)
-- 34-66: Yellow (moderate recovery)
-- 67-100: Green (good recovery)
-
-### Strain
-- 0-21 scale measuring cardiovascular load
-- Light: 0-9
-- Moderate: 10-13
-- Strenuous: 14-17
-- All Out: 18-21
-
-### Sleep Score
-- 0-100 percentage of sleep need achieved
-- Factors: duration, efficiency, disturbances, REM/SWS time
+```bash
+curl -s http://127.0.0.1:3033/auth/url | jq .
+curl -s http://127.0.0.1:3033/auth/status | jq .
+curl -s http://127.0.0.1:3033/whoop/health | jq .
+curl -s http://127.0.0.1:3033/whoop/recovery/latest | jq .
+```
