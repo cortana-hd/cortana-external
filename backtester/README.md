@@ -125,6 +125,7 @@ Manual / operator-driven:
 - `python advisor.py --quick-check BTC`
 - `python main.py --symbol NVDA --years 2 --compare`
 - `python experimental_alpha.py --symbols NVDA,BTC,COIN`
+- `python buy_decision_calibration.py`
 
 ## What Each Command Is For
 
@@ -155,6 +156,9 @@ Use these questions:
 - "Test research math in paper-only mode."
   Run `python experimental_alpha.py --symbols NVDA,BTC,COIN`
 
+- "Show me how reliable the recent research buckets have been."
+  Run `python buy_decision_calibration.py --json`
+
 ## Quick Start
 
 ```bash
@@ -175,6 +179,9 @@ python experimental_alpha.py --symbols NVDA,BTC,COIN
 
 # Broader nightly discovery scan
 python nightly_discovery.py --limit 20
+
+# Advisory calibration artifact from settled research outcomes
+python buy_decision_calibration.py
 
 # Quick scan for opportunities (watchlist)
 python advisor.py --quick
@@ -206,6 +213,49 @@ Live 120-name scan selection:
   - only allowlisted overlays at `rank_modifier` stage can influence rank order
   - rank impact is tightly capped (default max `+/-5%` equivalent effect)
   - if promotion registry/state is missing or stale, selection falls back to the existing deterministic behavior instead of failing closed
+
+## Buy-Decision Artifacts (Operator View)
+
+Production-safe buy-decision inputs are file-backed and read-only in the daytime path:
+
+- Feature snapshot (ranking input):
+  - `/Users/hd/Developer/cortana-external/backtester/data/cache/live_universe_prefilter.json`
+  - built by `RankedUniverseSelector.refresh_cache(...)`
+  - consumed by CANSLIM/Dip Buyer live-universe selection
+- Liquidity overlay snapshot (execution-quality context):
+  - `/Users/hd/Developer/cortana-external/backtester/data/cache/liquidity_overlay.json`
+  - refreshed with the same nightly prefilter refresh
+  - used as a bounded rank modifier input when promotion policy allows it
+- Optional calibration/promotion context (research layer only):
+  - `/Users/hd/Developer/cortana-external/backtester/.cache/experimental_alpha/calibration/buy-decision-calibration-latest.json`
+  - `/Users/hd/Developer/cortana-external/backtester/data/cache/overlay-attribution-latest.json`
+  - `/Users/hd/Developer/cortana-external/backtester/data/cache/overlay-promotion-state.json`
+  - produced by `python buy_decision_calibration.py` and `experimental_alpha.py --overlay-attribution --evaluate-promotions`
+
+Freshness and fallback:
+
+- Daytime live alerts do not require inline cache rebuilds.
+- If feature/liquidity snapshots are stale or missing, selection falls back to deterministic ordering and continues.
+- Missing/stale research calibration artifacts do not break the base live path and do not change trade authority.
+- Final BUY/WATCH/NO_BUY authority remains with the Python regime + technical engine.
+
+Short workflow:
+
+1. Nightly/pre-market refresh feature/liquidity snapshots:
+```bash
+cd /Users/hd/Developer/cortana-external/backtester
+python nightly_discovery.py --limit 20
+```
+2. Daytime live scans consume snapshots (or deterministic fallback if stale/missing):
+```bash
+python canslim_alert.py --limit 8 --min-score 6
+python dipbuyer_alert.py --limit 8 --min-score 6
+```
+3. Optional research calibration/promotion context refresh:
+```bash
+python buy_decision_calibration.py
+python experimental_alpha.py --settle --overlay-attribution --evaluate-promotions
+```
 
 ## Daily Flow
 
@@ -284,7 +334,8 @@ What it does:
 - scans a broader universe than the daytime alerts
 - tries to use fresh S&P 500 constituents
 - merges in growth names and dynamic names
-- refreshes the cached live prefilter used by the daytime alerts unless you explicitly skip it
+- refreshes the cached live prefilter and liquidity overlay artifacts used by the daytime alerts unless you explicitly skip it
+- surfaces any existing buy-decision calibration artifact so you can see whether research context is fresh or stale
 - returns a ranked list of leaders for review
 
 What it does not do:

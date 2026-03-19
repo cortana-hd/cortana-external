@@ -47,6 +47,12 @@ def test_build_report_uses_nightly_profile_and_formats_leaders():
         return_value={
             "generated_at": "2026-03-14T09:00:00+00:00",
             "symbols": [{"symbol": "AAA"}],
+            "feature_snapshot": {
+                "schema_version": 1,
+                "generated_at": "2026-03-14T09:00:00+00:00",
+                "symbol_count": 1,
+                "source": "ranked_universe_selector.refresh_cache",
+            },
             "liquidity_overlay": {
                 "path": "/tmp/liquidity.json",
                 "generated_at": "2026-03-14T09:00:01+00:00",
@@ -57,7 +63,7 @@ def test_build_report_uses_nightly_profile_and_formats_leaders():
                 },
             },
         },
-    ):
+    ), patch("nightly_discovery._load_buy_decision_calibration_summary", return_value=None):
         report = build_report(limit=2, min_technical_score=3, refresh_sp500=True)
 
     assert report["profile"] == "nightly_discovery"
@@ -66,6 +72,8 @@ def test_build_report_uses_nightly_profile_and_formats_leaders():
     assert report["leaders"][0]["symbol"] == "NVDA"
     assert report["leaders"][1]["action"] == "WATCH"
     assert report["live_prefilter"]["symbol_count"] == 1
+    assert report["feature_snapshot"]["schema_version"] == 1
+    assert report["feature_snapshot"]["symbol_count"] == 1
     assert report["liquidity_overlay"]["symbol_count"] == 1
     assert report["liquidity_overlay"]["summary"]["median_estimated_slippage_bps"] == 11.2
 
@@ -80,6 +88,13 @@ def test_format_report_renders_compact_nightly_summary():
             "path": "/tmp/prefilter.json",
             "generated_at": "2026-03-14T09:00:00+00:00",
             "symbol_count": 42,
+        },
+        "feature_snapshot": {
+            "path": "/tmp/prefilter.json",
+            "schema_version": 1,
+            "generated_at": "2026-03-14T09:00:00+00:00",
+            "symbol_count": 42,
+            "source": "ranked_universe_selector.refresh_cache",
         },
         "liquidity_overlay": {
             "path": "/tmp/liquidity.json",
@@ -109,5 +124,28 @@ def test_format_report_renders_compact_nightly_summary():
     assert "Profile: nightly_discovery" in text
     assert "Universe size: 4" in text
     assert "Live prefilter cache: 42 symbols" in text
+    assert "Feature snapshot: v1 | 42 symbols | 2026-03-14T09:00:00+00:00 | ranked_universe_selector.refresh_cache" in text
     assert "Liquidity overlay cache: 39 symbols | 2026-03-14T09:00:03+00:00 | median slip 9.8bps | high quality 17" in text
     assert "- NVDA: action BUY | tech 6/6 | total 10/12" in text
+
+
+def test_format_report_surfaces_buy_decision_calibration_when_available():
+    report = {
+        "profile": "nightly_discovery",
+        "market_regime": "confirmed_uptrend",
+        "position_sizing": 1.0,
+        "universe_size": 4,
+        "leaders": [],
+        "buy_decision_calibration": {
+            "path": "/tmp/buy-decision-calibration-latest.json",
+            "generated_at": "2026-03-14T08:30:00+00:00",
+            "is_stale": False,
+            "reason": "fresh",
+            "status": "fresh",
+            "settled_candidates": 24,
+        },
+    }
+
+    text = format_report(report)
+
+    assert "Buy decision calibration: fresh | stale=False | settled 24 | 2026-03-14T08:30:00+00:00" in text

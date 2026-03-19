@@ -5,6 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
+
+DEFAULT_BUY_DECISION_CALIBRATION_PATH = (
+    Path(__file__).resolve().parent / ".cache" / "experimental_alpha" / "calibration" / "buy-decision-calibration-latest.json"
+)
 
 from advisor import TradingAdvisor
 from data.universe import UNIVERSE_PROFILE_NIGHTLY_DISCOVERY
@@ -46,6 +51,8 @@ def build_report(
 
     live_prefilter = None
     liquidity_overlay = None
+    feature_snapshot = None
+    buy_decision_calibration = _load_buy_decision_calibration_summary()
     if refresh_live_prefilter:
         standard_symbols = advisor.screener.get_universe()
         selector = RankedUniverseSelector()
@@ -66,6 +73,15 @@ def build_report(
                 "symbol_count": int(liquidity.get("symbol_count", 0) or 0),
                 "summary": liquidity.get("summary") or {},
             }
+        snapshot = payload.get("feature_snapshot")
+        if isinstance(snapshot, dict):
+            feature_snapshot = {
+                "path": str(selector.cache_path),
+                "schema_version": int(snapshot.get("schema_version", 0) or 0),
+                "generated_at": snapshot.get("generated_at"),
+                "symbol_count": int(snapshot.get("symbol_count", 0) or 0),
+                "source": str(snapshot.get("source", "")),
+            }
 
     return {
         "profile": UNIVERSE_PROFILE_NIGHTLY_DISCOVERY,
@@ -75,6 +91,8 @@ def build_report(
         "leaders": leaders,
         "live_prefilter": live_prefilter,
         "liquidity_overlay": liquidity_overlay,
+        "feature_snapshot": feature_snapshot,
+        "buy_decision_calibration": buy_decision_calibration,
     }
 
 
@@ -91,6 +109,15 @@ def format_report(report: dict) -> str:
         lines.append(
             f"Live prefilter cache: {prefilter['symbol_count']} symbols | {prefilter['generated_at']}"
         )
+    snapshot = report.get("feature_snapshot")
+    if snapshot:
+        lines.append(
+            "Feature snapshot: "
+            f"v{int(snapshot.get('schema_version', 0) or 0)} | "
+            f"{int(snapshot.get('symbol_count', 0) or 0)} symbols | "
+            f"{snapshot.get('generated_at')} | "
+            f"{snapshot.get('source') or 'unknown'}"
+        )
     liquidity = report.get("liquidity_overlay")
     if liquidity:
         summary = liquidity.get("summary") or {}
@@ -105,6 +132,15 @@ def format_report(report: dict) -> str:
         if extras:
             line += " | " + " | ".join(extras)
         lines.append(line)
+    calibration = report.get("buy_decision_calibration")
+    if calibration:
+        lines.append(
+            "Buy decision calibration: "
+            f"{calibration.get('status', 'unknown')} | "
+            f"stale={calibration.get('is_stale')} | "
+            f"settled {int(calibration.get('settled_candidates', 0) or 0)} | "
+            f"{calibration.get('generated_at') or 'unknown'}"
+        )
     if not leaders:
         lines.append("Leaders: none")
         return "\n".join(lines)
@@ -145,6 +181,27 @@ def main() -> None:
         print(json.dumps(report, indent=2))
     else:
         print(format_report(report))
+
+
+def _load_buy_decision_calibration_summary() -> dict | None:
+    if not DEFAULT_BUY_DECISION_CALIBRATION_PATH.exists():
+        return None
+    try:
+        payload = json.loads(DEFAULT_BUY_DECISION_CALIBRATION_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    freshness = payload.get("freshness") if isinstance(payload.get("freshness"), dict) else {}
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    return {
+        "path": str(DEFAULT_BUY_DECISION_CALIBRATION_PATH),
+        "generated_at": payload.get("generated_at"),
+        "is_stale": freshness.get("is_stale"),
+        "reason": freshness.get("reason"),
+        "status": freshness.get("reason") or "unknown",
+        "settled_candidates": int(summary.get("settled_candidates", 0) or 0),
+    }
 
 
 if __name__ == "__main__":

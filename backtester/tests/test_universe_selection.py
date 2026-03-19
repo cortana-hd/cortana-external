@@ -55,6 +55,9 @@ def test_selector_keeps_priority_symbols_pinned_and_ranks_remaining(tmp_path):
     assert result.ranked_symbols == ["CCC"]
     assert result.source == "live_refresh"
     assert Path(selector.cache_path).exists()
+    payload = json.loads(Path(selector.cache_path).read_text(encoding="utf-8"))
+    assert payload["feature_snapshot"]["symbol_count"] == len(payload["symbols"])
+    assert payload["feature_snapshot"]["source"] == "ranked_universe_selector.refresh_cache"
 
 
 def test_selector_uses_execution_quality_overlay_to_break_ties(tmp_path):
@@ -108,6 +111,39 @@ def test_selector_uses_fresh_cache_when_available(tmp_path):
     assert result.symbols == ["AAA", "BBB", "CCC", "DDD"]
     assert result.source == "cache"
     assert result.unscored_symbols == ["DDD"]
+
+
+def test_selector_prefers_feature_snapshot_records_when_present(tmp_path):
+    cache_path = tmp_path / "prefilter.json"
+    payload = {
+        "schema_version": 2,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "symbols": [
+            {"symbol": "AAA", "prefilter_score": 98.0},
+            {"symbol": "BBB", "prefilter_score": 10.0},
+        ],
+        "feature_snapshot": {
+            "schema_version": 1,
+            "generated_at": datetime.now(UTC).isoformat(),
+            "source": "test",
+            "symbols": [
+                {"symbol": "AAA", "prefilter_score": 10.0},
+                {"symbol": "BBB", "prefilter_score": 98.0},
+            ],
+        },
+    }
+    cache_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    selector = RankedUniverseSelector(cache_path=cache_path)
+    result = selector.select_live_universe(
+        base_symbols=["AAA", "BBB"],
+        priority_symbols=[],
+        universe_size=2,
+        market_regime="confirmed_uptrend",
+    )
+
+    assert result.source == "cache"
+    assert result.symbols == ["BBB", "AAA"]
 
 
 def test_selector_falls_back_to_prefilter_when_liquidity_overlay_cache_is_missing(tmp_path):
