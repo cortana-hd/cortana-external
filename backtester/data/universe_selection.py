@@ -14,6 +14,8 @@ from typing import Dict, Iterable, List, Optional
 import pandas as pd
 import yfinance as yf
 
+from data.liquidity_model import LiquidityOverlayModel
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +44,7 @@ class RankedUniverseSelector:
         cache_path: Optional[str | Path] = None,
         max_age_hours: Optional[float] = None,
         chunk_size: int = 64,
+        liquidity_model: Optional[LiquidityOverlayModel] = None,
     ):
         self.cache_path = Path(
             cache_path
@@ -54,6 +57,7 @@ class RankedUniverseSelector:
             else os.getenv("TRADING_UNIVERSE_PREFILTER_MAX_AGE_HOURS", "18")
         )
         self.chunk_size = max(int(chunk_size), 1)
+        self.liquidity_model = liquidity_model or LiquidityOverlayModel()
 
     @staticmethod
     def _dedupe(symbols: Iterable[str]) -> List[str]:
@@ -114,7 +118,7 @@ class RankedUniverseSelector:
         source = "cache"
 
         if payload is None:
-            if refresh or allow_inline_refresh:
+            if refresh:
                 payload = self.refresh_cache(base_symbols=base, market_regime=market_regime)
                 source = "live_refresh"
             else:
@@ -129,6 +133,23 @@ class RankedUniverseSelector:
                     generated_at=None,
                     cache_age_hours=None,
                 )
+
+        _, liquidity_records = self.liquidity_model.load_overlay_map()
+
+        def combined_rank(record: dict, symbol: str) -> float:
+            prefilter_score = float(record.get("prefilter_score", 0.0))
+            liquidity = liquidity_records.get(symbol)
+            if liquidity is None:
+                return prefilter_score
+
+            quality_score = float(liquidity.get("liquidity_quality_score", 50.0))
+            tier = str(liquidity.get("liquidity_tier", "")).lower()
+            modifier = (quality_score - 50.0) * 0.06
+            if tier == "illiquid":
+                modifier -= 3.0
+            elif tier == "high":
+                modifier += 0.5
+            return prefilter_score + modifier
 
         records = {
             str(item.get("symbol", "")).upper(): item
@@ -147,6 +168,7 @@ class RankedUniverseSelector:
                     if symbol in records
                 ),
                 key=lambda item: (
+                    -combined_rank(item[1], item[0]),
                     -float(item[1].get("prefilter_score", 0.0)),
                     str(item[0]),
                 ),
@@ -173,7 +195,18 @@ class RankedUniverseSelector:
     def refresh_cache(self, *, base_symbols: Iterable[str], market_regime: str = "unknown") -> dict:
         symbols = self._dedupe(base_symbols)
         if not symbols:
-            payload = {"schema_version": 1, "generated_at": datetime.now(UTC).isoformat(), "symbols": []}
+            liquidity_payload = self.liquidity_model.refresh_cache(base_symbols=symbols)
+            payload = {
+                "schema_version": 1,
+                "generated_at": datetime.now(UTC).isoformat(),
+                "symbols": [],
+                "liquidity_overlay": {
+                    "path": str(self.liquidity_model.cache_path),
+                    "generated_at": liquidity_payload.get("generated_at"),
+                    "symbol_count": len(liquidity_payload.get("symbols", [])),
+                    "summary": liquidity_payload.get("summary", {}),
+                },
+            }
             self._write_payload(payload)
             return payload
 
@@ -190,11 +223,18 @@ class RankedUniverseSelector:
             if metrics is not None:
                 scored.append(metrics)
 
+        liquidity_payload = self.liquidity_model.refresh_cache(base_symbols=symbols, histories=histories)
         payload = {
             "schema_version": 1,
             "generated_at": datetime.now(UTC).isoformat(),
             "market_regime": market_regime,
             "symbols": scored,
+            "liquidity_overlay": {
+                "path": str(self.liquidity_model.cache_path),
+                "generated_at": liquidity_payload.get("generated_at"),
+                "symbol_count": len(liquidity_payload.get("symbols", [])),
+                "summary": liquidity_payload.get("summary", {}),
+            },
         }
         self._write_payload(payload)
         return payload
@@ -431,7 +471,9 @@ class RankedUniverseSelector:
     def _write_payload(self, payload: dict) -> None:
         try:
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-            self.cache_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+            tmp_path = self.cache_path.with_suffix(f"{self.cache_path.suffix}.tmp")
+            tmp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+            tmp_path.replace(self.cache_path)
         except Exception as exc:
             LOGGER.warning("Unable to write universe prefilter cache %s: %s", self.cache_path, exc)
 

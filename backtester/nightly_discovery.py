@@ -45,6 +45,7 @@ def build_report(
             )
 
     live_prefilter = None
+    liquidity_overlay = None
     if refresh_live_prefilter:
         standard_symbols = advisor.screener.get_universe()
         selector = RankedUniverseSelector()
@@ -57,6 +58,14 @@ def build_report(
             "generated_at": payload.get("generated_at"),
             "symbol_count": len(payload.get("symbols", [])),
         }
+        liquidity = payload.get("liquidity_overlay")
+        if isinstance(liquidity, dict):
+            liquidity_overlay = {
+                "path": str(liquidity.get("path", "")),
+                "generated_at": liquidity.get("generated_at"),
+                "symbol_count": int(liquidity.get("symbol_count", 0) or 0),
+                "summary": liquidity.get("summary") or {},
+            }
 
     return {
         "profile": UNIVERSE_PROFILE_NIGHTLY_DISCOVERY,
@@ -65,6 +74,7 @@ def build_report(
         "universe_size": len(symbols),
         "leaders": leaders,
         "live_prefilter": live_prefilter,
+        "liquidity_overlay": liquidity_overlay,
     }
 
 
@@ -81,6 +91,20 @@ def format_report(report: dict) -> str:
         lines.append(
             f"Live prefilter cache: {prefilter['symbol_count']} symbols | {prefilter['generated_at']}"
         )
+    liquidity = report.get("liquidity_overlay")
+    if liquidity:
+        summary = liquidity.get("summary") or {}
+        line = f"Liquidity overlay cache: {liquidity['symbol_count']} symbols | {liquidity['generated_at']}"
+        median_slippage = summary.get("median_estimated_slippage_bps")
+        high_quality_count = summary.get("high_quality_count")
+        extras = []
+        if median_slippage is not None:
+            extras.append(f"median slip {float(median_slippage):.1f}bps")
+        if high_quality_count is not None:
+            extras.append(f"high quality {int(high_quality_count)}")
+        if extras:
+            line += " | " + " | ".join(extras)
+        lines.append(line)
     if not leaders:
         lines.append("Leaders: none")
         return "\n".join(lines)

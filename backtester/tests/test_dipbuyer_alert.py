@@ -7,6 +7,9 @@ import pandas as pd
 import pytest
 
 from data.market_regime import MarketRegime
+from data.liquidity_model import LiquidityOverlayModel
+from data.liquidity_overlay import build_execution_quality_overlay
+from data.risk_budget import build_risk_budget_overlay
 from dipbuyer_alert import _macro_gate_line, format_alert
 from strategies.dip_buyer import DIPBUYER_CONFIG
 
@@ -16,6 +19,7 @@ def _disable_polymarket_artifacts(monkeypatch, tmp_path):
     monkeypatch.setenv("POLYMARKET_COMPACT_REPORT_PATH", str(tmp_path / "missing-compact.txt"))
     monkeypatch.setenv("POLYMARKET_REPORT_JSON_PATH", str(tmp_path / "missing-report.json"))
     monkeypatch.setenv("POLYMARKET_WATCHLIST_PATH", str(tmp_path / "missing-watchlist.json"))
+    monkeypatch.setattr("dipbuyer_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
 
 
 class _FakeAdvisor:
@@ -92,6 +96,71 @@ def test_format_alert_output_structure_and_tags_buy_watch_no_buy():
     assert "BUY names: MSFT" in text
     assert "Top leaders: MSFT BUY (9/12) 🐦 Neutral | AAPL WATCH (7/12) 🐦 Neutral" in text
     assert "Final action: BUY listed names only; keep remaining qualified setups on watch" in text
+
+
+def test_format_alert_surfaces_compact_overlay_annotations_when_available():
+    fake = _FakeAdvisor()
+    fake._analysis = {
+        "MSFT": {"total_score": 9, "data_source": "alpaca", "recommendation": {"action": "BUY", "reason": "clean"}},
+    }
+    fake.screener = SimpleNamespace(get_universe=lambda: ["MSFT"])
+    risk_overlay = {
+        "risk_budget_remaining": 0.33,
+        "aggression_dial": "balanced_selective",
+        "exposure_cap_hint": 0.55,
+        "reasons": ["credit backdrop mixed"],
+    }
+    execution_overlay = {
+        "execution_quality": "good",
+        "liquidity_posture": "high",
+        "slippage_risk": "low",
+    }
+
+    with patch("dipbuyer_alert.TradingAdvisor", return_value=fake), patch(
+        "dipbuyer_alert._resolve_context_overlays",
+        return_value=(risk_overlay, execution_overlay),
+    ):
+        text = format_alert(limit=8, min_score=6, universe_size=1)
+
+    assert "Risk budget: remaining 33% | cap 55% | aggression balanced selective | note credit backdrop mixed" in text
+    assert "Execution quality: quality good | liquidity high | slippage low" in text
+
+
+def test_format_alert_surfaces_real_risk_and_liquidity_helper_lines(tmp_path, monkeypatch):
+    liquidity_path = tmp_path / "liquidity-overlay.json"
+    model = LiquidityOverlayModel(cache_path=liquidity_path)
+    closes = [100 + i * 0.2 for i in range(120)]
+    histories = {
+        "MSFT": pd.DataFrame(
+            {
+                "Open": closes,
+                "High": [value * 1.01 for value in closes],
+                "Low": [value * 0.99 for value in closes],
+                "Close": closes,
+                "Volume": [50_000_000.0] * 120,
+            },
+            index=pd.date_range("2025-01-01", periods=120, freq="B", tz="UTC"),
+        )
+    }
+    model.refresh_cache(base_symbols=["MSFT"], histories=histories)
+    monkeypatch.setenv("TRADING_LIQUIDITY_OVERLAY_PATH", str(liquidity_path))
+
+    risk_overlay = build_risk_budget_overlay(
+        market=SimpleNamespace(
+            regime=MarketRegime.CORRECTION,
+            position_sizing=0.5,
+            notes="Test regime note",
+            data_source="alpaca",
+            snapshot_age_seconds=0.0,
+            status="ok",
+        )
+    ).to_dict()
+    execution_overlay = build_execution_quality_overlay(symbol="MSFT")
+
+    from dipbuyer_alert import _execution_quality_line, _risk_budget_line
+
+    assert "Risk budget:" in _risk_budget_line(risk_overlay)
+    assert "Execution quality: quality good | liquidity high | slippage high" in _execution_quality_line(execution_overlay)
 
 
 def test_format_alert_lists_all_buy_names_when_count_is_small():

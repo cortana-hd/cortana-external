@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import io
+import inspect
 import os
 import re
 import sys
@@ -13,6 +15,7 @@ import warnings
 from collections import Counter, defaultdict
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from advisor import TradingAdvisor
@@ -162,6 +165,163 @@ def _selection_line(selection: UniverseSelectionResult | None, scanned_count: in
     return line
 
 
+def _overlay_as_dict(payload: object) -> dict:
+    if isinstance(payload, dict):
+        return dict(payload)
+    as_dict = getattr(payload, "as_dict", None)
+    if callable(as_dict):
+        converted = as_dict()
+        if isinstance(converted, dict):
+            return dict(converted)
+    raw = getattr(payload, "__dict__", None)
+    if isinstance(raw, dict):
+        return dict(raw)
+    return {}
+
+
+def _call_overlay_builder(
+    *,
+    modules: list[str],
+    function_names: list[str],
+    kwargs: dict[str, object],
+) -> dict:
+    for module_name in modules:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            continue
+        for function_name in function_names:
+            builder = getattr(module, function_name, None)
+            if not callable(builder):
+                continue
+            try:
+                signature = inspect.signature(builder)
+                accepted = {
+                    key: value
+                    for key, value in kwargs.items()
+                    if key in signature.parameters and value is not None
+                }
+                return _overlay_as_dict(builder(**accepted))
+            except Exception:
+                try:
+                    return _overlay_as_dict(builder(kwargs.get("market")))
+                except Exception:
+                    continue
+    return {}
+
+
+def _resolve_context_overlays(
+    *,
+    market: object,
+    risk_snapshot: dict[str, object] | None = None,
+    symbol_hint: str | None = None,
+    selected_symbols: list[str] | None = None,
+) -> tuple[dict, dict]:
+    payload = {
+        "market": market,
+        "risk_inputs": risk_snapshot or {},
+        "risk_snapshot": risk_snapshot or {},
+        "symbol": symbol_hint,
+        "symbol_hint": symbol_hint,
+        "symbols": selected_symbols or [],
+    }
+    risk_overlay = _call_overlay_builder(
+        modules=["data.risk_budget"],
+        function_names=["build_risk_budget_overlay", "build_risk_budget", "compute_risk_budget_overlay"],
+        kwargs=payload,
+    )
+    execution_overlay = _call_overlay_builder(
+        modules=["data.execution_quality", "data.liquidity_overlay", "data.execution_overlay"],
+        function_names=["build_execution_quality_overlay", "build_liquidity_overlay", "build_execution_overlay"],
+        kwargs=payload,
+    )
+    return risk_overlay, execution_overlay
+
+
+def _format_pct(value: Any) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if numeric != numeric:
+        return ""
+    if numeric <= 1.0:
+        numeric *= 100.0
+    return f"{numeric:.0f}%"
+
+
+def _risk_budget_line(overlay: dict) -> str:
+    if not overlay:
+        return ""
+
+    remaining = _format_pct(overlay.get("risk_budget_remaining"))
+    cap = _format_pct(overlay.get("exposure_cap_hint"))
+    aggression = str(
+        overlay.get("aggression_dial")
+        or overlay.get("aggression")
+        or overlay.get("posture")
+        or ""
+    ).strip()
+    reasons = overlay.get("reasons") if isinstance(overlay.get("reasons"), (list, tuple)) else []
+    reason_note = str(reasons[0]).strip() if reasons else ""
+    if not (remaining or cap or aggression or reason_note):
+        return ""
+
+    bits = []
+    if remaining:
+        bits.append(f"remaining {remaining}")
+    if cap:
+        bits.append(f"cap {cap}")
+    if aggression:
+        bits.append(f"aggression {aggression.replace('_', ' ')}")
+    if reason_note:
+        bits.append(f"note {reason_note[:72]}")
+    return "Risk budget: " + " | ".join(bits)
+
+
+def _execution_quality_line(overlay: dict) -> str:
+    if not overlay:
+        return ""
+
+    quality = str(
+        overlay.get("execution_quality")
+        or overlay.get("quality_label")
+        or overlay.get("liquidity_quality")
+        or ""
+    ).strip()
+    liquidity = str(
+        overlay.get("liquidity_posture")
+        or overlay.get("liquidity_label")
+        or overlay.get("liquidity")
+        or ""
+    ).strip()
+    slippage = str(
+        overlay.get("slippage_risk")
+        or overlay.get("slippage_label")
+        or overlay.get("slippage_band")
+        or ""
+    ).strip()
+    annotation = str(
+        overlay.get("annotation")
+        or overlay.get("summary")
+        or overlay.get("note")
+        or ""
+    ).strip()
+    if not (quality or liquidity or slippage or annotation):
+        return ""
+
+    bits = []
+    if quality:
+        bits.append(f"quality {quality.replace('_', ' ')}")
+    if liquidity:
+        bits.append(f"liquidity {liquidity.replace('_', ' ')}")
+    if slippage:
+        bits.append(f"slippage {slippage.replace('_', ' ')}")
+    if annotation:
+        bits.append(annotation[:72])
+    return "Execution quality: " + " | ".join(bits)
+
+
 def _analyze_for_alert(advisor: TradingAdvisor, symbol: str) -> dict:
     try:
         return _run_quiet(advisor.analyze_stock, symbol, False, "bulk_scan")
@@ -194,6 +354,17 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
     stress = build_adverse_regime_indicator(market=market)
     regime_value = getattr(getattr(market, "regime", None), "value", "unknown")
     symbols, priority_count, selection = _deterministic_universe(advisor, universe_size, regime_value)
+    risk_snapshot: dict[str, object] = {}
+    if hasattr(advisor, "risk_fetcher") and hasattr(advisor.risk_fetcher, "get_snapshot"):
+        fetched_snapshot = _run_quiet(advisor.risk_fetcher.get_snapshot)
+        if isinstance(fetched_snapshot, dict):
+            risk_snapshot = fetched_snapshot
+    risk_overlay, execution_overlay = _resolve_context_overlays(
+        market=market,
+        risk_snapshot=risk_snapshot,
+        symbol_hint=symbols[0] if symbols else None,
+        selected_symbols=symbols,
+    )
     if timing_enabled:
         phase_timings["universe"] = time.perf_counter() - start
 
@@ -202,6 +373,12 @@ def format_alert(limit: int = 8, min_score: int = 6, universe_size: int = 120) -
         _market_headline(market),
     ]
     lines.extend(_run_quiet(build_alert_context_lines, GROWTH_WATCHLIST))
+    risk_line = _risk_budget_line(risk_overlay)
+    if risk_line:
+        lines.append(risk_line)
+    execution_line = _execution_quality_line(execution_overlay)
+    if execution_line:
+        lines.append(execution_line)
     selection_summary = _selection_line(selection, len(symbols))
     if selection_summary:
         lines.append(selection_summary)

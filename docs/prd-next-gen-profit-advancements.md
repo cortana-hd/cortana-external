@@ -1,6 +1,6 @@
 # PRD: Next-Gen Profit Advancements for Trading Stack
 
-**Status:** Draft  
+**Status:** Phase-1 slice partially implemented (research + operator annotations only)  
 **Owner:** Cortana / OpenClaw trading workflow  
 **Scope:** `cortana` trading cron + `cortana-external` intel inputs (read-only)  
 **Intent:** Push the current decoupled architecture toward institutional-grade selection, sizing, and execution readiness to maximize PnL without breaking reliability.
@@ -10,6 +10,8 @@
 ## Why
 
 The decoupled base/enrichment/notify stack is stable. To materially improve PnL, we need higher-quality selection, better risk-adjusted sizing, and execution-aware surfacing—without reintroducing fragility.
+
+Quant-style or OSINT-style writeups can be useful as conceptual inputs, but they are not evidence of a tradeable edge by themselves. This PRD treats those ideas as hypotheses that must survive forward testing, slippage accounting, and timing-risk review before they influence production.
 
 ---
 
@@ -23,6 +25,37 @@ The decoupled base/enrichment/notify stack is stable. To materially improve PnL,
 
 ---
 
+## What Is Implemented Now (Production-Safe Slice)
+
+1) Operator-facing overlays are bounded annotations only.
+- The live/operator surfaces can show risk-budget and execution-quality context when present.
+- These annotations do not replace regime gates and do not create trade authority.
+
+2) Research path now logs overlay dimensions for calibration.
+- `backtester/experimental_alpha.py` snapshots now include:
+  - risk budget state
+  - aggression posture
+  - execution quality
+  - liquidity tier
+  - optional spread/slippage/ADV notes
+- Settled records carry those same fields for forward-outcome review.
+- Calibration output includes overlay slice metrics (5d buckets, informational only).
+
+3) Promotion gate remains strict and research-only.
+- Promotion gate still keys off paper-long sample count, hit rate, avg return, and Brier score.
+- Overlay slice metrics are diagnostic in this phase; they do not change production scoring by themselves.
+
+---
+
+## Deferred / Future Work
+
+- No direct execution logic, broker routing, wallet flows, or auto-trading.
+- No live adaptive weighting from overlay slices yet.
+- No production hard gates from overlay slices yet.
+- No full factor-tilt engine, cross-asset hedge engine, or portfolio optimizer in base compute.
+
+---
+
 ## Proposed Capability Set
 
 ### A) Regime/Vol-Aware Sizing & Risk Budget Meter
@@ -32,6 +65,7 @@ The decoupled base/enrichment/notify stack is stable. To materially improve PnL,
 
 ### B) Liquidity & Slippage Modeling
 - Compute per-name liquidity quality: spread × size × volatility; average dollar volume; halt/ADR flags
+- Treat liquidity/slippage as central to the thesis, not a footnote; if the edge vanishes after realistic execution costs, it is not a production edge
 - Filter or down-rank illiquid names; surface expected slippage/impact next to BUYs
 - Placement: enrichment ranking modifier + alert annotations
 
@@ -71,6 +105,14 @@ The decoupled base/enrichment/notify stack is stable. To materially improve PnL,
 ### J) Adaptive Scan Cadence
 - Slow scans in dead markets; speed up when vol/event risk is high
 - Placement: scheduler/config; keep base contract stable
+
+### K) Research-Grade Validation Gates
+- Require out-of-sample validation and walk-forward testing before any ranking or sizing idea is promoted
+- Treat high in-sample R^2 as a hypothesis signal, not evidence of durable edge
+- Measure latency, slippage assumptions, and resolution/timing behavior before promotion
+- Track binary-resolution risk explicitly so being directionally right but late does not masquerade as edge
+- Keep real-money execution out until there is forward evidence and a reviewable sample size
+- Placement: promotion gate only; never base compute
 
 ---
 
@@ -115,6 +157,8 @@ Phase 4 (Learning loop)
 ## Risks / Mitigations
 - Overfitting: keep adaptive weight changes bounded and reviewable
 - Latency: heavy data fetch must stay out of base; use cached/overnight precomputation
+- Marketing claims are not evidence; do not promote ideas based on unverified “earned X” or “inevitable success” language
+- Binary markets are timing-sensitive; a model can be right on probability and still lose on resolution timing
 - Complexity creep: each enrichment must be optional; base must succeed alone
 
 ---
@@ -123,4 +167,5 @@ Phase 4 (Learning loop)
 - Prefer cached/precomputed inputs where possible; avoid live multi-API fanout in market session
 - Use Polymarket only as context/rank modifier, never as a hard gate
 - Use existing MarketDataProvider caches for liquidity/vol metrics when feasible
-
+- OSINT/news-latency pipelines can be useful research inputs, but naive scrape + LLM + auto-trade behavior is excluded from production until it proves itself forward
+- Build a research-grade signal engine first; do not promote a production trading bot until validation gates clear

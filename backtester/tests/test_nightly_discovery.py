@@ -44,7 +44,19 @@ class _FakeAdvisor:
 def test_build_report_uses_nightly_profile_and_formats_leaders():
     with patch("nightly_discovery.TradingAdvisor", return_value=_FakeAdvisor()), patch(
         "nightly_discovery.RankedUniverseSelector.refresh_cache",
-        return_value={"generated_at": "2026-03-14T09:00:00+00:00", "symbols": [{"symbol": "AAA"}]},
+        return_value={
+            "generated_at": "2026-03-14T09:00:00+00:00",
+            "symbols": [{"symbol": "AAA"}],
+            "liquidity_overlay": {
+                "path": "/tmp/liquidity.json",
+                "generated_at": "2026-03-14T09:00:01+00:00",
+                "symbol_count": 1,
+                "summary": {
+                    "median_estimated_slippage_bps": 11.2,
+                    "high_quality_count": 1,
+                },
+            },
+        },
     ):
         report = build_report(limit=2, min_technical_score=3, refresh_sp500=True)
 
@@ -54,6 +66,8 @@ def test_build_report_uses_nightly_profile_and_formats_leaders():
     assert report["leaders"][0]["symbol"] == "NVDA"
     assert report["leaders"][1]["action"] == "WATCH"
     assert report["live_prefilter"]["symbol_count"] == 1
+    assert report["liquidity_overlay"]["symbol_count"] == 1
+    assert report["liquidity_overlay"]["summary"]["median_estimated_slippage_bps"] == 11.2
 
 
 def test_format_report_renders_compact_nightly_summary():
@@ -66,6 +80,15 @@ def test_format_report_renders_compact_nightly_summary():
             "path": "/tmp/prefilter.json",
             "generated_at": "2026-03-14T09:00:00+00:00",
             "symbol_count": 42,
+        },
+        "liquidity_overlay": {
+            "path": "/tmp/liquidity.json",
+            "generated_at": "2026-03-14T09:00:03+00:00",
+            "symbol_count": 39,
+            "summary": {
+                "median_estimated_slippage_bps": 9.8,
+                "high_quality_count": 17,
+            },
         },
         "leaders": [
             {
@@ -86,4 +109,5 @@ def test_format_report_renders_compact_nightly_summary():
     assert "Profile: nightly_discovery" in text
     assert "Universe size: 4" in text
     assert "Live prefilter cache: 42 symbols" in text
+    assert "Liquidity overlay cache: 39 symbols | 2026-03-14T09:00:03+00:00 | median slip 9.8bps | high quality 17" in text
     assert "- NVDA: action BUY | tech 6/6 | total 10/12" in text
