@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
@@ -19,6 +19,7 @@ import pandas as pd
 from advisor import TradingAdvisor
 from data.market_data_provider import MarketDataProvider
 from data.polymarket_context import load_structured_context
+from outcomes import summarize_forward_return_by_dimension
 
 VERDICT_BASE_PROB = {
     "actionable": 0.58,
@@ -55,6 +56,14 @@ class AlphaCandidate:
     paper_action: str
     entry_price: float | None
     rationale: str
+    risk_budget_state: str = "unknown"
+    aggression_posture: str = "unknown"
+    execution_quality: str = "unknown"
+    liquidity_tier: str = "unknown"
+    spread_bps: float | None = None
+    slippage_bps: float | None = None
+    avg_dollar_volume_musd: float | None = None
+    overlay_notes: str = ""
 
 
 @dataclass
@@ -84,6 +93,14 @@ class SettledAlphaCandidate:
     realized_label: str
     settled_at: str
     rationale: str
+    risk_budget_state: str = "unknown"
+    aggression_posture: str = "unknown"
+    execution_quality: str = "unknown"
+    liquidity_tier: str = "unknown"
+    spread_bps: float | None = None
+    slippage_bps: float | None = None
+    avg_dollar_volume_musd: float | None = None
+    overlay_notes: str = ""
 
 
 @dataclass
@@ -94,6 +111,16 @@ class ActionCalibration:
     avg_return_5d: float | None
     avg_return_10d: float | None
     brier_5d: float | None
+
+
+@dataclass
+class OverlaySliceCalibration:
+    dimension: str
+    bucket: str
+    count: int
+    matured_count: int
+    hit_rate_5d: float | None
+    avg_return_5d: float | None
 
 
 @dataclass
@@ -113,6 +140,7 @@ class CalibrationReport:
     settled_candidates: int
     by_action: list[ActionCalibration]
     gate: PromotionGate
+    overlay_slices: list[OverlaySliceCalibration] = field(default_factory=list)
 
 
 def derive_alpha_candidate(result: dict, *, max_kelly_fraction: float = 0.08) -> AlphaCandidate:
@@ -151,6 +179,12 @@ def derive_alpha_candidate(result: dict, *, max_kelly_fraction: float = 0.08) ->
         conviction=conviction,
     )
     paper_action = classify_paper_action(verdict, calibrated_prob, conviction, divergence_state)
+    overlay = extract_overlay_dimensions(
+        result,
+        analysis=analysis,
+        recommendation=recommendation,
+        polymarket=polymarket,
+    )
     rationale = build_rationale(
         verdict=verdict,
         conviction=conviction,
@@ -179,6 +213,14 @@ def derive_alpha_candidate(result: dict, *, max_kelly_fraction: float = 0.08) ->
         paper_action=paper_action,
         entry_price=entry_price,
         rationale=rationale,
+        risk_budget_state=str(overlay["risk_budget_state"]),
+        aggression_posture=str(overlay["aggression_posture"]),
+        execution_quality=str(overlay["execution_quality"]),
+        liquidity_tier=str(overlay["liquidity_tier"]),
+        spread_bps=safe_float(overlay.get("spread_bps")),
+        slippage_bps=safe_float(overlay.get("slippage_bps")),
+        avg_dollar_volume_musd=safe_float(overlay.get("avg_dollar_volume_musd")),
+        overlay_notes=str(overlay.get("overlay_notes", "")),
     )
 
 
@@ -210,6 +252,126 @@ def build_rationale(*, verdict: str, conviction: str, divergence_state: str, sev
         f"{verdict}; conviction {conviction}; divergence {divergence_state}; "
         f"signal {severity}; persistence {persistence}"
     )
+
+
+def extract_overlay_dimensions(
+    result: dict,
+    *,
+    analysis: dict,
+    recommendation: dict,
+    polymarket: dict,
+) -> dict[str, object]:
+    risk_overlay = first_overlay_dict(
+        result.get("risk_budget_overlay"),
+        analysis.get("risk_budget_overlay"),
+        recommendation.get("risk_budget_overlay"),
+        result.get("risk_budget"),
+        analysis.get("risk_budget"),
+        recommendation.get("risk_budget"),
+    )
+    execution_overlay = first_overlay_dict(
+        result.get("execution_quality_overlay"),
+        analysis.get("execution_quality_overlay"),
+        recommendation.get("execution_quality_overlay"),
+        result.get("liquidity_quality_overlay"),
+        analysis.get("liquidity_quality_overlay"),
+        recommendation.get("liquidity_quality_overlay"),
+        result.get("execution_quality"),
+        analysis.get("execution_quality"),
+        recommendation.get("execution_quality"),
+        result.get("liquidity_quality"),
+        analysis.get("liquidity_quality"),
+        recommendation.get("liquidity_quality"),
+    )
+
+    risk_budget_state = coerce_bucket(
+        first_non_empty(
+            risk_overlay.get("state") if risk_overlay else None,
+            risk_overlay.get("status") if risk_overlay else None,
+            risk_overlay.get("label") if risk_overlay else None,
+            result.get("risk_budget_state"),
+            analysis.get("risk_budget_state"),
+            recommendation.get("risk_budget_state"),
+        ),
+        fallback="unknown",
+    )
+    aggression_posture = coerce_bucket(
+        first_non_empty(
+            risk_overlay.get("aggression_posture") if risk_overlay else None,
+            risk_overlay.get("aggression") if risk_overlay else None,
+            result.get("aggression_posture"),
+            analysis.get("aggression_posture"),
+            recommendation.get("aggression_posture"),
+            polymarket.get("aggression_dial"),
+        ),
+        fallback="unknown",
+    )
+    execution_quality = coerce_bucket(
+        first_non_empty(
+            execution_overlay.get("quality") if execution_overlay else None,
+            execution_overlay.get("status") if execution_overlay else None,
+            execution_overlay.get("tier") if execution_overlay else None,
+            execution_overlay.get("label") if execution_overlay else None,
+            result.get("execution_quality"),
+            analysis.get("execution_quality"),
+            recommendation.get("execution_quality"),
+        ),
+        fallback="unknown",
+    )
+    liquidity_tier = coerce_bucket(
+        first_non_empty(
+            execution_overlay.get("liquidity_tier") if execution_overlay else None,
+            execution_overlay.get("liquidity") if execution_overlay else None,
+            execution_overlay.get("liquidity_label") if execution_overlay else None,
+            result.get("liquidity_tier"),
+            analysis.get("liquidity_tier"),
+            recommendation.get("liquidity_tier"),
+        ),
+        fallback="unknown",
+    )
+
+    spread_bps = first_float(
+        execution_overlay.get("spread_bps") if execution_overlay else None,
+        execution_overlay.get("estimated_spread_bps") if execution_overlay else None,
+        result.get("spread_bps"),
+        analysis.get("spread_bps"),
+        recommendation.get("spread_bps"),
+    )
+    slippage_bps = first_float(
+        execution_overlay.get("slippage_bps") if execution_overlay else None,
+        execution_overlay.get("estimated_slippage_bps") if execution_overlay else None,
+        result.get("slippage_bps"),
+        analysis.get("slippage_bps"),
+        recommendation.get("slippage_bps"),
+    )
+    avg_dollar_volume = first_float(
+        execution_overlay.get("avg_dollar_volume") if execution_overlay else None,
+        execution_overlay.get("avg_dollar_volume_20d") if execution_overlay else None,
+        execution_overlay.get("adv_usd") if execution_overlay else None,
+        result.get("avg_dollar_volume"),
+        analysis.get("avg_dollar_volume"),
+        recommendation.get("avg_dollar_volume"),
+    )
+    avg_dollar_volume_musd = round(avg_dollar_volume / 1_000_000.0, 2) if avg_dollar_volume is not None else None
+
+    notes: list[str] = []
+    if spread_bps is not None:
+        notes.append(f"spread {spread_bps:.1f}bp")
+    if slippage_bps is not None:
+        notes.append(f"slip {slippage_bps:.1f}bp")
+    if avg_dollar_volume_musd is not None:
+        notes.append(f"adv ${avg_dollar_volume_musd:.1f}M")
+
+    return {
+        "risk_budget_state": risk_budget_state,
+        "aggression_posture": aggression_posture,
+        "execution_quality": execution_quality,
+        "liquidity_tier": liquidity_tier,
+        "spread_bps": spread_bps,
+        "slippage_bps": slippage_bps,
+        "avg_dollar_volume_musd": avg_dollar_volume_musd,
+        "overlay_notes": "; ".join(notes),
+    }
 
 
 def default_research_symbols(limit_per_bucket: int = 3) -> list[str]:
@@ -253,7 +415,10 @@ def format_alpha_report(candidates: list[AlphaCandidate]) -> str:
             f"- {candidate.symbol}: {candidate.paper_action} | {candidate.verdict} | "
             f"p={candidate.calibrated_prob:.3f} | edge={candidate.edge:+.3f} | "
             f"kelly={candidate.kelly_fraction:.3f} | move={candidate.expected_move_bps}bps | "
-            f"{candidate.rationale}"
+            f"overlay {candidate.risk_budget_state}/{candidate.aggression_posture} + "
+            f"{candidate.execution_quality}/{candidate.liquidity_tier}"
+            + (f" ({candidate.overlay_notes})" if candidate.overlay_notes else "")
+            + f" | {candidate.rationale}"
         )
     return "\n".join(lines)
 
@@ -375,6 +540,14 @@ def settle_alpha_snapshots(
                     realized_label=realized_label,
                     settled_at=now.isoformat(),
                     rationale=candidate.rationale,
+                    risk_budget_state=candidate.risk_budget_state,
+                    aggression_posture=candidate.aggression_posture,
+                    execution_quality=candidate.execution_quality,
+                    liquidity_tier=candidate.liquidity_tier,
+                    spread_bps=candidate.spread_bps,
+                    slippage_bps=candidate.slippage_bps,
+                    avg_dollar_volume_musd=candidate.avg_dollar_volume_musd,
+                    overlay_notes=candidate.overlay_notes,
                 )
             )
 
@@ -538,12 +711,33 @@ def build_calibration_report(
             )
         )
 
+    overlay_summary = summarize_forward_return_by_dimension(
+        settled,
+        dimensions=("risk_budget_state", "aggression_posture", "execution_quality", "liquidity_tier"),
+        horizon_key="5d",
+        min_count=2,
+    )
+    overlay_slices: list[OverlaySliceCalibration] = []
+    for dimension in ("risk_budget_state", "aggression_posture", "execution_quality", "liquidity_tier"):
+        for bucket, metrics in overlay_summary.get(dimension, {}).items():
+            overlay_slices.append(
+                OverlaySliceCalibration(
+                    dimension=dimension,
+                    bucket=bucket,
+                    count=int(metrics.get("count", 0)),
+                    matured_count=int(metrics.get("matured_count", 0)),
+                    hit_rate_5d=safe_float(metrics.get("hit_rate")),
+                    avg_return_5d=safe_float(metrics.get("avg_return")),
+                )
+            )
+
     gate = build_promotion_gate(by_action, minimum_samples=minimum_samples)
     return CalibrationReport(
         generated_at=generated_at.isoformat(),
         settled_candidates=len(settled),
         by_action=by_action,
         gate=gate,
+        overlay_slices=overlay_slices,
     )
 
 
@@ -592,6 +786,13 @@ def format_calibration_report(report: CalibrationReport) -> str:
     lines.append(f"Promotion gate: {report.gate.status}")
     for reason in report.gate.reasons:
         lines.append(f"- {reason}")
+    if report.overlay_slices:
+        lines.append("Overlay slices (5d):")
+        for item in report.overlay_slices[:8]:
+            lines.append(
+                f"- {item.dimension}={item.bucket}: n={item.count} matured={item.matured_count} "
+                f"| hit5d={fmt_pct(item.hit_rate_5d)} | avg5d={fmt_return(item.avg_return_5d)}"
+            )
     return "\n".join(lines)
 
 
@@ -671,6 +872,38 @@ def safe_float(value: object) -> float | None:
     except Exception:
         return None
     return parsed if pd.notna(parsed) else None
+
+
+def first_non_empty(*values: object) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def first_float(*values: object) -> float | None:
+    for value in values:
+        parsed = safe_float(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def first_overlay_dict(*values: object) -> dict:
+    for value in values:
+        if isinstance(value, dict) and value:
+            return value
+    return {}
+
+
+def coerce_bucket(value: object, *, fallback: str = "unknown") -> str:
+    if value is None:
+        return fallback
+    text = str(value).strip().lower().replace(" ", "_")
+    return text or fallback
 
 
 def mean_rounded(values: Iterable[float | None]) -> float | None:

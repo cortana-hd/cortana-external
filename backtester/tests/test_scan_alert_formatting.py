@@ -5,6 +5,9 @@ import pandas as pd
 import pytest
 
 from canslim_alert import format_alert as format_canslim
+from data.liquidity_overlay import build_execution_quality_overlay
+from data.liquidity_model import LiquidityOverlayModel
+from data.risk_budget import build_risk_budget_overlay
 from data.universe_selection import UniverseSelectionResult
 from data.market_regime import MarketRegime
 from dipbuyer_alert import format_alert as format_dipbuyer
@@ -15,6 +18,8 @@ def _disable_polymarket_artifacts(monkeypatch, tmp_path):
     monkeypatch.setenv("POLYMARKET_COMPACT_REPORT_PATH", str(tmp_path / "missing-compact.txt"))
     monkeypatch.setenv("POLYMARKET_REPORT_JSON_PATH", str(tmp_path / "missing-report.json"))
     monkeypatch.setenv("POLYMARKET_WATCHLIST_PATH", str(tmp_path / "missing-watchlist.json"))
+    monkeypatch.setattr("canslim_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
+    monkeypatch.setattr("dipbuyer_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
 
 
 class _FakeCanSlimAdvisor:
@@ -110,6 +115,66 @@ def test_canslim_alert_timing_line_surfaces_phase_and_nested_timings():
     assert "universe" in text
     assert "analysis" in text
     assert "slowest nested: history 0.80s" in text
+
+
+def test_canslim_alert_surfaces_compact_overlay_annotations_when_available():
+    fake = _FakeCanSlimAdvisor()
+    risk_overlay = {
+        "risk_budget_remaining": 0.42,
+        "aggression_dial": "lean_defensive",
+        "exposure_cap_hint": 0.58,
+        "reasons": ["market inputs stale"],
+    }
+    execution_overlay = {
+        "execution_quality": "moderate",
+        "liquidity_posture": "adequate",
+        "slippage_risk": "medium",
+    }
+
+    with patch("canslim_alert.TradingAdvisor", return_value=fake), patch(
+        "canslim_alert._resolve_context_overlays",
+        return_value=(risk_overlay, execution_overlay),
+    ), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
+        text = format_canslim(limit=5, min_score=6, universe_size=4)
+
+    assert "Risk budget: remaining 42% | cap 58% | aggression lean defensive | note market inputs stale" in text
+    assert "Execution quality: quality moderate | liquidity adequate | slippage medium" in text
+
+
+def test_canslim_alert_surfaces_real_risk_and_liquidity_helper_lines(tmp_path, monkeypatch):
+    liquidity_path = tmp_path / "liquidity-overlay.json"
+    model = LiquidityOverlayModel(cache_path=liquidity_path)
+    closes = [100 + i * 0.2 for i in range(120)]
+    histories = {
+        "MSFT": pd.DataFrame(
+            {
+                "Open": closes,
+                "High": [value * 1.01 for value in closes],
+                "Low": [value * 0.99 for value in closes],
+                "Close": closes,
+                "Volume": [50_000_000.0] * 120,
+            },
+            index=pd.date_range("2025-01-01", periods=120, freq="B", tz="UTC"),
+        )
+    }
+    model.refresh_cache(base_symbols=["MSFT"], histories=histories)
+    monkeypatch.setenv("TRADING_LIQUIDITY_OVERLAY_PATH", str(liquidity_path))
+
+    risk_overlay = build_risk_budget_overlay(
+        market=SimpleNamespace(
+            regime=MarketRegime.CONFIRMED_UPTREND,
+            position_sizing=1.0,
+            notes="trend intact",
+            snapshot_age_seconds=0.0,
+            status="ok",
+        )
+    ).to_dict()
+    execution_overlay = build_execution_quality_overlay(symbol="MSFT")
+
+    from canslim_alert import _execution_quality_line, _risk_budget_line
+
+    assert "Risk budget:" in _risk_budget_line(risk_overlay)
+    assert "Execution quality: quality good | liquidity high | slippage high" in _execution_quality_line(execution_overlay)
 
 
 def test_dipbuyer_alert_is_compact_when_market_gate_blocks_buys():

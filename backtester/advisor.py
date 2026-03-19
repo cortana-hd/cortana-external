@@ -31,7 +31,9 @@ USAGE
 """
 
 import argparse
+import importlib
 import io
+import inspect
 import os
 import time
 from contextlib import redirect_stderr, redirect_stdout
@@ -591,12 +593,193 @@ class TradingAdvisor:
             "asset_class": "stock",
         }
 
+    @staticmethod
+    def _overlay_as_dict(payload: object) -> Dict:
+        if isinstance(payload, dict):
+            return dict(payload)
+        as_dict = getattr(payload, "as_dict", None)
+        if callable(as_dict):
+            converted = as_dict()
+            if isinstance(converted, dict):
+                return dict(converted)
+        raw = getattr(payload, "__dict__", None)
+        if isinstance(raw, dict):
+            return dict(raw)
+        return {}
+
+    @classmethod
+    def _call_optional_overlay_builder(
+        cls,
+        *,
+        modules: List[str],
+        function_names: List[str],
+        kwargs: Dict[str, object],
+    ) -> Dict:
+        for module_name in modules:
+            try:
+                module = importlib.import_module(module_name)
+            except Exception:
+                continue
+            for function_name in function_names:
+                builder = getattr(module, function_name, None)
+                if not callable(builder):
+                    continue
+                try:
+                    signature = inspect.signature(builder)
+                    accepted = {
+                        key: value
+                        for key, value in kwargs.items()
+                        if key in signature.parameters and value is not None
+                    }
+                    return cls._overlay_as_dict(builder(**accepted))
+                except Exception:
+                    try:
+                        return cls._overlay_as_dict(builder(kwargs.get("market")))
+                    except Exception:
+                        continue
+        return {}
+
+    def _load_context_overlays(
+        self,
+        *,
+        market: Optional[MarketStatus],
+        risk_snapshot: Dict,
+        symbol: str,
+        selected_symbols: Optional[list[str]] = None,
+        analysis: Dict,
+    ) -> Dict[str, Dict]:
+        risk_overlay = self._overlay_as_dict(
+            analysis.get("risk_budget_overlay") or analysis.get("risk_budget")
+        )
+        execution_overlay = self._overlay_as_dict(
+            analysis.get("execution_quality_overlay")
+            or analysis.get("liquidity_overlay")
+            or analysis.get("execution_quality")
+        )
+
+        payload = {
+            "market": market,
+            "risk_inputs": risk_snapshot,
+            "risk_snapshot": risk_snapshot,
+            "symbol": symbol,
+            "symbols": selected_symbols or [symbol] if symbol else [],
+            "analysis": analysis,
+        }
+        if not risk_overlay and market is not None:
+            risk_overlay = self._call_optional_overlay_builder(
+                modules=["data.risk_budget"],
+                function_names=["build_risk_budget_overlay", "build_risk_budget", "compute_risk_budget_overlay"],
+                kwargs=payload,
+            )
+        if not execution_overlay:
+            execution_overlay = self._call_optional_overlay_builder(
+                modules=["data.execution_quality", "data.liquidity_overlay", "data.execution_overlay"],
+                function_names=["build_execution_quality_overlay", "build_liquidity_overlay", "build_execution_overlay"],
+                kwargs=payload,
+            )
+        return {
+            "risk_budget_overlay": risk_overlay,
+            "execution_quality_overlay": execution_overlay,
+        }
+
+    @staticmethod
+    def _format_overlay_pct(value: object) -> str:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return ""
+        if numeric != numeric:
+            return ""
+        if numeric <= 1.0:
+            numeric *= 100.0
+        return f"{numeric:.0f}%"
+
+    @classmethod
+    def _compact_risk_budget_line(cls, overlay: Dict) -> str:
+        if not overlay:
+            return ""
+
+        remaining = cls._format_overlay_pct(overlay.get("risk_budget_remaining"))
+        cap = cls._format_overlay_pct(overlay.get("exposure_cap_hint"))
+        aggression = str(
+            overlay.get("aggression_dial")
+            or overlay.get("aggression")
+            or overlay.get("posture")
+            or ""
+        ).strip()
+        reasons = overlay.get("reasons") if isinstance(overlay.get("reasons"), (list, tuple)) else []
+        reason_note = str(reasons[0]).strip() if reasons else ""
+        if not (remaining or cap or aggression or reason_note):
+            return ""
+
+        bits = []
+        if remaining:
+            bits.append(f"remaining {remaining}")
+        if cap:
+            bits.append(f"cap {cap}")
+        if aggression:
+            bits.append(f"aggression {aggression.replace('_', ' ')}")
+        if reason_note:
+            bits.append(f"note {reason_note[:72]}")
+        return "Risk budget: " + " | ".join(bits)
+
+    @classmethod
+    def _compact_execution_quality_line(cls, overlay: Dict) -> str:
+        if not overlay:
+            return ""
+
+        quality = str(
+            overlay.get("execution_quality")
+            or overlay.get("quality_label")
+            or overlay.get("liquidity_quality")
+            or ""
+        ).strip()
+        liquidity = str(
+            overlay.get("liquidity_posture")
+            or overlay.get("liquidity_label")
+            or overlay.get("liquidity")
+            or ""
+        ).strip()
+        slippage = str(
+            overlay.get("slippage_risk")
+            or overlay.get("slippage_label")
+            or overlay.get("slippage_band")
+            or ""
+        ).strip()
+        annotation = str(
+            overlay.get("annotation")
+            or overlay.get("summary")
+            or overlay.get("note")
+            or ""
+        ).strip()
+        if not (quality or liquidity or slippage or annotation):
+            return ""
+
+        bits = []
+        if quality:
+            bits.append(f"quality {quality.replace('_', ' ')}")
+        if liquidity:
+            bits.append(f"liquidity {liquidity.replace('_', ' ')}")
+        if slippage:
+            bits.append(f"slippage {slippage.replace('_', ' ')}")
+        if annotation:
+            bits.append(annotation[:72])
+        return "Execution quality: " + " | ".join(bits)
+
     def quick_check(self, symbol: str) -> Dict:
         target = self._normalize_quick_check_symbol(symbol)
         display_symbol = target["display_symbol"]
         provider_symbol = target["provider_symbol"]
         asset_class = target["asset_class"]
         polymarket = load_symbol_context(display_symbol)
+        market = self.get_market_status()
+        risk_snapshot: Dict = {}
+        try:
+            snapshot = self.risk_fetcher.get_snapshot()
+            if isinstance(snapshot, dict):
+                risk_snapshot = snapshot
+        except Exception:
+            risk_snapshot = {}
 
         if asset_class == "crypto":
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -618,6 +801,14 @@ class TradingAdvisor:
         if modifier:
             reason = f"{reason} {modifier}".strip()
 
+        overlays = self._load_context_overlays(
+            market=market,
+            risk_snapshot=risk_snapshot,
+            symbol=display_symbol,
+            selected_symbols=[display_symbol],
+            analysis=analysis if isinstance(analysis, dict) else {},
+        )
+
         return {
             "input_symbol": target["input_symbol"],
             "symbol": display_symbol,
@@ -628,6 +819,8 @@ class TradingAdvisor:
             "reason": reason,
             "analysis": analysis,
             "polymarket": polymarket,
+            "risk_budget_overlay": overlays.get("risk_budget_overlay", {}),
+            "execution_quality_overlay": overlays.get("execution_quality_overlay", {}),
         }
 
     @staticmethod
@@ -755,6 +948,13 @@ class TradingAdvisor:
                     + (f" | {divergence}" if divergence else "")
                     + (f" | themes {themes}" if themes else "")
                 )
+
+        risk_line = TradingAdvisor._compact_risk_budget_line(result.get("risk_budget_overlay") or {})
+        if risk_line:
+            lines.append(risk_line)
+        execution_line = TradingAdvisor._compact_execution_quality_line(result.get("execution_quality_overlay") or {})
+        if execution_line:
+            lines.append(execution_line)
 
         analysis = result.get("analysis", {})
         rec = analysis.get("recommendation", {}) if isinstance(analysis, dict) else {}

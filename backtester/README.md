@@ -396,6 +396,11 @@ There is now a separate paper-only research surface at [`experimental_alpha.py`]
 Use it for equation/algorithm experiments only:
 - it reuses `quick_check` plus fresh Polymarket structured context
 - it computes a paper-only calibrated probability, edge, capped Kelly fraction, and expected move estimate
+- it logs contextual overlay dimensions for each paper candidate:
+  - risk budget state
+  - aggression posture
+  - execution quality + liquidity tier
+  - optional spread/slippage/ADV notes when available
 - it outputs `paper_long`, `track`, `reduce_or_wait`, or `skip`
 - it does not place orders
 - it is not wired into cron or the production alert path
@@ -423,10 +428,13 @@ Execution-readiness research workflow:
    This settles prior snapshots against later market data and writes forward returns under `.cache/experimental_alpha/settled/`.
 3. `python experimental_alpha.py --calibrate --minimum-samples 20`
    This builds the calibration and promotion-gate report from the settled sample set.
+   It now also reports 5d overlay slices for repeated buckets (`n>=2`) so you can review
+   whether specific risk-budget or execution-quality states are helping or hurting.
 
 Promotion gate intent:
 - `ready` means the current `paper_long` bucket cleared the present research thresholds for sample count, 5d hit rate, average 5d return, and Brier score.
 - `blocked` means the sample is still too small or too weak to justify promoting any part of the heuristic into the live production decision path.
+- overlay slice metrics are informational only in this phase; they do not change live buy/no-buy authority.
 
 Settlement semantics:
 - snapshot entry uses the first trading bar at or after the snapshot timestamp
