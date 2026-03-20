@@ -12,6 +12,7 @@ This README is the operator manual.
 Use the study guide when you want to understand the system conceptually:
 - [Backtester Study Guide](./docs/backtester-study-guide.md)
 - [Roadmap](./docs/roadmap.md)
+- [Session Handoff](./docs/session-handoff.md)
 
 Other useful docs:
 - [Polymarket + backtester flow](./docs/polymarket-backtester-flow.md)

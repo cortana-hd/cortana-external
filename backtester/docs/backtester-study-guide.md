@@ -4,6 +4,7 @@ This is a plain-English learning doc for understanding the backtester from the g
 
 For the operating plan and next implementation phases, use:
 - [Roadmap](./roadmap.md)
+- [Session Handoff](./session-handoff.md)
 
 The goal is to understand the system in the order it actually thinks:
 
