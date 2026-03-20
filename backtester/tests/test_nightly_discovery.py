@@ -83,6 +83,15 @@ def test_build_report_uses_nightly_profile_and_formats_leaders():
             },
             "/tmp/buy-decision-calibration-latest.json",
         ),
+    ), patch(
+        "nightly_discovery.default_research_symbols",
+        return_value=["NVDA", "COIN"],
+    ), patch(
+        "nightly_discovery.build_alpha_report",
+        return_value=[],
+    ) as build_alpha_report_mock, patch(
+        "nightly_discovery.persist_alpha_snapshot",
+        return_value="/tmp/experimental-alpha-latest.json",
     ):
         report = build_report(limit=2, min_technical_score=3, refresh_sp500=True)
 
@@ -98,6 +107,7 @@ def test_build_report_uses_nightly_profile_and_formats_leaders():
     assert report["liquidity_overlay"]["summary"]["median_estimated_slippage_bps"] == 11.2
     assert fake_advisor.last_nightly_symbols == ["AAPL", "MSFT", "NVDA", "COIN"]
     assert report["buy_decision_calibration"]["settled_candidates"] == 3
+    build_alpha_report_mock.assert_called_once()
 
 
 def test_format_report_renders_compact_nightly_summary():
@@ -192,3 +202,22 @@ def test_refresh_buy_decision_calibration_summary_falls_back_to_existing_file(tm
     assert summary is not None
     assert summary["reason"] == "no_settled_records"
     assert summary["settled_candidates"] == 0
+
+
+def test_refresh_experimental_alpha_snapshot_persists_default_research_symbols():
+    fake_advisor = _FakeAdvisor()
+
+    with patch("nightly_discovery.default_research_symbols", return_value=["NVDA", "COIN"]), patch(
+        "nightly_discovery.build_alpha_report",
+        return_value=[],
+    ) as build_alpha_report_mock, patch(
+        "nightly_discovery.persist_alpha_snapshot",
+        return_value="/tmp/experimental-alpha-latest.json",
+    ) as persist_mock:
+        from nightly_discovery import _refresh_experimental_alpha_snapshot
+
+        path = _refresh_experimental_alpha_snapshot(advisor=fake_advisor)
+
+    assert path == "/tmp/experimental-alpha-latest.json"
+    build_alpha_report_mock.assert_called_once_with(["NVDA", "COIN"], fake_advisor)
+    persist_mock.assert_called_once()
