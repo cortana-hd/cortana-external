@@ -13,6 +13,7 @@ DEFAULT_BUY_DECISION_CALIBRATION_PATH = (
 )
 
 from advisor import TradingAdvisor
+from buy_decision_calibration import generate_buy_decision_calibration_artifact
 from data.universe import UNIVERSE_PROFILE_NIGHTLY_DISCOVERY
 from data.universe_selection import RankedUniverseSelector
 
@@ -63,7 +64,7 @@ def build_report(
     live_prefilter = None
     liquidity_overlay = None
     feature_snapshot = None
-    buy_decision_calibration = _load_buy_decision_calibration_summary()
+    buy_decision_calibration = _refresh_buy_decision_calibration_summary()
     if refresh_live_prefilter:
         standard_symbols = advisor.screener.get_universe()
         selector = RankedUniverseSelector()
@@ -209,6 +210,23 @@ def _load_buy_decision_calibration_summary() -> dict | None:
     return {
         "path": str(DEFAULT_BUY_DECISION_CALIBRATION_PATH),
         "generated_at": payload.get("generated_at"),
+        "is_stale": freshness.get("is_stale"),
+        "reason": freshness.get("reason"),
+        "status": freshness.get("reason") or "unknown",
+        "settled_candidates": int(summary.get("settled_candidates", 0) or 0),
+    }
+
+
+def _refresh_buy_decision_calibration_summary() -> dict | None:
+    try:
+        artifact, path = generate_buy_decision_calibration_artifact()
+    except Exception:
+        return _load_buy_decision_calibration_summary()
+    freshness = artifact.get("freshness") if isinstance(artifact.get("freshness"), dict) else {}
+    summary = artifact.get("summary") if isinstance(artifact.get("summary"), dict) else {}
+    return {
+        "path": str(path),
+        "generated_at": artifact.get("generated_at"),
         "is_stale": freshness.get("is_stale"),
         "reason": freshness.get("reason"),
         "status": freshness.get("reason") or "unknown",

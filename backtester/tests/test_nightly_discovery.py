@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -72,7 +73,17 @@ def test_build_report_uses_nightly_profile_and_formats_leaders():
                 },
             },
         },
-    ), patch("nightly_discovery._load_buy_decision_calibration_summary", return_value=None):
+    ), patch(
+        "nightly_discovery.generate_buy_decision_calibration_artifact",
+        return_value=(
+            {
+                "generated_at": "2026-03-14T08:30:00+00:00",
+                "freshness": {"is_stale": False, "reason": "fresh"},
+                "summary": {"settled_candidates": 3},
+            },
+            "/tmp/buy-decision-calibration-latest.json",
+        ),
+    ):
         report = build_report(limit=2, min_technical_score=3, refresh_sp500=True)
 
     assert report["profile"] == "nightly_discovery"
@@ -86,6 +97,7 @@ def test_build_report_uses_nightly_profile_and_formats_leaders():
     assert report["liquidity_overlay"]["symbol_count"] == 1
     assert report["liquidity_overlay"]["summary"]["median_estimated_slippage_bps"] == 11.2
     assert fake_advisor.last_nightly_symbols == ["AAPL", "MSFT", "NVDA", "COIN"]
+    assert report["buy_decision_calibration"]["settled_candidates"] == 3
 
 
 def test_format_report_renders_compact_nightly_summary():
@@ -159,3 +171,24 @@ def test_format_report_surfaces_buy_decision_calibration_when_available():
     text = format_report(report)
 
     assert "Buy decision calibration: fresh | stale=False | settled 24 | 2026-03-14T08:30:00+00:00" in text
+
+
+def test_refresh_buy_decision_calibration_summary_falls_back_to_existing_file(tmp_path):
+    payload = {
+        "generated_at": "2026-03-14T08:30:00+00:00",
+        "freshness": {"is_stale": True, "reason": "no_settled_records"},
+        "summary": {"settled_candidates": 0},
+    }
+    path = tmp_path / "buy-decision-calibration-latest.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with patch("nightly_discovery.DEFAULT_BUY_DECISION_CALIBRATION_PATH", path), patch(
+        "nightly_discovery.generate_buy_decision_calibration_artifact",
+        side_effect=RuntimeError("boom"),
+    ):
+        from nightly_discovery import _refresh_buy_decision_calibration_summary
+        summary = _refresh_buy_decision_calibration_summary()
+
+    assert summary is not None
+    assert summary["reason"] == "no_settled_records"
+    assert summary["settled_candidates"] == 0
