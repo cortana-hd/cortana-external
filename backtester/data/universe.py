@@ -20,11 +20,13 @@ Then we score each candidate on CANSLIM factors to find the best setups.
 =============================================================================
 """
 
+import io
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Callable, TypeVar
 from datetime import UTC, datetime, timedelta
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import json
 import logging
@@ -32,11 +34,14 @@ import os
 from pathlib import Path
 import time
 import requests
+import warnings
 
+from .market_data_provider import MarketDataError, MarketDataProvider
 from .polymarket_context import load_watchlist_entries
 
 
 LOGGER = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 
 # S&P 500 tickers (we'll use this as our base universe)
@@ -171,6 +176,14 @@ UNIVERSE_PROFILES = {
     UNIVERSE_PROFILE_NIGHTLY_DISCOVERY: "Broader nightly discovery universe using live S&P 500 constituents when available",
 }
 SP500_CONSTITUENTS_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+DEFAULT_HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/137.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 class UniverseScreener:
@@ -185,12 +198,13 @@ class UniverseScreener:
         top_picks = screener.rank_candidates(candidates)[:20]
     """
     
-    def __init__(self, cache_dir: str = None):
+    def __init__(self, cache_dir: str = None, market_data: Optional[MarketDataProvider] = None):
         """Initialize the screener."""
         if cache_dir is None:
             cache_dir = Path(__file__).parent / "cache"
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
+        self.market_data = market_data or MarketDataProvider(cache_dir=str(self.cache_dir / "market_data"))
 
     def _sp500_constituents_cache_path(self) -> Path:
         return self.cache_dir / "sp500_constituents.json"
@@ -236,7 +250,7 @@ class UniverseScreener:
 
     def _fetch_live_sp500_constituents(self) -> List[str]:
         url = os.getenv("SP500_CONSTITUENTS_URL", SP500_CONSTITUENTS_URL)
-        response = requests.get(url, timeout=20)
+        response = requests.get(url, headers=DEFAULT_HTTP_HEADERS, timeout=20)
         response.raise_for_status()
         tables = pd.read_html(StringIO(response.text))
         for table in tables:
@@ -247,6 +261,39 @@ class UniverseScreener:
             if symbols:
                 return symbols
         raise ValueError("Unable to parse S&P 500 constituents from source")
+
+    @staticmethod
+    def _run_market_data_quietly(fn: Callable[..., _T], *args, **kwargs) -> _T:
+        with warnings.catch_warnings(), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            warnings.filterwarnings("ignore", message="Timestamp.utcnow is deprecated.*")
+            warnings.filterwarnings("ignore", category=FutureWarning, module="yfinance")
+            warnings.filterwarnings("ignore", category=UserWarning, module="yfinance")
+            return fn(*args, **kwargs)
+
+    def _fetch_price_history(self, symbol: str, period: str = "1y") -> Optional[pd.DataFrame]:
+        try:
+            return self.market_data.get_history(symbol, period=period, auto_adjust=False).frame
+        except MarketDataError as exc:
+            LOGGER.debug("Skipping %s during provider history fetch: %s", symbol, exc)
+            return None
+
+    def _fetch_stock_metadata(self, symbol: str) -> Dict:
+        try:
+            ticker = yf.Ticker(symbol)
+            info = self._run_market_data_quietly(lambda: ticker.info)
+            if not isinstance(info, dict):
+                return {}
+            return {
+                'name': info.get('shortName', symbol),
+                'market_cap': info.get('marketCap'),
+                'float_shares': info.get('floatShares'),
+                'beta': info.get('beta'),
+                'sector': info.get('sector'),
+                'industry': info.get('industry'),
+            }
+        except Exception as exc:
+            LOGGER.debug("Skipping %s during metadata fetch: %s", symbol, exc)
+            return {}
 
     def load_sp500_constituents(self, *, refresh: bool = False, max_age_hours: float = 24.0) -> List[str]:
         if not refresh:
@@ -388,35 +435,47 @@ class UniverseScreener:
             )
         raise ValueError(f"Unknown universe profile: {profile}")
     
-    def get_stock_info(self, symbol: str) -> Optional[Dict]:
+    def get_stock_info(self, symbol: str, history: Optional[pd.DataFrame] = None) -> Optional[Dict]:
         """
         Get basic info for a stock (price, market cap, volume).
         
         Returns None if the stock doesn't meet basic criteria.
         """
         try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.info
-            
-            # Extract key metrics
+            history = history if history is not None else self._fetch_price_history(symbol)
+            if history is None or history.empty:
+                return None
+
+            close = pd.to_numeric(history.get('Close'), errors='coerce').dropna()
+            volume = pd.to_numeric(history.get('Volume'), errors='coerce').dropna()
+            if close.empty or volume.empty:
+                return None
+
+            window = min(len(volume), 50)
+            price = float(close.iloc[-1])
+            avg_volume = float(volume.tail(window).mean()) if window else 0.0
             result = {
                 'symbol': symbol,
-                'name': info.get('shortName', symbol),
-                'price': info.get('currentPrice') or info.get('regularMarketPrice'),
-                'market_cap': info.get('marketCap'),
-                'avg_volume': info.get('averageVolume'),
-                'float_shares': info.get('floatShares'),
-                'beta': info.get('beta'),
-                'sector': info.get('sector'),
-                'industry': info.get('industry'),
-                '52w_high': info.get('fiftyTwoWeekHigh'),
-                '52w_low': info.get('fiftyTwoWeekLow'),
+                'name': symbol,
+                'price': price,
+                'market_cap': None,
+                'avg_volume': avg_volume,
+                'float_shares': None,
+                'beta': None,
+                'sector': None,
+                'industry': None,
+                '52w_high': float(close.max()),
+                '52w_low': float(close.min()),
             }
-            
+
+            if result['price'] < 15 or result['avg_volume'] < 400_000:
+                return result
+
+            result.update(self._fetch_stock_metadata(symbol))
             return result
             
         except Exception as e:
-            print(f"   ⚠️ Error fetching {symbol}: {e}")
+            LOGGER.debug("Skipping %s during basic info fetch: %s", symbol, e)
             return None
     
     def passes_basic_filters(self, info: Dict) -> bool:
@@ -447,23 +506,22 @@ class UniverseScreener:
         
         return True
     
-    def calculate_technical_score(self, symbol: str) -> Dict:
+    def calculate_technical_score(self, symbol: str, history: Optional[pd.DataFrame] = None) -> Dict:
         """
         Calculate technical CANSLIM scores (N, L, S) for a stock.
         
         Returns dict with scores and supporting data.
         """
         try:
-            ticker = yf.Ticker(symbol)
+            hist = history if history is not None else self._fetch_price_history(symbol)
             
-            # Get 1 year of daily data
-            hist = ticker.history(period="1y")
-            
-            if hist.empty or len(hist) < 50:
+            if hist is None or hist.empty or len(hist) < 50:
                 return {'symbol': symbol, 'error': 'Insufficient data'}
             
-            close = hist['Close']
-            volume = hist['Volume']
+            close = pd.to_numeric(hist['Close'], errors='coerce').dropna()
+            volume = pd.to_numeric(hist['Volume'], errors='coerce').dropna()
+            if close.empty or volume.empty:
+                return {'symbol': symbol, 'error': 'Insufficient data'}
             
             # N — New High (proximity to 52-week high)
             high_52w = close.max()
@@ -539,6 +597,8 @@ class UniverseScreener:
         """
         if symbols is None:
             symbols = self.get_universe()
+        else:
+            symbols = self._dedupe_symbols(symbols)
         
         if verbose:
             print(f"🔍 Screening {len(symbols)} stocks...")
@@ -553,9 +613,14 @@ class UniverseScreener:
         for i, symbol in enumerate(symbols):
             if verbose and (i + 1) % 10 == 0:
                 print(f"   Progress: {i + 1}/{len(symbols)} ({passed} passed, {failed} filtered)")
+
+            history = self._fetch_price_history(symbol)
+            if history is None or history.empty:
+                failed += 1
+                continue
             
             # Get basic info
-            info = self.get_stock_info(symbol)
+            info = self.get_stock_info(symbol, history=history)
             
             # Apply basic filters
             if not self.passes_basic_filters(info):
@@ -563,7 +628,7 @@ class UniverseScreener:
                 continue
             
             # Calculate technical scores
-            tech = self.calculate_technical_score(symbol)
+            tech = self.calculate_technical_score(symbol, history=history)
             
             if 'error' in tech:
                 failed += 1
