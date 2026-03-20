@@ -383,7 +383,7 @@ check_tools() {
   # gog
   local check_name="gog"
   gog_exit=0
-  timeout 5 gog --account hameldesai3@gmail.com gmail search 'newer_than:1d' --max 1 2>/dev/null || gog_exit=$?
+  timeout 15 gog --account hameldesai3@gmail.com gmail search 'newer_than:1d' --max 1 --no-input 2>/dev/null || gog_exit=$?
   if [[ "$gog_exit" -eq 4 ]]; then
     alert "gog needs re-auth (exit code 4 = no auth)" "$check_name" "warning"
   elif [[ "$gog_exit" -eq 124 ]]; then
