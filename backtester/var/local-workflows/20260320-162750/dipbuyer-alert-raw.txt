@@ -1,0 +1,87 @@
+Traceback (most recent call last):
+  File "/Users/hd/Developer/cortana-external/backtester/dipbuyer_alert.py", line 608, in <module>
+    main()
+    ~~~~^^
+  File "/Users/hd/Developer/cortana-external/backtester/dipbuyer_alert.py", line 598, in main
+    format_alert(
+    ~~~~~~~~~~~~^
+        limit=args.limit,
+        ^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+        review_detail_limit=max(1, int(args.review_detail_limit)),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/hd/Developer/cortana-external/backtester/dipbuyer_alert.py", line 463, in format_alert
+    analysis = _run_quiet(advisor.analyze_dip_stock, symbol)
+  File "/Users/hd/Developer/cortana-external/backtester/dipbuyer_alert.py", line 52, in _run_quiet
+    return fn(*args, **kwargs)
+  File "/Users/hd/Developer/cortana-external/backtester/advisor.py", line 566, in analyze_dip_stock
+    return self._analyze_dip_with_context(symbol, market, risk_snapshot, quiet=quiet)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hd/Developer/cortana-external/backtester/advisor.py", line 508, in _analyze_dip_with_context
+    setup = strategy.evaluate_setup(
+        strategy_data,
+    ...<3 lines>...
+        data_staleness_seconds=hist_result.staleness_seconds,
+    )
+  File "/Users/hd/Developer/cortana-external/backtester/strategies/dip_buyer.py", line 458, in evaluate_setup
+    scores = self.build_score_frame(
+        data,
+    ...<3 lines>...
+        data_staleness_seconds=data_staleness_seconds,
+    )
+  File "/Users/hd/Developer/cortana-external/backtester/strategies/dip_buyer.py", line 366, in build_score_frame
+    risk = self._prepare_risk_frame(data.index, risk_snapshot=risk_snapshot)
+  File "/Users/hd/Developer/cortana-external/backtester/strategies/dip_buyer.py", line 285, in _prepare_risk_frame
+    risk_history = self.risk_fetcher.get_history(days=max(len(data_index), 200))
+  File "/Users/hd/Developer/cortana-external/backtester/data/risk_signals.py", line 400, in get_history
+    return self._build_history(days)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/hd/Developer/cortana-external/backtester/data/risk_signals.py", line 344, in _build_history
+    put_call = self._fetch_put_call_history(start, end)
+  File "/Users/hd/Developer/cortana-external/backtester/data/risk_signals.py", line 299, in _fetch_put_call_history
+    series = self._fetch_put_call_from_cboe(start, end)
+  File "/Users/hd/Developer/cortana-external/backtester/data/risk_signals.py", line 234, in _fetch_put_call_from_cboe
+    response = requests.get(url, timeout=10)
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/requests/api.py", line 73, in get
+    return request("get", url, params=params, **kwargs)
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/requests/api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/requests/sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/requests/sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/requests/adapters.py", line 644, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/urllib3/connectionpool.py", line 716, in urlopen
+    httplib_response = self._make_request(
+        conn,
+    ...<5 lines>...
+        chunked=chunked,
+    )
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/urllib3/connectionpool.py", line 404, in _make_request
+    self._validate_conn(conn)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/urllib3/connectionpool.py", line 1061, in _validate_conn
+    conn.connect()
+    ~~~~~~~~~~~~^^
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/urllib3/connection.py", line 419, in connect
+    self.sock = ssl_wrap_socket(
+                ~~~~~~~~~~~~~~~^
+        sock=conn,
+        ^^^^^^^^^^
+    ...<8 lines>...
+        tls_in_tls=tls_in_tls,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/urllib3/util/ssl_.py", line 411, in ssl_wrap_socket
+    context.load_verify_locations(ca_certs, ca_cert_dir, ca_cert_data)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt

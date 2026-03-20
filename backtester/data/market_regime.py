@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -43,6 +44,38 @@ class MarketStatus:
     price_vs_50d_pct: float = 0.0
     follow_through_active: bool = False
 
+    @staticmethod
+    def _display_width(text: str) -> int:
+        width = 0
+        for char in str(text):
+            if unicodedata.combining(char):
+                continue
+            if unicodedata.east_asian_width(char) in {"W", "F"}:
+                width += 2
+            elif ord(char) >= 0x1F300:
+                width += 2
+            else:
+                width += 1
+        return width
+
+    @classmethod
+    def _pad_cell(cls, text: str, width: int) -> str:
+        value = str(text)
+        return value + (" " * max(width - cls._display_width(value), 0))
+
+    @classmethod
+    def _boxed(cls, title: str, body_lines: list[str]) -> str:
+        inner_width = max(
+            [cls._display_width(title), *(cls._display_width(line) for line in body_lines)],
+            default=0,
+        )
+        top = "╔" + ("═" * (inner_width + 2)) + "╗"
+        header = "║ " + cls._pad_cell(title, inner_width) + " ║"
+        divider = "╠" + ("═" * (inner_width + 2)) + "╣"
+        rows = ["║ " + cls._pad_cell(line, inner_width) + " ║" for line in body_lines]
+        bottom = "╚" + ("═" * (inner_width + 2)) + "╝"
+        return "\n".join([top, header, divider, *rows, bottom])
+
     def __str__(self) -> str:
         emoji = {
             MarketRegime.CONFIRMED_UPTREND: "🟢",
@@ -50,23 +83,22 @@ class MarketStatus:
             MarketRegime.RALLY_ATTEMPT: "🟡",
             MarketRegime.CORRECTION: "🔴",
         }
-        degraded_reason = f"\n║ Degraded Reason: {self.degraded_reason}" if self.status == "degraded" else ""
-        age_line = f"\n║ Snapshot Age: {self.snapshot_age_seconds:.0f}s" if self.snapshot_age_seconds else ""
-        return f"""
-╔══════════════════════════════════════════════════════════════╗
-║                    MARKET STATUS (M Factor)                  ║
-╠══════════════════════════════════════════════════════════════╣
-║ Regime: {emoji.get(self.regime, '')} {self.regime.value.upper()}
-║ Data Status: {self.status.upper()} ({self.data_source})
-║ Distribution Days (25d): {self.distribution_days}
-║ Last Follow-Through: {self.last_ftd or 'None recent'}
-║ Trend: {self.trend_direction}
-║ Position Sizing: {self.position_sizing * 100:.0f}%
-║ Regime Score: {self.regime_score:+d} | Drawdown: {self.drawdown_pct:.1f}% | 20d Return: {self.recent_return_pct:.1f}%
-║
-║ Notes: {self.notes}{degraded_reason}{age_line}
-╚══════════════════════════════════════════════════════════════╝
-"""
+        lines = [
+            f"Regime: {emoji.get(self.regime, '')} {self.regime.value.upper()}",
+            f"Data Status: {self.status.upper()} ({self.data_source})",
+            f"Distribution Days (25d): {self.distribution_days}",
+            f"Last Follow-Through: {self.last_ftd or 'None recent'}",
+            f"Trend: {self.trend_direction}",
+            f"Position Sizing: {self.position_sizing * 100:.0f}%",
+            f"Regime Score: {self.regime_score:+d} | Drawdown: {self.drawdown_pct:.1f}% | 20d Return: {self.recent_return_pct:.1f}%",
+            "",
+            f"Notes: {self.notes}",
+        ]
+        if self.status == "degraded" and self.degraded_reason:
+            lines.append(f"Degraded Reason: {self.degraded_reason}")
+        if self.snapshot_age_seconds:
+            lines.append(f"Snapshot Age: {self.snapshot_age_seconds:.0f}s")
+        return "\n" + self._boxed("MARKET STATUS (M Factor)", lines) + "\n"
 
 
 @dataclass(frozen=True)

@@ -83,6 +83,7 @@ def persist_leader_snapshot(
         normalized.append(
             {
                 "symbol": symbol,
+                "price": float(item.get("price", 0.0) or 0.0),
                 "action": str(item.get("action", "NO_BUY") or "NO_BUY"),
                 "rank_score": float(item.get("rank_score", 0.0) or 0.0),
                 "confidence": int(item.get("confidence", 0) or 0),
@@ -161,6 +162,8 @@ def build_leader_baskets(
                     {
                         "symbol": str(item.get("symbol", "")).upper(),
                         "appearances": 1,
+                        "latest_price": float(item.get("price", 0.0) or 0.0),
+                        "window_return_pct": _recent_change_pct(snapshots=snapshots, symbol=str(item.get("symbol", "")).upper()),
                         "avg_rank_score": float(item.get("rank_score", 0.0) or 0.0),
                         "latest_rank_score": float(item.get("rank_score", 0.0) or 0.0),
                         "avg_confidence": float(item.get("confidence", 0) or 0),
@@ -175,6 +178,8 @@ def build_leader_baskets(
         confidences: dict[str, list[float]] = {}
         actions: dict[str, set[str]] = {}
         latest_rank: dict[str, float] = {}
+        latest_price: dict[str, float] = {}
+        earliest_price: dict[str, float] = {}
 
         for snapshot in snapshots:
             if snapshot["generated_at"] < bucket_cutoff:
@@ -190,15 +195,26 @@ def build_leader_baskets(
                 confidences.setdefault(symbol, []).append(float(item.get("confidence", 0) or 0))
                 actions.setdefault(symbol, set()).add(str(item.get("action", "NO_BUY") or "NO_BUY"))
                 latest_rank[symbol] = float(item.get("rank_score", 0.0) or 0.0)
+                price = float(item.get("price", 0.0) or 0.0)
+                if price > 0:
+                    earliest_price.setdefault(symbol, price)
+                    latest_price[symbol] = price
 
         records = []
         for symbol, count in appearances.items():
             scores = rank_scores.get(symbol, [0.0])
             confidence_values = confidences.get(symbol, [0.0])
+            current_price = float(latest_price.get(symbol, 0.0) or 0.0)
+            start_price = float(earliest_price.get(symbol, 0.0) or 0.0)
+            window_return_pct = None
+            if start_price > 0 and current_price > 0 and count > 1:
+                window_return_pct = round(((current_price / start_price) - 1.0) * 100.0, 1)
             records.append(
                 {
                     "symbol": symbol,
                     "appearances": int(count),
+                    "latest_price": round(current_price, 2) if current_price > 0 else None,
+                    "window_return_pct": window_return_pct,
                     "avg_rank_score": round(sum(scores) / max(len(scores), 1), 2),
                     "latest_rank_score": round(float(latest_rank.get(symbol, 0.0)), 2),
                     "avg_confidence": round(sum(confidence_values) / max(len(confidence_values), 1), 1),
@@ -324,13 +340,51 @@ def _write_bucket_text_files(*, base_root: Path, artifact: dict) -> None:
             if isinstance(item, dict)
         )
 
+    def _lines(items: object) -> list[str]:
+        if not isinstance(items, list):
+            return []
+        out: list[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            symbol = str(item.get("symbol", "")).strip().upper()
+            if not symbol:
+                continue
+            change = item.get("window_return_pct")
+            appearances = int(item.get("appearances", 0) or 0)
+            if change is None:
+                out.append(f"{symbol} n/a ({appearances}x)")
+            else:
+                out.append(f"{symbol} {float(change):+.1f}% ({appearances}x)")
+        return out
+
     files = {
-        "daily.txt": _symbols(buckets.get("daily")),
-        "weekly.txt": _symbols(buckets.get("weekly")),
-        "monthly.txt": _symbols(buckets.get("monthly")),
+        "daily.txt": _lines(buckets.get("daily")),
+        "weekly.txt": _lines(buckets.get("weekly")),
+        "monthly.txt": _lines(buckets.get("monthly")),
         "priority.txt": _dedupe(priority.get("symbols", [])) if isinstance(priority, dict) else [],
     }
     for name, symbols in files.items():
         content = "\n".join(symbols).strip()
         path = base_root / name
         path.write_text((content + "\n") if content else "", encoding="utf-8")
+
+
+def _recent_change_pct(*, snapshots: list[dict], symbol: str) -> float | None:
+    prices: list[float] = []
+    for snapshot in snapshots:
+        for item in snapshot["leaders"]:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("symbol", "")).strip().upper() != symbol:
+                continue
+            price = float(item.get("price", 0.0) or 0.0)
+            if price > 0:
+                prices.append(price)
+    if len(prices) < 2:
+        return None
+    start_price = float(prices[-2])
+    latest_price = float(prices[-1])
+    if start_price <= 0 or latest_price <= 0:
+        return None
+    return round(((latest_price / start_price) - 1.0) * 100.0, 1)

@@ -1,0 +1,55 @@
+Traceback (most recent call last):
+  File "/Users/hd/Developer/cortana-external/backtester/dipbuyer_alert.py", line 608, in <module>
+    main()
+    ~~~~^^
+  File "/Users/hd/Developer/cortana-external/backtester/dipbuyer_alert.py", line 598, in main
+    format_alert(
+    ~~~~~~~~~~~~^
+        limit=args.limit,
+        ^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+        review_detail_limit=max(1, int(args.review_detail_limit)),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/hd/Developer/cortana-external/backtester/dipbuyer_alert.py", line 463, in format_alert
+    analysis = _run_quiet(advisor.analyze_dip_stock, symbol)
+  File "/Users/hd/Developer/cortana-external/backtester/dipbuyer_alert.py", line 52, in _run_quiet
+    return fn(*args, **kwargs)
+  File "/Users/hd/Developer/cortana-external/backtester/advisor.py", line 565, in analyze_dip_stock
+    risk_snapshot = self.risk_fetcher.get_snapshot()
+  File "/Users/hd/Developer/cortana-external/backtester/data/risk_signals.py", line 404, in get_snapshot
+    history = self._build_history(200)
+  File "/Users/hd/Developer/cortana-external/backtester/data/risk_signals.py", line 368, in _build_history
+    df['hy_spread'] = hy_spread.reindex(df.index).ffill().fillna(450.0)
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/pandas/core/generic.py", line 7266, in ffill
+    return self._pad_or_backfill(
+           ~~~~~~~~~~~~~~~~~~~~~^
+        "ffill",
+        ^^^^^^^^
+    ...<3 lines>...
+        limit_area=limit_area,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/pandas/core/generic.py", line 6920, in _pad_or_backfill
+    new_mgr = self._mgr.pad_or_backfill(
+        method=method,
+    ...<2 lines>...
+        inplace=inplace,
+    )
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/pandas/core/internals/managers.py", line 541, in pad_or_backfill
+    return self.apply("pad_or_backfill", inplace=inplace, **kwargs)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/pandas/core/internals/managers.py", line 442, in apply
+    applied = getattr(b, f)(**kwargs)
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/pandas/core/internals/blocks.py", line 1372, in pad_or_backfill
+    return [self.make_block_same_class(data, refs=refs)]
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/pandas/core/internals/blocks.py", line 260, in make_block_same_class
+    return type(self)(values, placement=placement, ndim=self.ndim, refs=refs)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
+error: Failed to get PID of child process
+  Caused by: ESRCH: No such process

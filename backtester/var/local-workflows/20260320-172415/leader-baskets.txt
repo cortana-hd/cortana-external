@@ -1,0 +1,10 @@
+Leader buckets
+
+Takeaway
+- Updated: 2026-03-20T16:28:53.139387+00:00
+- Priority set: OXY, APA, GEV, MPC, PSX, DELL, FANG, XOM
+
+Buckets
+- Daily: OXY, APA, GEV, MPC, PSX, DELL, FANG, XOM, DVN, AKAM, VLO, EQT
+- Weekly: OXY, APA, GEV, MPC, PSX, DELL, FANG, XOM, AKAM, DVN, VLO, EQT, VRT, LYB, TPL, HAL
+- Monthly: OXY, APA, GEV, MPC, PSX, DELL, FANG, XOM, AKAM, DVN, VLO, EQT, VRT, LYB, TPL, HAL, ROST, PWR, TRGP, JNJ

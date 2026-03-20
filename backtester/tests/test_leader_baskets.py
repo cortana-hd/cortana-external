@@ -9,8 +9,8 @@ from data.leader_baskets import build_leader_baskets, load_leader_priority_symbo
 def test_build_leader_baskets_aggregates_daily_weekly_monthly_history(tmp_path):
     persist_leader_snapshot(
         leaders=[
-            {"symbol": "NVDA", "action": "BUY", "rank_score": 15.0, "confidence": 80},
-            {"symbol": "AMD", "action": "WATCH", "rank_score": 12.0, "confidence": 65},
+            {"symbol": "NVDA", "price": 100.0, "action": "BUY", "rank_score": 15.0, "confidence": 80},
+            {"symbol": "AMD", "price": 90.0, "action": "WATCH", "rank_score": 12.0, "confidence": 65},
         ],
         generated_at="2026-03-19T21:00:00+00:00",
         market_regime="confirmed_uptrend",
@@ -19,8 +19,8 @@ def test_build_leader_baskets_aggregates_daily_weekly_monthly_history(tmp_path):
     )
     persist_leader_snapshot(
         leaders=[
-            {"symbol": "NVDA", "action": "BUY", "rank_score": 16.0, "confidence": 82},
-            {"symbol": "MSFT", "action": "WATCH", "rank_score": 11.0, "confidence": 60},
+            {"symbol": "NVDA", "price": 105.0, "action": "BUY", "rank_score": 16.0, "confidence": 82},
+            {"symbol": "MSFT", "price": 200.0, "action": "WATCH", "rank_score": 11.0, "confidence": 60},
         ],
         generated_at="2026-03-20T21:00:00+00:00",
         market_regime="confirmed_uptrend",
@@ -37,10 +37,11 @@ def test_build_leader_baskets_aggregates_daily_weekly_monthly_history(tmp_path):
     monthly = {item["symbol"]: item for item in artifact["buckets"]["monthly"]}
     assert weekly["NVDA"]["appearances"] == 2
     assert monthly["NVDA"]["appearances"] == 2
+    assert weekly["NVDA"]["window_return_pct"] == 5.0
     assert artifact["priority"]["symbols"][0] == "NVDA"
     assert "AMD" in artifact["priority"]["symbols"]
-    assert (tmp_path / "daily.txt").read_text(encoding="utf-8").splitlines() == ["NVDA", "MSFT"]
-    assert (tmp_path / "weekly.txt").read_text(encoding="utf-8").splitlines()[:2] == ["NVDA", "AMD"]
+    assert (tmp_path / "daily.txt").read_text(encoding="utf-8").splitlines() == ["NVDA +5.0% (1x)", "MSFT n/a (1x)"]
+    assert (tmp_path / "weekly.txt").read_text(encoding="utf-8").splitlines()[:2] == ["NVDA +5.0% (2x)", "AMD n/a (1x)"]
 
 
 def test_load_leader_priority_symbols_respects_artifact_age(tmp_path):

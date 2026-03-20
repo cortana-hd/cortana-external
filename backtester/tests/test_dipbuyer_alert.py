@@ -92,10 +92,10 @@ def test_format_alert_output_structure_and_tags_buy_watch_no_buy():
 
     assert "Dip Buyer Scan" in text
     assert "Market regime: correction" in text
-    assert "Qualified setups: 2 of 3 scanned | BUY 1 | WATCH 1" in text
-    assert "BUY names: MSFT" in text
-    assert "Top leaders: MSFT BUY (9/12) 🐦 Neutral | AAPL WATCH (7/12) 🐦 Neutral" in text
-    assert "Final action: BUY listed names only; keep remaining qualified setups on watch" in text
+    assert "Qualified setups: 2 of 3 scanned | BUY 0 | WATCH 2" in text
+    assert "Watch names (regime-blocked buys): MSFT, AAPL" in text
+    assert "Top leaders: MSFT WATCH (9/12) 🐦 Neutral | AAPL WATCH (7/12) 🐦 Neutral" in text
+    assert "Final action: WATCH only — correction regime blocks new dip buys" in text
 
 
 def test_format_alert_surfaces_compact_overlay_annotations_when_available():
@@ -211,7 +211,9 @@ def test_format_alert_reports_degraded_market_status_with_next_action():
         text = format_alert(limit=8, min_score=6)
 
     assert "Dip Buyer Scan" in text
-    assert "Final action: DO NOT BUY — market regime veto (Cached market fallback active)" in text
+    assert "Qualified setups: 1 of 1 scanned | BUY 0 | WATCH 1" in text
+    assert "Watch names (regime-blocked buys): MSFT" in text
+    assert "Final action: WATCH only — correction regime blocks new dip buys (Cached market fallback active)" in text
     assert "Note: degraded market data (720s stale)" in text
 
 
@@ -256,11 +258,11 @@ def test_format_alert_includes_decision_review_for_top_leaders():
     with patch("dipbuyer_alert.TradingAdvisor", return_value=fake):
         text = format_alert(limit=8, min_score=6)
 
-    assert "Top leaders: MSFT BUY (9/12) 🐦 Neutral | AAPL WATCH (7/12) 🐦 Neutral" in text
-    assert "Decision review: BUY 1 | WATCH 1 | NO_BUY 0" in text
-    assert "Tuning balance: clean BUY 0 | risky BUY proxy 1 | abstain 1 | veto 0 | higher-tq restraint proxy 0 (>= median BUY tq 91.0)" in text
-    assert "Risky buys: MSFT BUY | tq 91.0 | conf 79% u 7% | down/churn 3.0/1.0 | stress caution(18)" in text
+    assert "Top leaders: MSFT WATCH (9/12) 🐦 Neutral | AAPL WATCH (7/12) 🐦 Neutral" in text
+    assert "Decision review: BUY 0 | WATCH 2 | NO_BUY 0" in text
+    assert "Tuning balance: clean BUY 0 | risky BUY proxy 0 | abstain 1 | veto 0 | higher-tq restraint proxy n/a" in text
     assert "Abstains: AAPL WATCH | tq 72.0 | conf 48% u 31% | down/churn 0.0/0.0 | stress normal(0) | ABSTAIN | reasons macro inputs stale | confidence assessment abstained | reason Watch setup" in text
+    assert "Final action: WATCH only — correction regime blocks new dip buys" in text
 
 
 def test_format_alert_review_surfaces_credit_veto_without_expanding_output_too_far():

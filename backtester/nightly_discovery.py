@@ -59,6 +59,7 @@ def build_report(
             leaders.append(
                 {
                     "symbol": row["symbol"],
+                    "price": float(row.get("price", 0.0) or 0.0),
                     "technical_score": int(row.get("technical_score", 0)),
                     "total_score": int(row.get("total_score", 0)),
                     "action": str(row.get("action", "NO_BUY")),
