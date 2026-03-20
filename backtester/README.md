@@ -436,6 +436,7 @@ What it does:
 - pulls live S&P 500 constituents from a public source when available and caches them locally
 - falls back to the repo’s static constituent list if live refresh is unavailable
 - layers in the growth watchlist and fresh dynamic names
+- reuses the shared provider-backed OHLCV path (`Alpaca -> Yahoo -> cache`) for price history during screening
 - ranks the surfaced leaders through the existing Python analysis path
 
 Current source note:

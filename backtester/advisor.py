@@ -110,10 +110,10 @@ class TradingAdvisor:
     def __init__(self):
         """Initialize the advisor components."""
         self.market_detector = MarketRegimeDetector()
-        self.screener = UniverseScreener()
+        self.market_data = MarketDataProvider()
+        self.screener = UniverseScreener(market_data=self.market_data)
         self.fundamentals = FundamentalsFetcher()
         self.risk_fetcher = RiskSignalFetcher()
-        self.market_data = MarketDataProvider()
         self.headline_sentiment = HeadlineSentimentAnalyzer()
         self.x_sentiment = XSentimentAnalyzer()
         self.sector_strength = SectorStrengthAnalyzer(self.market_data)

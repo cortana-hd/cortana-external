@@ -2,6 +2,9 @@ import json
 import logging
 from types import SimpleNamespace
 
+import pandas as pd
+
+from data.market_data_provider import MarketDataError
 from data.universe import (
     GROWTH_WATCHLIST,
     SP500_TICKERS,
@@ -9,6 +12,20 @@ from data.universe import (
     UNIVERSE_PROFILE_QUICK,
     UniverseScreener,
 )
+
+
+def _history_frame() -> pd.DataFrame:
+    idx = pd.date_range(end="2026-03-20", periods=252, freq="D")
+    return pd.DataFrame(
+        {
+            "Open": [100 + i * 0.2 for i in range(len(idx))],
+            "High": [101 + i * 0.2 for i in range(len(idx))],
+            "Low": [99 + i * 0.2 for i in range(len(idx))],
+            "Close": [100 + i * 0.2 for i in range(len(idx))],
+            "Volume": [600_000 + (i % 10) * 5_000 for i in range(len(idx))],
+        },
+        index=idx,
+    )
 
 
 def test_quick_profile_returns_deduped_growth_watchlist(tmp_path):
@@ -87,6 +104,7 @@ def test_nightly_discovery_profile_merges_live_constituents_growth_and_dynamic(t
 
 def test_get_stock_info_suppresses_provider_noise(tmp_path, monkeypatch, capsys):
     screener = UniverseScreener(cache_dir=str(tmp_path))
+    monkeypatch.setattr(screener, "_fetch_price_history", lambda symbol, period="1y": _history_frame())
 
     class _NoisyTicker:
         @property
@@ -96,8 +114,10 @@ def test_get_stock_info_suppresses_provider_noise(tmp_path, monkeypatch, capsys)
 
     monkeypatch.setattr("data.universe.yf.Ticker", lambda symbol: _NoisyTicker())
 
-    assert screener.get_stock_info("BAD") is None
+    info = screener.get_stock_info("BAD")
     captured = capsys.readouterr()
+    assert info is not None
+    assert info["market_cap"] is None
     assert captured.out == ""
     assert captured.err == ""
 
@@ -120,3 +140,64 @@ def test_fetch_live_sp500_constituents_uses_request_headers(tmp_path, monkeypatc
     assert screener._fetch_live_sp500_constituents() == ["MSFT"]
     assert captured["headers"]["User-Agent"]
     assert captured["timeout"] == 20
+
+
+def test_calculate_technical_score_uses_market_data_provider_history(tmp_path, monkeypatch):
+    calls = []
+
+    class _Provider:
+        def get_history(self, symbol, period="1y", auto_adjust=False):
+            calls.append((symbol, period, auto_adjust))
+            return SimpleNamespace(frame=_history_frame())
+
+    screener = UniverseScreener(cache_dir=str(tmp_path), market_data=_Provider())
+
+    class _TickerShouldNotBeUsed:
+        def history(self, *args, **kwargs):
+            raise AssertionError("Ticker.history should not be used")
+
+    monkeypatch.setattr("data.universe.yf.Ticker", lambda symbol: _TickerShouldNotBeUsed())
+
+    result = screener.calculate_technical_score("AAPL")
+
+    assert "error" not in result
+    assert calls == [("AAPL", "1y", False)]
+
+
+def test_calculate_technical_score_returns_error_when_provider_history_fails(tmp_path):
+    class _Provider:
+        def get_history(self, symbol, period="1y", auto_adjust=False):
+            raise MarketDataError("provider down", transient=True)
+
+    screener = UniverseScreener(cache_dir=str(tmp_path), market_data=_Provider())
+
+    result = screener.calculate_technical_score("BAD")
+
+    assert result["symbol"] == "BAD"
+    assert result["error"] == "Insufficient data"
+
+
+def test_screen_filters_symbols_when_provider_history_unavailable(tmp_path, monkeypatch):
+    class _Provider:
+        def get_history(self, symbol, period="1y", auto_adjust=False):
+            if symbol == "AAA":
+                return SimpleNamespace(frame=_history_frame())
+            raise MarketDataError("missing", transient=True)
+
+    screener = UniverseScreener(cache_dir=str(tmp_path), market_data=_Provider())
+    monkeypatch.setattr(
+        screener,
+        "_fetch_stock_metadata",
+        lambda symbol: {
+            "name": symbol,
+            "market_cap": 5_000_000_000,
+            "float_shares": 1_000_000,
+            "beta": 1.0,
+            "sector": "Tech",
+            "industry": "Software",
+        },
+    )
+
+    results = screener.screen(symbols=["AAA", "BBB"], min_technical_score=0, verbose=False)
+
+    assert list(results["symbol"]) == ["AAA"]
