@@ -11,9 +11,11 @@ import { MarketDataService } from "../market-data/service.js";
 import { normalizeMarketSymbol } from "../market-data/route-utils.js";
 import { SchwabStreamerSession, type WebSocketLike } from "../market-data/streamer.js";
 
+const TEST_TEMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-tests-"));
+
 const TEST_CONFIG: AppConfig = {
   PORT: 3033,
-  MARKET_DATA_CACHE_DIR: ".cache/market_data",
+  MARKET_DATA_CACHE_DIR: path.join(TEST_TEMP_ROOT, "cache"),
   MARKET_DATA_REQUEST_TIMEOUT_MS: 30_000,
   MARKET_DATA_UNIVERSE_SEED_PATH: "backtester/data/universe.py",
   MARKET_DATA_UNIVERSE_SOURCE_LADDER: "python_seed",
@@ -26,7 +28,7 @@ const TEST_CONFIG: AppConfig = {
   SCHWAB_REFRESH_TOKEN: "refresh",
   SCHWAB_AUTH_URL: "https://api.schwabapi.com/v1/oauth/authorize",
   SCHWAB_REDIRECT_URL: "https://127.0.0.1:8182/auth/schwab/callback",
-  SCHWAB_TOKEN_PATH: ".cache/market_data/schwab-token.json",
+  SCHWAB_TOKEN_PATH: path.join(TEST_TEMP_ROOT, "schwab-token.json"),
   SCHWAB_API_BASE_URL: "https://api.schwabapi.com",
   SCHWAB_TOKEN_URL: "https://api.schwabapi.com/v1/oauth/token",
   SCHWAB_USER_PREFERENCES_URL: "https://api.schwabapi.com/trader/v1/userPreference",
@@ -34,7 +36,7 @@ const TEST_CONFIG: AppConfig = {
   SCHWAB_STREAMER_ROLE: "leader",
   SCHWAB_STREAMER_PG_LOCK_KEY: 814021,
   SCHWAB_STREAMER_SHARED_STATE_BACKEND: "file",
-  SCHWAB_STREAMER_SHARED_STATE_PATH: ".cache/market_data/test-schwab-streamer-state.json",
+  SCHWAB_STREAMER_SHARED_STATE_PATH: path.join(TEST_TEMP_ROOT, "test-schwab-streamer-state.json"),
   SCHWAB_STREAMER_CONNECT_TIMEOUT_MS: 1_000,
   SCHWAB_STREAMER_QUOTE_TTL_MS: 15_000,
   SCHWAB_STREAMER_SYMBOL_SOFT_CAP: 250,
