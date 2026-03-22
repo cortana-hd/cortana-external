@@ -243,6 +243,7 @@ What the TS service owns now:
 - Yahoo circuit-breaker behavior when repeated Yahoo failures happen
 - risk-data fetches used by regime/risk logic
 - base-universe artifact refresh
+- account activity groundwork for future position awareness
 
 What Python still owns:
 
@@ -333,34 +334,7 @@ When you run the local scripts, you are mostly seeing the result of this service
 - leader/follower and ops summaries
 - streamer health and symbol-budget visibility
 
-Important operator terms:
-
-- `source`
-  - where the data came from
-- `status`
-  - whether the response is normal or degraded
-- `degradedReason`
-  - why fallback was needed
-- `stalenessSeconds`
-  - how old the returned data is
-
-Diagnostic modes:
-
-- `provider=schwab|yahoo|alpaca`
-  - force the primary history source for that request
-- `compare_with=<provider>`
-  - keep the normal primary source, but add comparison metadata
-- `quote/batch` and `history/batch`
-  - ask the TS service for many symbols in one HTTP request instead of one symbol at a time
-
-Use `provider=` when you want:
-- "Show me what this provider alone would return."
-
-Use `compare_with=` when you want:
-- "Keep the normal answer, but tell me how another provider differs."
-
-Use the batch routes when you want:
-- "Give me the same kind of answer for many symbols at once."
+The compact operator reference now lives in [Market-data service reference](./market-data-service-reference.md).
 
 ##### 1. Price history
 
@@ -378,7 +352,7 @@ This is the basic question:
 Important clarification:
 - this now comes through the TS market-data service boundary described above
 - normal history requests now honor `interval=1d|1wk|1mo`
-- if you need diagnostics, you can force `provider=` or add `compare_with=`
+- diagnostic and batch request shapes are documented in [Market-data service reference](./market-data-service-reference.md)
 
 ##### 2. Fundamentals
 

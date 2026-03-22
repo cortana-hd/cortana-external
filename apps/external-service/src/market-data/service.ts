@@ -9,6 +9,17 @@ import { HttpError, readJsonResponse } from "../lib/http.js";
 import type { AppLogger } from "../lib/logger.js";
 import { createLogger } from "../lib/logger.js";
 import {
+  compareHistoryRows,
+  compareQuotes,
+  mapAlpacaTimeframe,
+  mapSchwabPeriod,
+  normalizeHistoryInterval,
+  normalizeHistoryProvider,
+  type HistoryInterval,
+  type HistoryProvider,
+} from "./history-utils.js";
+import { normalizeSchwabQuoteEnvelope, type SchwabQuoteEnvelope } from "./schwab-normalizers.js";
+import {
   SchwabStreamerSession,
   type SchwabStreamerPreferences,
   type SharedStreamerState,
@@ -29,6 +40,13 @@ import type {
   MarketDataStatus,
   MarketDataUniverse,
 } from "./types.js";
+import {
+  dedupe,
+  extractUniverseSymbols,
+  parseSharedStateNotification,
+  parseUniverseSourceLadder,
+  readJsonFile,
+} from "./universe-utils.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const DEFAULT_INTERVAL = "1d";
@@ -108,6 +126,12 @@ interface ProviderMetrics {
   lastSharedStateNotificationAt: string | null;
   tokenRefreshInFlight: boolean;
   lastTokenRefreshAt: string | null;
+  lastTokenRefreshFailureAt: string | null;
+  schwabTokenStatus: "ready" | "human_action_required";
+  schwabTokenReason: string | null;
+  lastSchwabFailureAt: string | null;
+  schwabConsecutiveFailures: number;
+  schwabCooldownUntil: string | null;
   yahooConsecutiveFailures: number;
   yahooCircuitOpenUntil: string | null;
   sourceUsage: Record<string, number>;
@@ -127,6 +151,8 @@ export class MarketDataService {
   private readonly config: AppConfig;
   private readonly requestTimeoutMs: number;
   private readonly cacheDir: string;
+  private readonly schwabFailureThreshold: number;
+  private readonly schwabCooldownMs: number;
   private readonly yahooCircuitFailureThreshold: number;
   private readonly yahooCircuitCooldownMs: number;
   private readonly universeSeedPath: string;
@@ -148,11 +174,18 @@ export class MarketDataService {
     lastSharedStateNotificationAt: null,
     tokenRefreshInFlight: false,
     lastTokenRefreshAt: null,
+    lastTokenRefreshFailureAt: null,
+    schwabTokenStatus: "ready",
+    schwabTokenReason: null,
+    lastSchwabFailureAt: null,
+    schwabConsecutiveFailures: 0,
+    schwabCooldownUntil: null,
     yahooConsecutiveFailures: 0,
     yahooCircuitOpenUntil: null,
     sourceUsage: {},
     fallbackUsage: {},
   };
+  private schwabCooldownUntilMs = 0;
   private yahooCircuitOpenUntilMs = 0;
   private tokenRefreshPromise: Promise<string> | null = null;
   private pool: Pool | null = null;
@@ -174,6 +207,8 @@ export class MarketDataService {
       MARKET_DATA_UNIVERSE_SOURCE_LADDER: "python_seed",
       MARKET_DATA_UNIVERSE_REMOTE_JSON_URL: "",
       MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "",
+      MARKET_DATA_SCHWAB_FAILURE_THRESHOLD: 3,
+      MARKET_DATA_SCHWAB_COOLDOWN_MS: 20_000,
       MARKET_DATA_YAHOO_CIRCUIT_FAILURE_THRESHOLD: 5,
       MARKET_DATA_YAHOO_CIRCUIT_COOLDOWN_MS: 60_000,
       SCHWAB_CLIENT_ID: "",
@@ -186,13 +221,15 @@ export class MarketDataService {
       SCHWAB_STREAMER_ENABLED: "1",
       SCHWAB_STREAMER_ROLE: "leader",
       SCHWAB_STREAMER_PG_LOCK_KEY: 814021,
-      SCHWAB_STREAMER_SHARED_STATE_BACKEND: "file",
+      SCHWAB_STREAMER_SHARED_STATE_BACKEND: "postgres",
       SCHWAB_STREAMER_SHARED_STATE_PATH: ".cache/market_data/schwab-streamer-state.json",
       SCHWAB_STREAMER_CONNECT_TIMEOUT_MS: 5_000,
       SCHWAB_STREAMER_QUOTE_TTL_MS: 15_000,
       SCHWAB_STREAMER_SYMBOL_SOFT_CAP: 250,
       SCHWAB_STREAMER_CACHE_SOFT_CAP: 500,
       SCHWAB_STREAMER_EQUITY_FIELDS: "0,1,2,3,8,19,20,32,34,42",
+      SCHWAB_STREAMER_ACCOUNT_ACTIVITY_ENABLED: "1",
+      SCHWAB_STREAMER_RECONNECT_JITTER_MS: 500,
       FRED_API_KEY: "",
       WHOOP_CLIENT_ID: "",
       WHOOP_CLIENT_SECRET: "",
@@ -209,6 +246,8 @@ export class MarketDataService {
     } satisfies AppConfig);
     this.requestTimeoutMs = this.config.MARKET_DATA_REQUEST_TIMEOUT_MS;
     this.cacheDir = resolveRepoPath(this.config.MARKET_DATA_CACHE_DIR);
+    this.schwabFailureThreshold = this.config.MARKET_DATA_SCHWAB_FAILURE_THRESHOLD;
+    this.schwabCooldownMs = this.config.MARKET_DATA_SCHWAB_COOLDOWN_MS;
     this.yahooCircuitFailureThreshold = this.config.MARKET_DATA_YAHOO_CIRCUIT_FAILURE_THRESHOLD;
     this.yahooCircuitCooldownMs = this.config.MARKET_DATA_YAHOO_CIRCUIT_COOLDOWN_MS;
     this.universeSeedPath = resolveRepoPath(this.config.MARKET_DATA_UNIVERSE_SEED_PATH);
@@ -246,6 +285,8 @@ export class MarketDataService {
         schwabStreamerSharedStateBackend: this.streamerSharedStateBackend,
         schwabStreamerSharedStatePath: this.streamerSharedStatePath,
         schwabStreamerSharedStateUpdatedAt: sharedState?.updatedAt ?? null,
+        schwabTokenStatus: this.providerMetrics.schwabTokenStatus,
+        schwabTokenReason: this.providerMetrics.schwabTokenReason,
         yahoo: "ready",
         fred: this.config.FRED_API_KEY ? "configured" : "unauthenticated",
         universeSeedPath: this.universeSeedPath,
@@ -518,16 +559,17 @@ export class MarketDataService {
 
     try {
       const asOfDate = resolveQuery(request.url, "as_of_date", "");
-      const payload = await this.fetchYahooFundamentals(symbol, asOfDate || undefined);
+      const primary = await this.fetchPrimaryFundamentals(symbol, asOfDate || undefined);
+      this.recordSourceUsage(primary.source);
       const compare = compareWith ? buildUnavailableCompare(compareWith, "comparison is only implemented for history/quote paths") : undefined;
       return {
         status: 200,
         body: {
-          source: "yahoo",
-          status: "ok",
-          degradedReason: null,
-          stalenessSeconds: 0,
-          data: { symbol, payload },
+          source: primary.source,
+          status: primary.status,
+          degradedReason: primary.degradedReason ?? null,
+          stalenessSeconds: primary.stalenessSeconds,
+          data: { symbol, payload: primary.payload },
           ...(compare ? { compare_with: compare } : {}),
         },
       };
@@ -547,12 +589,12 @@ export class MarketDataService {
     }
 
     try {
-      const payload = await this.fetchYahooMetadata(symbol);
+      const payload = await this.fetchPrimaryMetadata(symbol);
       const compare = compareWith ? buildUnavailableCompare(compareWith, "comparison is only implemented for history/quote paths") : undefined;
       return {
         status: 200,
         body: {
-          source: "yahoo",
+          source: "service",
           status: "ok",
           degradedReason: null,
           stalenessSeconds: 0,
@@ -693,6 +735,7 @@ export class MarketDataService {
     const health = await this.checkHealth();
     const latestUniverse = readJsonFile<MarketDataUniverse>(path.join(this.cacheDir, "base-universe.json"));
     const universeAudit = this.readUniverseAudit(5);
+    const serviceOperatorState = this.currentServiceOperatorState();
     return {
       status: 200,
       body: {
@@ -704,6 +747,8 @@ export class MarketDataService {
           streamerRoleConfigured: this.configuredStreamerRole,
           streamerRoleActive: this.activeStreamerRole,
           streamerLockHeld: Boolean(this.leaderLockClient),
+          serviceOperatorState,
+          serviceOperatorAction: this.currentServiceOperatorAction(),
           sharedStateBackend: this.streamerSharedStateBackend,
           sharedStateUpdatedAt: this.sharedStateCache?.updatedAt ?? (await this.readSharedStreamerState())?.updatedAt ?? null,
           providerMetrics: this.providerMetrics,
@@ -728,7 +773,9 @@ export class MarketDataService {
       const health = await this.checkHealth();
       const streamerMeta =
         (((health.providers as Record<string, unknown> | undefined)?.schwabStreamerMeta as Record<string, unknown> | undefined) ?? {});
-      const operatorState = String(streamerMeta.operatorState ?? "healthy");
+      const streamerOperatorState = String(streamerMeta.operatorState ?? "healthy");
+      const serviceOperatorState = this.currentServiceOperatorState();
+      const operatorState = serviceOperatorState !== "healthy" ? serviceOperatorState : streamerOperatorState;
       const ready = !["human_action_required", "max_connections_blocked"].includes(operatorState);
       return {
         status: ready ? 200 : 503,
@@ -741,7 +788,10 @@ export class MarketDataService {
             ready,
             checkedAt: new Date().toISOString(),
             operatorState,
-            operatorAction: streamerMeta.operatorAction ?? "No operator action required.",
+            operatorAction:
+              serviceOperatorState !== "healthy"
+                ? this.currentServiceOperatorAction()
+                : (streamerMeta.operatorAction ?? "No operator action required."),
           },
         },
       };
@@ -792,12 +842,17 @@ export class MarketDataService {
 
     const reasons: string[] = [];
     if (this.isSchwabConfigured()) {
-      try {
-        const rows = await this.fetchSchwabHistory(symbol, period, interval);
-        return { source: "schwab", status: "ok", stalenessSeconds: 0, rows };
-      } catch (error) {
-        reasons.push(summarizeError(error));
-        this.logger.error(`Schwab history failed for ${symbol}`, error);
+      if (this.shouldSkipSchwabRest()) {
+        reasons.push(this.currentSchwabRestSkipReason());
+      } else {
+        try {
+          const rows = await this.fetchSchwabHistory(symbol, period, interval);
+          return { source: "schwab", status: "ok", stalenessSeconds: 0, rows };
+        } catch (error) {
+          this.recordSchwabRestFailure(error);
+          reasons.push(summarizeError(error));
+          this.logger.error(`Schwab history failed for ${symbol}`, error);
+        }
       }
     }
 
@@ -828,12 +883,17 @@ export class MarketDataService {
       if (shared?.price != null) {
         return { source: "schwab_streamer_shared", status: "ok", stalenessSeconds: 0, quote: shared };
       }
-      try {
-        const quote = await this.fetchSchwabQuote(symbol);
-        return { source: "schwab", status: "ok", stalenessSeconds: 0, quote };
-      } catch (error) {
-        reasons.push(summarizeError(error));
-        this.logger.error(`Schwab quote failed for ${symbol}`, error);
+      if (this.shouldSkipSchwabRest()) {
+        reasons.push(this.currentSchwabRestSkipReason());
+      } else {
+        try {
+          const quote = await this.fetchSchwabQuote(symbol);
+          return { source: "schwab", status: "ok", stalenessSeconds: 0, quote };
+        } catch (error) {
+          this.recordSchwabRestFailure(error);
+          reasons.push(summarizeError(error));
+          this.logger.error(`Schwab quote failed for ${symbol}`, error);
+        }
       }
     }
 
@@ -854,8 +914,8 @@ export class MarketDataService {
     const chartEquity =
       (await this.streamer?.getChartEquity(symbol).catch(() => null)) ?? (await this.readSharedStreamerChart(symbol));
     const [metadata, fundamentals] = await Promise.all([
-      this.fetchYahooMetadata(symbol).catch(() => ({})),
-      this.fetchYahooFundamentals(symbol).catch(() => ({})),
+      this.fetchPrimaryMetadata(symbol).catch(() => ({})),
+      this.fetchPrimaryFundamentals(symbol).then((result) => result.payload).catch(() => ({})),
     ]);
     return {
       source: quote.source,
@@ -870,6 +930,87 @@ export class MarketDataService {
         ...(chartEquity ? { chartEquity } : {}),
       },
     };
+  }
+
+  private async fetchPrimaryFundamentals(
+    symbol: string,
+    asOfDate?: string,
+  ): Promise<ServiceMetadata & { payload: Record<string, unknown> }> {
+    const reasons: string[] = [];
+    const targetAsOfDate = asOfDate || new Date().toISOString().slice(0, 10);
+    let schwabPayload: Record<string, unknown> = {};
+    if (this.isSchwabConfigured()) {
+      if (this.shouldSkipSchwabRest()) {
+        reasons.push(this.currentSchwabRestSkipReason());
+      } else {
+        try {
+          schwabPayload = (await this.fetchSchwabQuoteEnvelope(symbol, targetAsOfDate)).fundamentals;
+        } catch (error) {
+          this.recordSchwabRestFailure(error);
+          reasons.push(summarizeError(error));
+          this.logger.error(`Schwab fundamentals failed for ${symbol}`, error);
+        }
+      }
+    }
+
+    const yahooPayload = await this.fetchYahooFundamentals(symbol, targetAsOfDate).catch((error) => {
+      reasons.push(`Yahoo fundamentals failed: ${summarizeError(error)}`);
+      return {};
+    });
+    if (Object.keys(schwabPayload).length) {
+      const merged = mergePreferPrimary(schwabPayload, yahooPayload);
+      return {
+        source: Object.keys(yahooPayload).length ? "schwab" : "schwab",
+        status: Object.keys(yahooPayload).length && reasons.length ? "degraded" : "ok",
+        degradedReason:
+          Object.keys(yahooPayload).length && reasons.length
+            ? `Schwab fundamentals supplemented by Yahoo fallback (${reasons[0]})`
+            : reasons.length && !Object.keys(yahooPayload).length
+              ? reasons[0]
+              : null,
+        stalenessSeconds: 0,
+        payload: merged,
+      };
+    }
+    if (Object.keys(yahooPayload).length) {
+      this.recordYahooFallbackSuccess();
+      return {
+        source: "yahoo",
+        status: reasons.length ? "degraded" : "ok",
+        degradedReason: reasons.length ? `Schwab unavailable; using Yahoo fallback (${reasons[0]})` : null,
+        stalenessSeconds: 0,
+        payload: yahooPayload,
+      };
+    }
+    throw new Error(reasons[0] ?? `Unable to fetch fundamentals for ${symbol}`);
+  }
+
+  private async fetchPrimaryMetadata(symbol: string): Promise<Record<string, unknown>> {
+    const reasons: string[] = [];
+    let schwabPayload: Record<string, unknown> = {};
+    if (this.isSchwabConfigured()) {
+      if (this.shouldSkipSchwabRest()) {
+        reasons.push(this.currentSchwabRestSkipReason());
+      } else {
+        try {
+          schwabPayload = (await this.fetchSchwabQuoteEnvelope(symbol)).metadata;
+        } catch (error) {
+          this.recordSchwabRestFailure(error);
+          reasons.push(summarizeError(error));
+        }
+      }
+    }
+    const yahooPayload = await this.fetchYahooMetadata(symbol).catch(() => ({}));
+    if (Object.keys(schwabPayload).length) {
+      return mergePreferPrimary(schwabPayload, yahooPayload);
+    }
+    if (Object.keys(yahooPayload).length) {
+      if (reasons.length) {
+        this.recordYahooFallbackSuccess();
+      }
+      return yahooPayload;
+    }
+    throw new Error(reasons[0] ?? `Unable to fetch metadata for ${symbol}`);
   }
 
   private async buildHistoryComparison(
@@ -1171,6 +1312,10 @@ export class MarketDataService {
       subscriptionSoftCap: this.config.SCHWAB_STREAMER_SYMBOL_SOFT_CAP,
       cacheSoftCap: this.config.SCHWAB_STREAMER_CACHE_SOFT_CAP,
       subscriptionFields: this.config.SCHWAB_STREAMER_EQUITY_FIELDS,
+      accountActivityEnabled: !["0", "false", "no", "off"].includes(
+        this.config.SCHWAB_STREAMER_ACCOUNT_ACTIVITY_ENABLED.trim().toLowerCase(),
+      ),
+      reconnectJitterMs: this.config.SCHWAB_STREAMER_RECONNECT_JITTER_MS,
       stateSink: (state) => {
         void this.writeSharedStreamerState(state);
       },
@@ -1332,6 +1477,10 @@ export class MarketDataService {
   }
 
   private async fetchSchwabQuote(symbol: string): Promise<MarketDataQuote> {
+    return (await this.fetchSchwabQuoteEnvelope(symbol)).quote;
+  }
+
+  private async fetchSchwabQuoteEnvelope(symbol: string, asOfDate?: string): Promise<SchwabQuoteEnvelope> {
     const token = await this.getSchwabAccessToken();
     const url = new URL(`${this.config.SCHWAB_API_BASE_URL.replace(/\/+$/, "")}/marketdata/v1/quotes`);
     url.searchParams.set("symbols", symbol);
@@ -1339,23 +1488,9 @@ export class MarketDataService {
     const payload = await this.fetchJson<JsonRecord>(url.toString(), {
       headers: { Authorization: `Bearer ${token}`, accept: "application/json" },
     });
-    const candidate =
-      (payload[symbol] as JsonRecord | undefined) ??
-      (((payload.quotes as JsonRecord | undefined)?.[symbol] as JsonRecord | undefined) ?? {}) ??
-      {};
-    const quote = ((candidate.quote as JsonRecord | undefined) ?? candidate) as JsonRecord;
-    if (!Object.keys(quote).length) {
-      throw new Error(`Schwab returned no quote for ${symbol}`);
-    }
+    const envelope = normalizeSchwabQuoteEnvelope(payload, symbol, asOfDate || new Date().toISOString().slice(0, 10));
     this.recordSchwabRestSuccess();
-    return {
-      symbol,
-      price: firstNumber(quote.lastPrice, quote.mark, quote.closePrice, quote.bidPrice),
-      change: firstNumber(quote.netChange, quote.markChange),
-      changePercent: firstNumber(quote.netPercentChange, quote.markPercentChange),
-      timestamp: quote.tradeTimeInLong ? new Date(Number(quote.tradeTimeInLong)).toISOString() : new Date().toISOString(),
-      currency: "USD",
-    };
+    return envelope;
   }
 
   private async fetchAlpacaHistory(
@@ -1472,7 +1607,19 @@ export class MarketDataService {
         },
         body,
       });
-      const payload = await readJsonResponse<JsonRecord>(response);
+      let payload: JsonRecord;
+      try {
+        payload = await readJsonResponse<JsonRecord>(response);
+      } catch (error) {
+        this.providerMetrics.lastTokenRefreshFailureAt = new Date().toISOString();
+        if (error instanceof HttpError && (error.status === 401 || error.status === 403)) {
+          this.providerMetrics.schwabTokenStatus = "human_action_required";
+          this.providerMetrics.schwabTokenReason = "Schwab refresh token was rejected. Re-authorize the developer app and update the refresh token.";
+          throw new Error("Schwab refresh token rejected (401/403). Manual re-authentication is required.");
+        }
+        this.recordSchwabRestFailure(error);
+        throw error;
+      }
       const accessToken = String(payload.access_token ?? "").trim();
       const expiresIn = Number(payload.expires_in ?? 1800);
       if (!accessToken) {
@@ -1483,6 +1630,9 @@ export class MarketDataService {
         expiresAt: Date.now() + Math.max(expiresIn - 60, 60) * 1000,
       });
       this.providerMetrics.lastTokenRefreshAt = new Date().toISOString();
+      this.providerMetrics.schwabTokenStatus = "ready";
+      this.providerMetrics.schwabTokenReason = null;
+      this.recordSchwabRestSuccess();
       return accessToken;
     })();
     try {
@@ -1747,6 +1897,50 @@ export class MarketDataService {
 
   private recordSchwabRestSuccess(): void {
     this.providerMetrics.lastSuccessfulSchwabRestAt = new Date().toISOString();
+    this.providerMetrics.lastSchwabFailureAt = null;
+    this.providerMetrics.schwabConsecutiveFailures = 0;
+    this.providerMetrics.schwabCooldownUntil = null;
+    this.schwabCooldownUntilMs = 0;
+  }
+
+  private recordSchwabRestFailure(error: unknown): void {
+    this.providerMetrics.lastSchwabFailureAt = new Date().toISOString();
+    this.providerMetrics.schwabConsecutiveFailures += 1;
+    if (this.providerMetrics.schwabConsecutiveFailures < this.schwabFailureThreshold) {
+      return;
+    }
+    this.schwabCooldownUntilMs = Date.now() + this.schwabCooldownMs;
+    this.providerMetrics.schwabCooldownUntil = new Date(this.schwabCooldownUntilMs).toISOString();
+    if (error instanceof Error && error.message.includes("Manual re-authentication")) {
+      this.providerMetrics.schwabTokenStatus = "human_action_required";
+    }
+  }
+
+  private isSchwabCooldownOpen(): boolean {
+    if (!this.schwabCooldownUntilMs) {
+      return false;
+    }
+    if (Date.now() >= this.schwabCooldownUntilMs) {
+      this.schwabCooldownUntilMs = 0;
+      this.providerMetrics.schwabCooldownUntil = null;
+      this.providerMetrics.schwabConsecutiveFailures = 0;
+      return false;
+    }
+    return true;
+  }
+
+  private shouldSkipSchwabRest(): boolean {
+    return this.providerMetrics.schwabTokenStatus === "human_action_required" || this.isSchwabCooldownOpen();
+  }
+
+  private currentSchwabRestSkipReason(): string {
+    if (this.providerMetrics.schwabTokenStatus === "human_action_required") {
+      return this.providerMetrics.schwabTokenReason ?? "Schwab credentials require manual re-authentication";
+    }
+    if (this.isSchwabCooldownOpen()) {
+      return `Schwab REST cooldown open until ${this.providerMetrics.schwabCooldownUntil}`;
+    }
+    return "Schwab REST temporarily unavailable";
   }
 
   private recordYahooFallbackSuccess(): void {
@@ -1803,6 +1997,26 @@ export class MarketDataService {
 
   private recordSourceUsage(source: string): void {
     this.providerMetrics.sourceUsage[source] = (this.providerMetrics.sourceUsage[source] ?? 0) + 1;
+  }
+
+  private currentServiceOperatorState(): string {
+    if (this.providerMetrics.schwabTokenStatus === "human_action_required") {
+      return "human_action_required";
+    }
+    if (this.isSchwabCooldownOpen()) {
+      return "provider_cooldown";
+    }
+    return "healthy";
+  }
+
+  private currentServiceOperatorAction(): string {
+    if (this.providerMetrics.schwabTokenStatus === "human_action_required") {
+      return this.providerMetrics.schwabTokenReason ?? "Re-authorize Schwab access and refresh the cached refresh token.";
+    }
+    if (this.isSchwabCooldownOpen()) {
+      return `Schwab REST is cooling down after repeated failures. Wait until ${this.providerMetrics.schwabCooldownUntil} or inspect upstream connectivity/auth.`;
+    }
+    return "No operator action required.";
   }
 
   private toBatchRouteResult(items: Array<Record<string, unknown>>): MarketDataRouteResult<Record<string, unknown>> {
@@ -2144,101 +2358,6 @@ function normalizeYahooRange(period: string): string {
   return "1y";
 }
 
-function mapSchwabPeriod(period: string, interval: HistoryInterval): Record<string, string | number> {
-  const normalized = period.trim().toLowerCase();
-  const frequencyType = mapSchwabFrequencyType(interval);
-  if (normalized.endsWith("d")) {
-    const days = Math.max(parseInt(normalized.slice(0, -1), 10) || 5, 1);
-    return {
-      periodType: "day",
-      period: Math.min(days, 10),
-      frequencyType,
-      frequency: 1,
-      needExtendedHoursData: "false",
-      needPreviousClose: "true",
-    };
-  }
-  if (normalized.endsWith("mo")) {
-    const months = Math.max(parseInt(normalized.slice(0, -2), 10) || 1, 1);
-    return {
-      periodType: "month",
-      period: Math.min(months, 6),
-      frequencyType,
-      frequency: 1,
-      needExtendedHoursData: "false",
-      needPreviousClose: "true",
-    };
-  }
-  const years = Math.max(parseInt(normalized.replace(/[^0-9]/g, ""), 10) || 1, 1);
-  return {
-    periodType: "year",
-    period: Math.min(years, 20),
-    frequencyType,
-    frequency: 1,
-    needExtendedHoursData: "false",
-    needPreviousClose: "true",
-  };
-}
-
-type HistoryInterval = "1d" | "1wk" | "1mo";
-type HistoryProvider = "service" | "schwab" | "yahoo" | "alpaca";
-
-function normalizeHistoryInterval(rawInterval: string | undefined): HistoryInterval | undefined {
-  const normalized = (rawInterval ?? DEFAULT_INTERVAL).trim().toLowerCase();
-  if (normalized === "1d" || normalized === "1wk" || normalized === "1mo") {
-    return normalized;
-  }
-  return undefined;
-}
-
-function normalizeHistoryProvider(rawProvider: string | undefined): HistoryProvider | undefined {
-  const normalized = (rawProvider ?? "service").trim().toLowerCase();
-  if (normalized === "service" || normalized === "schwab" || normalized === "yahoo" || normalized === "alpaca") {
-    return normalized;
-  }
-  return undefined;
-}
-
-function mapSchwabFrequencyType(interval: HistoryInterval): "daily" | "weekly" | "monthly" {
-  if (interval === "1wk") {
-    return "weekly";
-  }
-  if (interval === "1mo") {
-    return "monthly";
-  }
-  return "daily";
-}
-
-function mapAlpacaTimeframe(interval: HistoryInterval): "1Day" | "1Week" | "1Month" {
-  if (interval === "1wk") {
-    return "1Week";
-  }
-  if (interval === "1mo") {
-    return "1Month";
-  }
-  return "1Day";
-}
-
-function compareHistoryRows(primaryRows: MarketDataHistoryPoint[], comparisonRows: MarketDataHistoryPoint[]): string {
-  if (!primaryRows.length || !comparisonRows.length) {
-    return "one provider returned no rows";
-  }
-  const primaryLatest = primaryRows[primaryRows.length - 1];
-  const compareLatest = comparisonRows[comparisonRows.length - 1];
-  const closeDelta = ((primaryLatest.close - compareLatest.close) / compareLatest.close) * 100;
-  return `latest close delta ${closeDelta.toFixed(2)}% | rows ${primaryRows.length} vs ${comparisonRows.length}`;
-}
-
-function compareQuotes(primaryQuote: MarketDataQuote, comparisonQuote: MarketDataQuote): string {
-  const primaryPrice = primaryQuote.price ?? 0;
-  const comparisonPrice = comparisonQuote.price ?? 0;
-  if (!comparisonPrice) {
-    return "comparison quote missing price";
-  }
-  const delta = ((primaryPrice - comparisonPrice) / comparisonPrice) * 100;
-  return `price delta ${delta.toFixed(2)}%`;
-}
-
 function percentOrNone(value: unknown): number | null {
   const numeric = toNumber(value);
   if (numeric == null) {
@@ -2248,6 +2367,21 @@ function percentOrNone(value: unknown): number | null {
     return numeric * 100;
   }
   return numeric;
+}
+
+function mergePreferPrimary(
+  primary: Record<string, unknown>,
+  fallback: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...fallback };
+  for (const [key, value] of Object.entries(primary)) {
+    if (value !== undefined && value !== null && value !== "") {
+      out[key] = value;
+    } else if (!(key in out)) {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 function resolveRepoPath(rawPath: string): string {
@@ -2263,55 +2397,6 @@ function resolveOptionalRepoPath(rawPath: string): string | null {
     return null;
   }
   return resolveRepoPath(trimmed);
-}
-
-function parseUniverseSourceLadder(raw: string): string[] {
-  const parsed = raw
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean)
-    .filter((value) => ["remote_json", "local_json", "python_seed"].includes(value));
-  return parsed.length ? parsed : ["python_seed"];
-}
-
-function extractUniverseSymbols(payload: unknown): string[] {
-  const rows = extractUniverseRows(payload);
-  const symbols = rows
-    .map((value) => String(value ?? "").trim().toUpperCase().replaceAll(".", "-"))
-    .filter(Boolean)
-    .filter((value) => /^[A-Z0-9\-^]+$/.test(value));
-  if (!symbols.length) {
-    throw new Error("Universe payload did not contain any valid symbols");
-  }
-  return dedupe(symbols);
-}
-
-function extractUniverseRows(payload: unknown): string[] {
-  if (Array.isArray(payload)) {
-    return payload.map((value) => String(value));
-  }
-  if (payload && typeof payload === "object") {
-    const record = payload as Record<string, unknown>;
-    if (Array.isArray(record.symbols)) {
-      return record.symbols.map((value) => String(value));
-    }
-    if (record.data && typeof record.data === "object" && Array.isArray((record.data as Record<string, unknown>).symbols)) {
-      return ((record.data as Record<string, unknown>).symbols as unknown[]).map((value) => String(value));
-    }
-  }
-  throw new Error("Universe payload format is unsupported");
-}
-
-function readJsonFile<T>(filePath: string): T | null {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8")) as T;
-  } catch {
-    return null;
-  }
-}
-
-function dedupe(values: string[]): string[] {
-  return [...new Set(values.filter(Boolean))];
 }
 
 function buildSeriesMap(rows: Array<{ date: string; value: number }>): Map<string, number> {
@@ -2349,18 +2434,6 @@ function spyDistanceScoresFromClose(close: number[]): number[] {
 
 function clamp(value: number, low: number, high: number): number {
   return Math.max(low, Math.min(high, value));
-}
-
-function parseSharedStateNotification(payload: string | undefined): { updatedAt?: string } | null {
-  if (!payload) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(payload) as { updatedAt?: string };
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
 }
 
 function summarizeError(error: unknown): string {

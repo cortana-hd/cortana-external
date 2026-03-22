@@ -18,6 +18,8 @@ const TEST_CONFIG: AppConfig = {
   MARKET_DATA_UNIVERSE_SOURCE_LADDER: "python_seed",
   MARKET_DATA_UNIVERSE_REMOTE_JSON_URL: "",
   MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "",
+  MARKET_DATA_SCHWAB_FAILURE_THRESHOLD: 3,
+  MARKET_DATA_SCHWAB_COOLDOWN_MS: 20_000,
   MARKET_DATA_YAHOO_CIRCUIT_FAILURE_THRESHOLD: 5,
   MARKET_DATA_YAHOO_CIRCUIT_COOLDOWN_MS: 60_000,
   SCHWAB_CLIENT_ID: "client",
@@ -37,6 +39,8 @@ const TEST_CONFIG: AppConfig = {
   SCHWAB_STREAMER_SYMBOL_SOFT_CAP: 250,
   SCHWAB_STREAMER_CACHE_SOFT_CAP: 500,
   SCHWAB_STREAMER_EQUITY_FIELDS: "0,1,2,3,8,19,20,32,34,42",
+  SCHWAB_STREAMER_ACCOUNT_ACTIVITY_ENABLED: "1",
+  SCHWAB_STREAMER_RECONNECT_JITTER_MS: 0,
   FRED_API_KEY: "",
   WHOOP_CLIENT_ID: "",
   WHOOP_CLIENT_SECRET: "",
@@ -193,6 +197,40 @@ class FakeWebSocket implements WebSocketLike {
       });
       return;
     }
+    if (request.service === "ACCT_ACTIVITY" && request.command === "SUBS") {
+      queueMicrotask(() => {
+        this.onmessage?.({
+          data: JSON.stringify({
+            response: [
+              {
+                service: "ACCT_ACTIVITY",
+                command: request.command,
+                requestid: request.requestid ?? "0",
+                content: { code: 0, msg: "SUBS command succeeded" },
+              },
+            ],
+          }),
+        });
+      });
+      return;
+    }
+    if (request.service === "ACCT_ACTIVITY" && request.command === "UNSUBS") {
+      queueMicrotask(() => {
+        this.onmessage?.({
+          data: JSON.stringify({
+            response: [
+              {
+                service: "ACCT_ACTIVITY",
+                command: request.command,
+                requestid: request.requestid ?? "0",
+                content: { code: 0, msg: "UNSUBS command succeeded" },
+              },
+            ],
+          }),
+        });
+      });
+      return;
+    }
     if ((request.service === "LEVELONE_EQUITIES" || request.service === "CHART_EQUITY") && request.command === "VIEW") {
       queueMicrotask(() => {
         this.onmessage?.({
@@ -214,6 +252,42 @@ class FakeWebSocket implements WebSocketLike {
   close(code?: number, reason?: string): void {
     this.readyState = 3;
     this.onclose?.({ code, reason });
+  }
+}
+
+class ActivityWebSocket extends FakeWebSocket {
+  override send(data: string): void {
+    const payload = JSON.parse(data) as {
+      requests?: Array<{ requestid?: string; service: string; command: string; parameters?: { keys?: string; fields?: string } }>;
+    };
+    const request = payload.requests?.[0];
+    super.send(data);
+    if (request?.service === "ACCT_ACTIVITY" && request.command === "SUBS") {
+      queueMicrotask(() => {
+        this.onmessage?.({
+          data: JSON.stringify({
+            data: [
+              {
+                service: "ACCT_ACTIVITY",
+                timestamp: 1_710_000_130_000,
+                command: "SUBS",
+                content: [
+                  {
+                    "0": "TRADE",
+                    "1": "123456789",
+                    "2": "AAPL",
+                    "3": "Bought 10 shares",
+                    "4": 10,
+                    "5": 201.5,
+                    "6": 1_710_000_130_000,
+                  },
+                ],
+              },
+            ],
+          }),
+        });
+      });
+    }
   }
 }
 
@@ -298,6 +372,65 @@ describe("market-data routes", () => {
     expect((streamerMeta.requestedSubscriptions as Record<string, number>).LEVELONE_EQUITIES).toBe(1);
   });
 
+  it("buffers normalized ACCT_ACTIVITY events in streamer health and shared state", async () => {
+    FakeWebSocket.createdCount = 0;
+    FakeWebSocket.sentRequests = [];
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-acct-activity-"));
+    const sharedStatePath = path.join(tempDir, "streamer-state.json");
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_STREAMER_SHARED_STATE_PATH: sharedStatePath,
+      },
+      websocketFactory: () => new ActivityWebSocket(),
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/trader/v1/userPreference")) {
+          return new Response(
+            JSON.stringify({
+              streamerInfo: {
+                streamerSocketUrl: "wss://streamer.example.test/ws",
+                schwabClientCustomerId: "customer-id",
+                schwabClientCorrelId: "correl-id",
+                schwabClientChannel: "N9",
+                schwabClientFunctionId: "APIAP",
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+
+    await service.handleQuote(new Request("http://localhost/market-data/quote/AAPL"), "AAPL");
+
+    const health = await service.checkHealth();
+    const providers = (health.providers ?? {}) as Record<string, unknown>;
+    const streamerMeta = (providers.schwabStreamerMeta ?? {}) as Record<string, unknown>;
+    const recentEvents = streamerMeta.recentAccountActivityEvents as Array<Record<string, unknown>>;
+    const writtenState = JSON.parse(fs.readFileSync(sharedStatePath, "utf8")) as {
+      recentAccountActivityEvents: Array<{
+        event: { symbol?: string; quantity?: number; eventType?: string };
+        receivedAt: string;
+      }>;
+    };
+
+    expect(recentEvents).toHaveLength(1);
+    expect(recentEvents[0]?.service).toBe("ACCT_ACTIVITY");
+    expect(recentEvents[0]?.symbol).toBe("AAPL");
+    expect(recentEvents[0]?.quantity).toBe(10);
+    expect(recentEvents[0]?.eventType).toBe("TRADE");
+    expect(writtenState.recentAccountActivityEvents).toHaveLength(1);
+    expect(writtenState.recentAccountActivityEvents[0]?.event.symbol).toBe("AAPL");
+  });
+
   it("uses ADD for incremental streamer subscriptions after the initial SUBS", async () => {
     FakeWebSocket.createdCount = 0;
     FakeWebSocket.sentRequests = [];
@@ -372,6 +505,67 @@ describe("market-data routes", () => {
     expect(body.status).toBe("ok");
     expect(body.data.symbol).toBe("AAPL");
     expect(body.data.price).toBe(200.12);
+  });
+
+  it("marks ready=false when Schwab refresh token is rejected", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-token-reject-"));
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_STREAMER_ENABLED: "0",
+        SCHWAB_TOKEN_PATH: path.join(tempDir, "missing-token.json"),
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          return new Response(JSON.stringify({ error: "invalid_grant" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("query1.finance.yahoo.com/v8/finance/chart")) {
+          return new Response(
+            JSON.stringify({
+              chart: {
+                result: [
+                  {
+                    timestamp: [1_710_000_000, 1_710_086_400],
+                    indicators: {
+                      quote: [
+                        {
+                          open: [200, 201],
+                          high: [202, 203],
+                          low: [199, 200],
+                          close: [201, 202],
+                          volume: [1000, 1100],
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const historyResponse = await app.request("/market-data/history/AAPL?period=1mo");
+    const historyBody = (await historyResponse.json()) as { source: string; status: string };
+    expect(historyResponse.status).toBe(200);
+    expect(historyBody.source).toBe("yahoo");
+    expect(historyBody.status).toBe("degraded");
+
+    const readyResponse = await app.request("/market-data/ready");
+    const readyBody = (await readyResponse.json()) as { data: { ready: boolean; operatorState: string; operatorAction: string } };
+    expect(readyResponse.status).toBe(503);
+    expect(readyBody.data.ready).toBe(false);
+    expect(readyBody.data.operatorState).toBe("human_action_required");
+    expect(readyBody.data.operatorAction).toContain("refresh token");
   });
 
   it("prefers streamer-backed schwab quotes when the session is available", async () => {
@@ -484,6 +678,96 @@ describe("market-data routes", () => {
     expect(body.source).toBe("schwab_streamer");
     expect(body.data.chartEquity?.symbol).toBe("AAPL");
     expect(body.data.chartEquity?.close).toBe(201.7);
+  });
+
+  it("uses Schwab fundamentals as primary and Yahoo only for missing fields", async () => {
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_STREAMER_ENABLED: "0",
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/marketdata/v1/quotes")) {
+          return new Response(
+            JSON.stringify({
+              AAPL: {
+                quote: {
+                  symbol: "AAPL",
+                  lastPrice: 201.5,
+                  tradeTimeInLong: 1_710_000_000_000,
+                },
+                reference: {
+                  description: "Apple Inc.",
+                },
+                fundamental: {
+                  floatShares: 15_500_000_000,
+                  sharesOutstanding: 15_700_000_000,
+                  marketCap: 3_100_000_000_000,
+                  beta: 1.12,
+                },
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("quoteSummary/AAPL")) {
+          return new Response(
+            JSON.stringify({
+              quoteSummary: {
+                result: [
+                  {
+                    summaryProfile: { sector: "Technology", industry: "Consumer Electronics" },
+                    defaultKeyStatistics: { heldPercentInstitutions: { raw: 0.61 } },
+                    financialData: { earningsGrowth: { raw: 0.18 }, revenueGrowth: { raw: 0.12 } },
+                    calendarEvents: { earnings: { earningsDate: [{ fmt: "2026-05-01" }] } },
+                    earningsTrend: { trend: [{ growth: { raw: 0.22 } }] },
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/v7/finance/quote")) {
+          return new Response(
+            JSON.stringify({
+              quoteResponse: {
+                result: [
+                  {
+                    symbol: "AAPL",
+                    regularMarketPrice: 201.5,
+                    regularMarketChange: 1.2,
+                    regularMarketChangePercent: 0.6,
+                    regularMarketTime: 1_710_000_000,
+                    currency: "USD",
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/market-data/fundamentals/AAPL");
+    const body = (await response.json()) as { source: string; data: { payload: Record<string, unknown> } };
+
+    expect(response.status).toBe(200);
+    expect(body.source).toBe("schwab");
+    expect(body.data.payload.float_shares).toBe(15_500_000_000);
+    expect(body.data.payload.sector).toBe("Technology");
+    expect(body.data.payload.institutional_pct).toBeCloseTo(0.61);
   });
 
   it("refreshes universe artifact from python static seed", async () => {

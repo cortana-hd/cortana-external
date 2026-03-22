@@ -43,7 +43,7 @@ class MarketDataProvider:
         provider_order: str = "service",
         service_base_url: str = "http://localhost:3033",
         cache_dir: Optional[str] = None,
-        cache_ttl_seconds: int = 1800,
+        cache_ttl_seconds: int = 600,
         max_retries: int = 2,
         backoff_base_seconds: float = 0.75,
         backoff_jitter_seconds: float = 0.35,

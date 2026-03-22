@@ -55,6 +55,18 @@ export interface MarketDataQuote {
   securityStatus?: string;
 }
 
+export interface SchwabAccountActivityEvent {
+  service: "ACCT_ACTIVITY";
+  receivedAt: string;
+  eventTime: string;
+  eventType: string | null;
+  accountNumber: string | null;
+  symbol: string | null;
+  description: string | null;
+  quantity: number | null;
+  price: number | null;
+}
+
 export interface MarketDataSnapshot {
   symbol: string;
   quote?: Record<string, unknown>;

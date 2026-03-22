@@ -21,6 +21,7 @@ Other useful docs:
 - [Scoring and calibration notes](./docs/scoring-calibration.md)
 - [Uncertainty/confidence PRD](./docs/uncertainty-confidence-prd.md)
 - [Uncertainty runtime wiring](./docs/uncertainty-confidence-runtime-wiring.md)
+- [Market-data service reference](./docs/market-data-service-reference.md)
 
 ## Setup
 
@@ -63,7 +64,8 @@ Important notes:
   - `SCHWAB_STREAMER_ROLE=auto` uses Postgres advisory locks to choose one leader
   - `SCHWAB_STREAMER_ROLE=leader` forces this instance to own the stream
   - `SCHWAB_STREAMER_ROLE=follower` disables the local Schwab socket and reads shared leader state
-  - shared quote/chart state can use `SCHWAB_STREAMER_SHARED_STATE_BACKEND=file|postgres`
+  - shared quote/chart state defaults to `postgres`
+  - `SCHWAB_STREAMER_SHARED_STATE_BACKEND=file` is dev-only
   - file path: `SCHWAB_STREAMER_SHARED_STATE_PATH`
 - FRED, CBOE, and the base-universe artifact are also owned by the TS service
 - the base-universe artifact now supports a source ladder in TS: `remote_json -> local_json -> python_seed`
@@ -272,6 +274,7 @@ Operational notes:
 
 Backtester-facing service endpoints:
 - `GET /market-data/ready`
+- `GET /market-data/ops`
 - `GET /market-data/history/:symbol`
 - `GET /market-data/history/batch`
 - `GET /market-data/quote/:symbol`
@@ -284,6 +287,8 @@ Backtester-facing service endpoints:
 - `POST /market-data/universe/refresh`
 - `GET /market-data/risk/history`
 - `GET /market-data/risk/snapshot`
+
+See [Market-data service reference](./docs/market-data-service-reference.md) for compact endpoint notes, readiness semantics, and streamer recovery basics.
 
 History route notes:
 - `GET /market-data/history/:symbol` now honors `interval=1d|1wk|1mo` instead of silently collapsing everything to daily bars

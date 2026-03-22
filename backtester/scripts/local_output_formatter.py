@@ -365,6 +365,12 @@ def format_market_data_ops(text: str) -> str:
         f"{data.get('streamerRoleActive', 'unknown')} (configured {data.get('streamerRoleConfigured', 'unknown')})"
         f" | lock held {'yes' if data.get('streamerLockHeld') else 'no'}"
     )
+    service_state = data.get("serviceOperatorState")
+    service_action = data.get("serviceOperatorAction")
+    if service_state:
+        out.append(f"- Service state: {service_state}")
+    if service_action and service_action != "No operator action required.":
+        out.append(f"- Service action: {service_action}")
     out.append(
         "- Stream state: "
         f"{streamer.get('operatorState', 'unknown')}"
@@ -376,6 +382,14 @@ def format_market_data_ops(text: str) -> str:
     budget_lines = [line for line in (_budget_line("LEVELONE_EQUITIES"), _budget_line("CHART_EQUITY")) if line]
     if budget_lines:
         out.append("- Symbol budget: " + " | ".join(budget_lines))
+    recent_activity = streamer.get("recentAccountActivityEvents")
+    if isinstance(recent_activity, list) and recent_activity:
+        latest = recent_activity[0] if isinstance(recent_activity[0], dict) else {}
+        out.append(
+            "- Account activity: "
+            f"{len(recent_activity)} recent | latest {latest.get('eventType', 'event')}"
+            f" {latest.get('symbol') or ''}".rstrip()
+        )
     out.append(
         "- Fallbacks: "
         f"yahoo {fallback_usage.get('yahoo', 0)} | shared_state {fallback_usage.get('shared_state', 0)}"

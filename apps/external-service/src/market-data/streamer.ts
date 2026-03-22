@@ -1,6 +1,7 @@
 import type { AppLogger } from "../lib/logger.js";
-import type { MarketDataQuote } from "./types.js";
+import type { MarketDataQuote, SchwabAccountActivityEvent } from "./types.js";
 import {
+  normalizeStreamerAccountActivityEvent,
   normalizeStreamerChartEquity,
   normalizeStreamerEquityQuote,
   STREAMER_SERVICES,
@@ -29,9 +30,11 @@ export interface SchwabStreamerSessionOptions {
   subscriptionIdleTtlMs?: number;
   reconnectBaseDelayMs?: number;
   reconnectMaxDelayMs?: number;
+  reconnectJitterMs?: number;
   viewReconciliationIntervalMs?: number;
   supervisionIntervalMs?: number;
   subscriptionSoftCap?: number;
+  accountActivityEnabled?: boolean;
   stateSink?: (state: SharedStreamerState) => void;
 }
 
@@ -129,6 +132,18 @@ interface SharedCachedChartPoint {
   receivedAt: string;
 }
 
+interface CachedAccountActivityEvent {
+  event: SchwabAccountActivityEvent;
+  receivedAt: number;
+}
+
+interface SharedCachedAccountActivityEvent {
+  event: SchwabAccountActivityEvent;
+  receivedAt: string;
+}
+
+const ACCOUNT_ACTIVITY_EVENT_BUFFER_LIMIT = 10;
+
 export interface SchwabStreamerHealth {
   enabled: boolean;
   connected: boolean;
@@ -154,6 +169,7 @@ export interface SchwabStreamerHealth {
   staleSymbolCount: number;
   messageRatePerMinute: number;
   stale: boolean;
+  recentAccountActivityEvents: SchwabAccountActivityEvent[];
 }
 
 export interface SharedStreamerState {
@@ -161,6 +177,7 @@ export interface SharedStreamerState {
   health: SchwabStreamerHealth;
   quotes: Record<string, SharedCachedQuote>;
   charts: Record<string, SharedCachedChartPoint>;
+  recentAccountActivityEvents: SharedCachedAccountActivityEvent[];
 }
 
 export class SchwabStreamerSession {
@@ -178,9 +195,11 @@ export class SchwabStreamerSession {
   private readonly subscriptionIdleTtlMs: number;
   private readonly reconnectBaseDelayMs: number;
   private readonly reconnectMaxDelayMs: number;
+  private readonly reconnectJitterMs: number;
   private readonly viewReconciliationIntervalMs: number;
   private readonly stateSink?: (state: SharedStreamerState) => void;
   private readonly subscriptionSoftCap: number;
+  private readonly accountActivityEnabled: boolean;
   private ws: WebSocketLike | null = null;
   private connectPromise: Promise<void> | null = null;
   private loginResolve: (() => void) | null = null;
@@ -188,13 +207,16 @@ export class SchwabStreamerSession {
   private readonly subscriptions: Record<StreamerServiceName, Map<string, SubscriptionEntry>> = {
     [STREAMER_SERVICES.LEVELONE_EQUITIES]: new Map(),
     [STREAMER_SERVICES.CHART_EQUITY]: new Map(),
+    [STREAMER_SERVICES.ACCT_ACTIVITY]: new Map(),
   };
   private readonly activeSubscriptions: Record<StreamerServiceName, Set<string>> = {
     [STREAMER_SERVICES.LEVELONE_EQUITIES]: new Set(),
     [STREAMER_SERVICES.CHART_EQUITY]: new Set(),
+    [STREAMER_SERVICES.ACCT_ACTIVITY]: new Set(),
   };
   private readonly quoteCache = new Map<string, CachedQuote>();
   private readonly chartCache = new Map<string, CachedChartPoint>();
+  private readonly accountActivityEvents: CachedAccountActivityEvent[] = [];
   private readonly pendingRequests = new Map<string, PendingRequestMeta>();
   private readonly pendingAcks = new Map<string, PendingAck>();
   private readonly quoteWaiters = new Map<string, Set<PendingDataWaiter<MarketDataQuote>>>();
@@ -202,18 +224,22 @@ export class SchwabStreamerSession {
   private readonly confirmedSubscriptions: Record<StreamerServiceName, Set<string>> = {
     [STREAMER_SERVICES.LEVELONE_EQUITIES]: new Set(),
     [STREAMER_SERVICES.CHART_EQUITY]: new Set(),
+    [STREAMER_SERVICES.ACCT_ACTIVITY]: new Set(),
   };
   private readonly confirmedFields: Record<StreamerServiceName, string | null> = {
     [STREAMER_SERVICES.LEVELONE_EQUITIES]: null,
     [STREAMER_SERVICES.CHART_EQUITY]: null,
+    [STREAMER_SERVICES.ACCT_ACTIVITY]: null,
   };
   private readonly lastAckAtByService: Record<StreamerServiceName, number> = {
     [STREAMER_SERVICES.LEVELONE_EQUITIES]: 0,
     [STREAMER_SERVICES.CHART_EQUITY]: 0,
+    [STREAMER_SERVICES.ACCT_ACTIVITY]: 0,
   };
   private readonly serviceCommandChains: Record<StreamerServiceName, Promise<void>> = {
     [STREAMER_SERVICES.LEVELONE_EQUITIES]: Promise.resolve(),
     [STREAMER_SERVICES.CHART_EQUITY]: Promise.resolve(),
+    [STREAMER_SERVICES.ACCT_ACTIVITY]: Promise.resolve(),
   };
   private readonly messageTimestamps: number[] = [];
   private lastBudgetPrunedAt = 0;
@@ -250,9 +276,18 @@ export class SchwabStreamerSession {
     this.subscriptionIdleTtlMs = options.subscriptionIdleTtlMs ?? 10 * 60_000;
     this.reconnectBaseDelayMs = options.reconnectBaseDelayMs ?? 1_000;
     this.reconnectMaxDelayMs = options.reconnectMaxDelayMs ?? 30_000;
+    this.reconnectJitterMs = options.reconnectJitterMs ?? 500;
     this.viewReconciliationIntervalMs = options.viewReconciliationIntervalMs ?? 5 * 60_000;
     this.subscriptionSoftCap = options.subscriptionSoftCap ?? 250;
+    this.accountActivityEnabled = options.accountActivityEnabled ?? true;
     this.stateSink = options.stateSink;
+    if (this.accountActivityEnabled) {
+      this.subscriptions[STREAMER_SERVICES.ACCT_ACTIVITY].set("Account Activity", {
+        symbol: "Account Activity",
+        lastRequestedAt: Date.now(),
+        active: false,
+      });
+    }
     this.supervisionTimer = setInterval(() => {
       void this.runSupervisionCycle();
     }, options.supervisionIntervalMs ?? 5_000);
@@ -336,6 +371,7 @@ export class SchwabStreamerSession {
       staleSymbolCount: this.countStaleSymbols(),
       messageRatePerMinute: this.currentMessageRatePerMinute(),
       stale: this.isStale(),
+      recentAccountActivityEvents: this.buildRecentAccountActivitySnapshot(),
     };
   }
 
@@ -367,6 +403,9 @@ export class SchwabStreamerSession {
     await this.ensureConnected();
     await this.syncSubscriptions(STREAMER_SERVICES.LEVELONE_EQUITIES);
     await this.syncSubscriptions(STREAMER_SERVICES.CHART_EQUITY);
+    if (this.accountActivityEnabled) {
+      await this.syncSubscriptions(STREAMER_SERVICES.ACCT_ACTIVITY);
+    }
   }
 
   private async ensureConnected(): Promise<void> {
@@ -596,6 +635,13 @@ export class SchwabStreamerSession {
             this.resolveDataWaiters(this.chartWaiters, normalized.symbol, normalized);
           }
         }
+      } else if (service === STREAMER_SERVICES.ACCT_ACTIVITY) {
+        for (const row of content) {
+          const normalized = normalizeStreamerAccountActivityEvent(row as Record<string, unknown>, Number(entry.timestamp ?? now));
+          if (normalized) {
+            this.storeAccountActivity(normalized, now);
+          }
+        }
       }
     }
 
@@ -617,11 +663,27 @@ export class SchwabStreamerSession {
       this.forceReconnect("stale stream");
       return;
     }
+    if (!this.ws && !this.connectPromise && this.nextReconnectAt === 0) {
+      try {
+        await this.ensureConnected();
+        await this.syncSubscriptions(STREAMER_SERVICES.LEVELONE_EQUITIES);
+        await this.syncSubscriptions(STREAMER_SERVICES.CHART_EQUITY);
+        if (this.accountActivityEnabled) {
+          await this.syncSubscriptions(STREAMER_SERVICES.ACCT_ACTIVITY);
+        }
+      } catch (error) {
+        this.logger.error("schwab streamer initial connect failed", error);
+      }
+      return;
+    }
     if (!this.ws && this.nextReconnectAt > 0 && Date.now() >= this.nextReconnectAt && !this.connectPromise) {
       try {
         await this.ensureConnected();
         await this.syncSubscriptions(STREAMER_SERVICES.LEVELONE_EQUITIES);
         await this.syncSubscriptions(STREAMER_SERVICES.CHART_EQUITY);
+        if (this.accountActivityEnabled) {
+          await this.syncSubscriptions(STREAMER_SERVICES.ACCT_ACTIVITY);
+        }
       } catch (error) {
         this.logger.error("schwab streamer reconnect failed", error);
       }
@@ -658,6 +720,14 @@ export class SchwabStreamerSession {
         await this.sendSubscriptionCommand(service, "UNSUBS", [...active]);
         active.clear();
         this.emitStateSnapshot();
+      }
+      return;
+    }
+    if (service === STREAMER_SERVICES.ACCT_ACTIVITY) {
+      const keys = wantedSymbols[0];
+      if (!active.size) {
+        await this.sendSubscriptionCommand(service, "SUBS", [keys]);
+        active.add(keys);
       }
       return;
     }
@@ -699,7 +769,11 @@ export class SchwabStreamerSession {
       return;
     }
     const fields =
-      service === STREAMER_SERVICES.LEVELONE_EQUITIES ? this.equitySubscriptionFields : this.chartSubscriptionFields;
+      service === STREAMER_SERVICES.LEVELONE_EQUITIES
+        ? this.equitySubscriptionFields
+        : service === STREAMER_SERVICES.CHART_EQUITY
+          ? this.chartSubscriptionFields
+          : "0";
     const chunkSize = this.subscriptionChunkSize();
     const chunks = chunkSymbols(symbols, chunkSize);
     if (command === "SUBS") {
@@ -799,7 +873,8 @@ export class SchwabStreamerSession {
         this.reconnectBaseDelayMs * 2 ** Math.max(this.reconnectAttempts - 1, 0),
         this.reconnectMaxDelayMs,
       );
-      this.nextReconnectAt = Date.now() + backoff;
+      const jitter = this.reconnectJitterMs > 0 ? Math.floor(Math.random() * (this.reconnectJitterMs + 1)) : 0;
+      this.nextReconnectAt = Date.now() + backoff + jitter;
     } else {
       this.nextReconnectAt = 0;
     }
@@ -851,6 +926,13 @@ export class SchwabStreamerSession {
     this.evictOverflow(this.chartCache);
   }
 
+  private storeAccountActivity(event: SchwabAccountActivityEvent, receivedAt: number): void {
+    this.accountActivityEvents.push({ event, receivedAt });
+    while (this.accountActivityEvents.length > ACCOUNT_ACTIVITY_EVENT_BUFFER_LIMIT) {
+      this.accountActivityEvents.shift();
+    }
+  }
+
   private evictOverflow<T>(cache: Map<string, T>): void {
     while (cache.size > this.cacheSoftCap) {
       const oldestKey = cache.keys().next().value;
@@ -898,16 +980,24 @@ export class SchwabStreamerSession {
         },
       ]),
     );
+    const recentAccountActivityEvents = this.accountActivityEvents.map((cached) => ({
+      event: cached.event,
+      receivedAt: new Date(cached.receivedAt).toISOString(),
+    }));
     this.stateSink({
       updatedAt: new Date().toISOString(),
       health: this.getHealth(),
       quotes,
       charts,
+      recentAccountActivityEvents,
     });
   }
 
   private async reconcileSubscriptionViews(): Promise<void> {
     for (const service of Object.values(STREAMER_SERVICES)) {
+      if (service === STREAMER_SERVICES.ACCT_ACTIVITY) {
+        continue;
+      }
       const hasActive = this.activeSubscriptions[service].size > 0;
       if (!hasActive) {
         continue;
@@ -950,7 +1040,11 @@ export class SchwabStreamerSession {
       const active = this.activeSubscriptions[service];
       const confirmed = this.confirmedSubscriptions[service];
       const requestedFields =
-        service === STREAMER_SERVICES.LEVELONE_EQUITIES ? this.equitySubscriptionFields : this.chartSubscriptionFields;
+        service === STREAMER_SERVICES.LEVELONE_EQUITIES
+          ? this.equitySubscriptionFields
+          : service === STREAMER_SERVICES.CHART_EQUITY
+            ? this.chartSubscriptionFields
+            : "0";
       const symbolDriftCount =
         [...intended.keys()].filter((symbol) => !confirmed.has(symbol)).length +
         [...confirmed].filter((symbol) => !intended.has(symbol)).length;
@@ -972,11 +1066,12 @@ export class SchwabStreamerSession {
     const out: Record<string, StreamerServiceBudget> = {} as Record<string, StreamerServiceBudget>;
     for (const service of Object.values(STREAMER_SERVICES)) {
       const requestedSymbols = this.subscriptions[service].size;
+      const softCap = service === STREAMER_SERVICES.ACCT_ACTIVITY ? 1 : this.subscriptionSoftCap;
       out[service] = {
         requestedSymbols,
-        softCap: this.subscriptionSoftCap,
-        headroomRemaining: Math.max(this.subscriptionSoftCap - requestedSymbols, 0),
-        overSoftCap: requestedSymbols > this.subscriptionSoftCap,
+        softCap,
+        headroomRemaining: Math.max(softCap - requestedSymbols, 0),
+        overSoftCap: requestedSymbols > softCap,
         lastPrunedAt: this.lastBudgetPrunedAt ? new Date(this.lastBudgetPrunedAt).toISOString() : null,
         lastPrunedCount: this.lastBudgetPrunedCount,
       };
@@ -984,11 +1079,18 @@ export class SchwabStreamerSession {
     return out;
   }
 
+  private buildRecentAccountActivitySnapshot(): SchwabAccountActivityEvent[] {
+    return this.accountActivityEvents.map((cached) => cached.event);
+  }
+
   private subscriptionChunkSize(): number {
     return Math.max(1, Math.min(this.subscriptionSoftCap, 50));
   }
 
   private pruneToBudget(service: StreamerServiceName): void {
+    if (service === STREAMER_SERVICES.ACCT_ACTIVITY) {
+      return;
+    }
     const registry = this.subscriptions[service];
     if (registry.size <= this.subscriptionSoftCap) {
       return;

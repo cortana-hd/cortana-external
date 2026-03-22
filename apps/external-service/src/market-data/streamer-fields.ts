@@ -1,9 +1,10 @@
-import type { MarketDataQuote } from "./types.js";
+import type { MarketDataQuote, SchwabAccountActivityEvent } from "./types.js";
 import type { StreamerChartEquityPoint } from "./streamer.js";
 
 export const STREAMER_SERVICES = {
   LEVELONE_EQUITIES: "LEVELONE_EQUITIES",
   CHART_EQUITY: "CHART_EQUITY",
+  ACCT_ACTIVITY: "ACCT_ACTIVITY",
 } as const;
 
 export type StreamerServiceName = (typeof STREAMER_SERVICES)[keyof typeof STREAMER_SERVICES];
@@ -28,6 +29,16 @@ export const CHART_EQUITY_FIELDS = {
   volume: ["5"],
   sequence: ["6"],
   chartTime: ["7"],
+} as const;
+
+export const ACCT_ACTIVITY_FIELDS = {
+  eventType: ["0", "eventType", "type", "messageType"],
+  accountNumber: ["1", "accountNumber", "account", "acct"],
+  symbol: ["2", "symbol", "underlyingSymbol"],
+  description: ["3", "description", "message", "text", "details"],
+  quantity: ["4", "quantity", "qty", "shares"],
+  price: ["5", "price", "fillPrice", "tradePrice"],
+  timestamp: ["6", "timestamp", "eventTime", "time", "datetime"],
 } as const;
 
 export function normalizeStreamerEquityQuote(
@@ -79,6 +90,35 @@ export function normalizeStreamerChartEquity(row: Record<string, unknown>): Stre
   };
 }
 
+export function normalizeStreamerAccountActivityEvent(
+  row: Record<string, unknown>,
+  fallbackTimestamp: number,
+): SchwabAccountActivityEvent | null {
+  const eventTimeMs = firstNumber(row, ACCT_ACTIVITY_FIELDS.timestamp) ?? fallbackTimestamp;
+  const eventType = firstText(row, ACCT_ACTIVITY_FIELDS.eventType);
+  const accountNumber = firstText(row, ACCT_ACTIVITY_FIELDS.accountNumber);
+  const symbol = firstString(row, ACCT_ACTIVITY_FIELDS.symbol)?.trim().toUpperCase() ?? null;
+  const description = firstString(row, ACCT_ACTIVITY_FIELDS.description);
+  const quantity = firstNumber(row, ACCT_ACTIVITY_FIELDS.quantity);
+  const price = firstNumber(row, ACCT_ACTIVITY_FIELDS.price);
+
+  if (!eventType && !accountNumber && !symbol && !description && quantity == null && price == null) {
+    return null;
+  }
+
+  return {
+    service: STREAMER_SERVICES.ACCT_ACTIVITY,
+    receivedAt: new Date(fallbackTimestamp).toISOString(),
+    eventTime: new Date(eventTimeMs).toISOString(),
+    eventType: eventType ?? null,
+    accountNumber: accountNumber ?? null,
+    symbol,
+    description: description ?? null,
+    quantity: quantity ?? null,
+    price: price ?? null,
+  };
+}
+
 function firstNumber(row: Record<string, unknown>, keys: readonly string[]): number | undefined {
   for (const key of keys) {
     const value = row[key];
@@ -90,6 +130,19 @@ function firstNumber(row: Record<string, unknown>, keys: readonly string[]): num
       if (Number.isFinite(parsed)) {
         return parsed;
       }
+    }
+  }
+  return undefined;
+}
+
+function firstText(row: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
     }
   }
   return undefined;
