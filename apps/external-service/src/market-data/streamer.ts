@@ -562,7 +562,9 @@ export class SchwabStreamerSession {
       } else if (code === 19) {
         this.failurePolicy = "symbol_limit_reached";
         if (pending) {
-          this.handleSymbolLimitFailure(pending);
+          void this.handleSymbolLimitFailure(pending).catch((error) => {
+            this.logger.error("Unable to reconcile subscriptions after Schwab symbol limit failure", error);
+          });
         }
       } else if (code === 20) {
         this.failurePolicy = "immediate_reconnect";
@@ -965,22 +967,26 @@ export class SchwabStreamerSession {
     this.lastBudgetPrunedCount = toRemove.length;
   }
 
-  private handleSymbolLimitFailure(pending: PendingRequestMeta): void {
+  private async handleSymbolLimitFailure(pending: PendingRequestMeta): Promise<void> {
     const service = pending.service as StreamerServiceName;
     if (!(service in this.subscriptions)) {
       return;
     }
     this.pruneToBudget(service);
-    if (pending.symbols.length <= 1) {
-      return;
-    }
     const registry = this.subscriptions[service];
     const allowed = new Set([...registry.keys()]);
+    let changed = false;
     for (const symbol of pending.symbols) {
-      if (!allowed.has(symbol)) {
-        this.activeSubscriptions[service].delete(symbol);
+      if (!allowed.has(symbol) && this.confirmedSubscriptions[service].has(symbol)) {
         this.confirmedSubscriptions[service].delete(symbol);
+        changed = true;
       }
+    }
+    if (changed) {
+      this.emitStateSnapshot();
+    }
+    if (this.ws && this.ws.readyState === 1) {
+      await this.syncSubscriptions(service);
     }
   }
 

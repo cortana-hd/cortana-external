@@ -279,6 +279,13 @@ Backtester-facing service endpoints:
 - `GET /market-data/risk/history`
 - `GET /market-data/risk/snapshot`
 
+History route notes:
+- `GET /market-data/history/:symbol` now honors `interval=1d|1wk|1mo` instead of silently collapsing everything to daily bars
+- for diagnostics, you can also force the primary history source with `provider=service|schwab|yahoo|alpaca`
+- this is separate from `compare_with=<provider>`:
+  - `provider=` changes the primary source for that history response
+  - `compare_with=` leaves the primary source alone and adds comparison metadata
+
 Optional compare mode:
 - use `compare_with=alpaca` or another provider on the TS endpoints when you want a diagnostic comparison without changing the default runtime chain
 

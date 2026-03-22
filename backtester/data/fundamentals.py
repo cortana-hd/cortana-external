@@ -103,8 +103,31 @@ class FundamentalsFetcher:
         return _maybe_float(self._load_payload(symbol, as_of_date).get("eps_growth"))
 
     def get_annual_eps_growth(self, symbol: str, years: int = 5) -> Optional[float]:
-        _ = years
-        return _maybe_float(self._load_payload(symbol).get("annual_eps_growth"))
+        if years < 1:
+            return None
+
+        payload = self._load_payload(symbol)
+        rows = payload.get("earnings_history", [])
+        earnings = pd.DataFrame(rows) if isinstance(rows, list) else pd.DataFrame()
+
+        if not earnings.empty and {"date", "eps_actual"}.issubset(earnings.columns):
+            annual = earnings.copy()
+            annual["date"] = pd.to_datetime(annual["date"], errors="coerce")
+            annual["eps_actual"] = pd.to_numeric(annual["eps_actual"], errors="coerce")
+            annual = annual.dropna(subset=["date", "eps_actual"]).sort_values("date")
+            if not annual.empty:
+                annual["year"] = annual["date"].dt.year
+                annual_eps = annual.groupby("year")["eps_actual"].sum().sort_index()
+                if len(annual_eps) >= years:
+                    oldest_eps = annual_eps.iloc[-years]
+                    newest_eps = annual_eps.iloc[-1]
+                    if oldest_eps > 0 and newest_eps > 0:
+                        cagr = ((newest_eps / oldest_eps) ** (1 / years) - 1) * 100
+                        return float(cagr)
+
+        if years != 5:
+            return None
+        return _maybe_float(payload.get("annual_eps_growth"))
 
     def get_quarterly_financials(self, symbol: str) -> pd.DataFrame:
         rows = self._load_payload(symbol).get("quarterly_financials", [])

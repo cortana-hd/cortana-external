@@ -212,6 +212,8 @@ This is the basic question:
 Important clarification:
 - Python is no longer talking to Schwab or Yahoo directly for the normal path
 - it calls the local TS market-data service, which picks `Schwab -> Yahoo -> cache`
+- when you need diagnostics, the history route can also force a one-off primary provider with `provider=schwab|yahoo|alpaca`, while `compare_with=<provider>` adds comparison metadata without changing the primary source
+- the history route now honors `interval=1d|1wk|1mo` explicitly instead of pretending a non-daily interval was used while still returning daily bars
 - quote freshness can come from `LEVELONE_EQUITIES` and intraday candle freshness can come from `CHART_EQUITY` inside the Schwab streamer session, but Python still only sees normalized HTTP JSON
 - the Schwab streamer is supervised in TS with heartbeat tracking, reconnect backoff, delta subscription updates, and automatic resubscribe for active symbols
 - streamer mutation commands are serialized per service and wait for Schwab acks, which reduces request races around `SUBS`, `ADD`, `UNSUBS`, and `VIEW`
@@ -237,6 +239,9 @@ This is the basic question:
 
 Important clarification:
 - fundamentals and symbol metadata are now normalized by the TS service before Python scores them
+- annual EPS growth is now horizon-aware again on the Python side when earnings history is available:
+  - if the service payload contains usable earnings-history rows, Python rebuilds the requested N-year CAGR locally
+  - if only the normalized summary field exists, Python only trusts that as the default 5-year-style annual growth value and returns `None` for other requested horizons instead of pretending they are all the same
 
 ##### 3. Technicals
 

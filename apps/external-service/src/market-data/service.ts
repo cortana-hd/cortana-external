@@ -288,9 +288,28 @@ export class MarketDataService {
     }
 
     const period = resolveQuery(request.url, "period", "1y");
-    const interval = resolveQuery(request.url, "interval", DEFAULT_INTERVAL);
+    const rawInterval = resolveQuery(request.url, "interval", DEFAULT_INTERVAL);
+    const interval = normalizeHistoryInterval(rawInterval);
+    if (!interval) {
+      return {
+        status: 400,
+        body: marketDataErrorResponse("invalid interval", "error", {
+          reason: `unsupported interval '${rawInterval}'; supported intervals are 1d, 1wk, and 1mo`,
+        }),
+      };
+    }
+    const rawProvider = resolveQuery(request.url, "provider", "service");
+    const provider = normalizeHistoryProvider(rawProvider);
+    if (!provider) {
+      return {
+        status: 400,
+        body: marketDataErrorResponse("invalid provider", "error", {
+          reason: `unsupported provider '${rawProvider}'; supported providers are service, schwab, yahoo, and alpaca`,
+        }),
+      };
+    }
     try {
-      const primary = await this.fetchPrimaryHistory(symbol, period, interval);
+      const primary = await this.fetchPrimaryHistory(symbol, period, interval, provider);
       this.recordSourceUsage(primary.source);
       const compare = await this.buildHistoryComparison(symbol, period, interval, compareWith, primary.rows);
       return {
@@ -604,7 +623,28 @@ export class MarketDataService {
     };
   }
 
-  private async fetchPrimaryHistory(symbol: string, period: string, interval: string): Promise<HistoryFetchResult> {
+  private async fetchPrimaryHistory(
+    symbol: string,
+    period: string,
+    interval: HistoryInterval,
+    provider: HistoryProvider = "service",
+  ): Promise<HistoryFetchResult> {
+    if (provider === "schwab") {
+      if (!this.isSchwabConfigured()) {
+        throw new Error("Schwab credentials are not configured");
+      }
+      const rows = await this.fetchSchwabHistory(symbol, period, interval);
+      return { source: "schwab", status: "ok", stalenessSeconds: 0, rows };
+    }
+    if (provider === "yahoo") {
+      const rows = await this.fetchYahooHistory(symbol, period, interval);
+      return { source: "yahoo", status: "ok", stalenessSeconds: 0, rows };
+    }
+    if (provider === "alpaca") {
+      const rows = await this.fetchAlpacaHistory(symbol, period, interval);
+      return { source: "alpaca", status: "ok", stalenessSeconds: 0, rows };
+    }
+
     const reasons: string[] = [];
     if (this.isSchwabConfigured()) {
       try {
@@ -616,7 +656,7 @@ export class MarketDataService {
       }
     }
 
-    const rows = await this.fetchYahooHistory(symbol, period);
+    const rows = await this.fetchYahooHistory(symbol, period, interval);
     this.recordYahooFallbackSuccess();
     return {
       source: "yahoo",
@@ -690,7 +730,7 @@ export class MarketDataService {
   private async buildHistoryComparison(
     symbol: string,
     period: string,
-    interval: string,
+    interval: HistoryInterval,
     compareWith: string | undefined,
     primaryRows: MarketDataHistoryPoint[],
   ): Promise<MarketDataComparison | undefined> {
@@ -707,9 +747,9 @@ export class MarketDataService {
         }
         rows = await this.fetchSchwabHistory(symbol, period, interval);
       } else if (source === "yahoo") {
-        rows = await this.fetchYahooHistory(symbol, period);
+        rows = await this.fetchYahooHistory(symbol, period, interval);
       } else if (source === "alpaca") {
-        rows = await this.fetchAlpacaHistory(symbol, period);
+        rows = await this.fetchAlpacaHistory(symbol, period, interval);
       } else {
         return buildUnavailableCompare(source, "Unsupported comparison provider");
       }
@@ -761,11 +801,15 @@ export class MarketDataService {
     }
   }
 
-  private async fetchYahooHistory(symbol: string, period: string): Promise<MarketDataHistoryPoint[]> {
+  private async fetchYahooHistory(
+    symbol: string,
+    period: string,
+    interval: HistoryInterval = DEFAULT_INTERVAL,
+  ): Promise<MarketDataHistoryPoint[]> {
     const range = normalizeYahooRange(period);
     const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
     url.searchParams.set("range", range);
-    url.searchParams.set("interval", "1d");
+    url.searchParams.set("interval", interval);
     url.searchParams.set("includePrePost", "false");
     url.searchParams.set("events", "div,splits");
 
@@ -1104,7 +1148,7 @@ export class MarketDataService {
     await this.refreshSharedStateCacheFromBackend();
   }
 
-  private async fetchSchwabHistory(symbol: string, period: string, interval: string): Promise<MarketDataHistoryPoint[]> {
+  private async fetchSchwabHistory(symbol: string, period: string, interval: HistoryInterval): Promise<MarketDataHistoryPoint[]> {
     const token = await this.getSchwabAccessToken();
     const params = mapSchwabPeriod(period, interval);
     const url = new URL(`${this.config.SCHWAB_API_BASE_URL.replace(/\/+$/, "")}/marketdata/v1/pricehistory`);
@@ -1156,10 +1200,14 @@ export class MarketDataService {
     };
   }
 
-  private async fetchAlpacaHistory(symbol: string, period: string): Promise<MarketDataHistoryPoint[]> {
+  private async fetchAlpacaHistory(
+    symbol: string,
+    period: string,
+    interval: HistoryInterval = DEFAULT_INTERVAL,
+  ): Promise<MarketDataHistoryPoint[]> {
     const keys = await this.getAlpacaKeys();
     const url = new URL(`${keys.data_url}/v2/stocks/${encodeURIComponent(symbol)}/bars`);
-    url.searchParams.set("timeframe", "1Day");
+    url.searchParams.set("timeframe", mapAlpacaTimeframe(interval));
     url.searchParams.set("limit", String(normalizeAlpacaBarLimit(period)));
     url.searchParams.set("adjustment", "raw");
     url.searchParams.set("feed", "iex");
@@ -1868,14 +1916,15 @@ function normalizeYahooRange(period: string): string {
   return "1y";
 }
 
-function mapSchwabPeriod(period: string, _interval: string): Record<string, string | number> {
+function mapSchwabPeriod(period: string, interval: HistoryInterval): Record<string, string | number> {
   const normalized = period.trim().toLowerCase();
+  const frequencyType = mapSchwabFrequencyType(interval);
   if (normalized.endsWith("d")) {
     const days = Math.max(parseInt(normalized.slice(0, -1), 10) || 5, 1);
     return {
       periodType: "day",
       period: Math.min(days, 10),
-      frequencyType: "daily",
+      frequencyType,
       frequency: 1,
       needExtendedHoursData: "false",
       needPreviousClose: "true",
@@ -1886,7 +1935,7 @@ function mapSchwabPeriod(period: string, _interval: string): Record<string, stri
     return {
       periodType: "month",
       period: Math.min(months, 6),
-      frequencyType: "daily",
+      frequencyType,
       frequency: 1,
       needExtendedHoursData: "false",
       needPreviousClose: "true",
@@ -1896,11 +1945,50 @@ function mapSchwabPeriod(period: string, _interval: string): Record<string, stri
   return {
     periodType: "year",
     period: Math.min(years, 20),
-    frequencyType: "daily",
+    frequencyType,
     frequency: 1,
     needExtendedHoursData: "false",
     needPreviousClose: "true",
   };
+}
+
+type HistoryInterval = "1d" | "1wk" | "1mo";
+type HistoryProvider = "service" | "schwab" | "yahoo" | "alpaca";
+
+function normalizeHistoryInterval(rawInterval: string | undefined): HistoryInterval | undefined {
+  const normalized = (rawInterval ?? DEFAULT_INTERVAL).trim().toLowerCase();
+  if (normalized === "1d" || normalized === "1wk" || normalized === "1mo") {
+    return normalized;
+  }
+  return undefined;
+}
+
+function normalizeHistoryProvider(rawProvider: string | undefined): HistoryProvider | undefined {
+  const normalized = (rawProvider ?? "service").trim().toLowerCase();
+  if (normalized === "service" || normalized === "schwab" || normalized === "yahoo" || normalized === "alpaca") {
+    return normalized;
+  }
+  return undefined;
+}
+
+function mapSchwabFrequencyType(interval: HistoryInterval): "daily" | "weekly" | "monthly" {
+  if (interval === "1wk") {
+    return "weekly";
+  }
+  if (interval === "1mo") {
+    return "monthly";
+  }
+  return "daily";
+}
+
+function mapAlpacaTimeframe(interval: HistoryInterval): "1Day" | "1Week" | "1Month" {
+  if (interval === "1wk") {
+    return "1Week";
+  }
+  if (interval === "1mo") {
+    return "1Month";
+  }
+  return "1Day";
 }
 
 function compareHistoryRows(primaryRows: MarketDataHistoryPoint[], comparisonRows: MarketDataHistoryPoint[]): string {

@@ -77,12 +77,11 @@ def test_degraded_cache_path_when_live_providers_fail(tmp_path):
 def test_fallback_between_legacy_providers_defaults_to_service(tmp_path):
     provider = MarketDataProvider(provider_order="alpaca,yahoo", cache_dir=str(tmp_path), cache_ttl_seconds=0, max_retries=0)
     expected = _frame()
-    calls = 0
+    calls: list[str | None] = []
 
     def _legacy_service(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
+        calls.append(kwargs.get("provider"))
+        if len(calls) == 1:
             raise MarketDataError("legacy primary failed", transient=True)
         return (
             expected,
@@ -92,5 +91,5 @@ def test_fallback_between_legacy_providers_defaults_to_service(tmp_path):
     provider._fetch_service_history = _legacy_service  # type: ignore[method-assign]
     result = provider.get_history("SPY", period="1y")
 
-    assert calls == 2
+    assert calls == ["alpaca", "yahoo"]
     assert result.source == "yahoo"

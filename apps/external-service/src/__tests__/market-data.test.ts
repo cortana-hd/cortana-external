@@ -896,6 +896,113 @@ describe("market-data routes", () => {
     delete process.env.ALPACA_DATA_URL;
   });
 
+  it("honors weekly history intervals when falling back to Yahoo", async () => {
+    const requestedUrls: string[] = [];
+    const app = new Hono();
+    const service = new MarketDataService({
+      fetchImpl: async (input) => {
+        const url = String(input);
+        requestedUrls.push(url);
+        if (url.includes("/oauth/token")) {
+          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/marketdata/v1/pricehistory")) {
+          return new Response("schwab unavailable", { status: 503 });
+        }
+        if (url.includes("query1.finance.yahoo.com/v8/finance/chart/AAPL")) {
+          return new Response(
+            JSON.stringify({
+              chart: {
+                result: [
+                  {
+                    timestamp: [1_710_000_000, 1_710_604_800],
+                    indicators: {
+                      quote: [
+                        {
+                          open: [100, 102],
+                          high: [105, 106],
+                          low: [99, 101],
+                          close: [104, 105],
+                          volume: [1_000_000, 900_000],
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/market-data/history/AAPL?period=3mo&interval=1wk");
+    const body = (await response.json()) as { source: string; data: { interval: string; rows: Array<unknown> } };
+
+    expect(response.status).toBe(200);
+    expect(body.source).toBe("yahoo");
+    expect(body.data.interval).toBe("1wk");
+    expect(body.data.rows).toHaveLength(2);
+    expect(requestedUrls.some((url) => url.includes("interval=1wk"))).toBe(true);
+  });
+
+  it("honors explicit history provider overrides", async () => {
+    process.env.ALPACA_KEY = "test-key";
+    process.env.ALPACA_SECRET_KEY = "test-secret";
+    process.env.ALPACA_DATA_URL = "https://data.alpaca.markets";
+
+    const app = new Hono();
+    const service = new MarketDataService({
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("data.alpaca.markets") && url.includes("/bars")) {
+          return new Response(
+            JSON.stringify({
+              bars: [
+                { t: "2026-03-20T00:00:00Z", o: 10, h: 11, l: 9, c: 10.5, v: 1000 },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("query1.finance.yahoo.com/v8/finance/chart/AAPL")) {
+          return new Response(
+            JSON.stringify({
+              chart: {
+                result: [
+                  {
+                    timestamp: [1_710_000_000],
+                    indicators: { quote: [{ open: [20], high: [21], low: [19], close: [20.5], volume: [2000] }] },
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/market-data/history/AAPL?provider=alpaca");
+    const body = (await response.json()) as { source: string; data: { rows: Array<unknown> } };
+
+    expect(response.status).toBe(200);
+    expect(body.source).toBe("alpaca");
+    expect(body.data.rows).toHaveLength(1);
+
+    delete process.env.ALPACA_KEY;
+    delete process.env.ALPACA_SECRET_KEY;
+    delete process.env.ALPACA_DATA_URL;
+  });
+
   it("normalizes market symbols", () => {
     expect(normalizeMarketSymbol(" aapl ")).toBe("AAPL");
     expect(normalizeMarketSymbol("msft")).toBe("MSFT");

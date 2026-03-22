@@ -118,15 +118,15 @@ class MarketDataProvider:
         )
 
     def _fetch_with_retries(self, provider: str, symbol: str, period: str, auto_adjust: bool = False) -> tuple[pd.DataFrame, dict]:
-        if provider not in {"service", "alpaca", "yahoo"}:
+        if provider not in {"service", "schwab", "alpaca", "yahoo"}:
             raise MarketDataError(f"Unknown provider '{provider}'", transient=False)
         attempt = 0
         while True:
             try:
                 if provider == "service":
                     return self._fetch_service_history(symbol, period, auto_adjust=auto_adjust)
-                if provider in {"alpaca", "yahoo"}:
-                    return self._fetch_service_history(symbol, period, auto_adjust=auto_adjust)
+                if provider in {"schwab", "alpaca", "yahoo"}:
+                    return self._fetch_service_history(symbol, period, auto_adjust=auto_adjust, provider=provider)
                 raise MarketDataError(f"Unknown provider '{provider}'", transient=False)
             except MarketDataError as exc:
                 if attempt >= self.max_retries or not exc.transient:
@@ -135,10 +135,18 @@ class MarketDataProvider:
                 time.sleep(max(delay, 0))
                 attempt += 1
 
-    def _fetch_service_history(self, symbol: str, period: str, auto_adjust: bool = False) -> tuple[pd.DataFrame, dict]:
+    def _fetch_service_history(
+        self,
+        symbol: str,
+        period: str,
+        auto_adjust: bool = False,
+        provider: str | None = None,
+    ) -> tuple[pd.DataFrame, dict]:
         safe_symbol = quote(symbol)
         url = f"{self.service_base_url}/market-data/history/{safe_symbol}"
         params = {"period": period, "auto_adjust": str(bool(auto_adjust)).lower()}
+        if provider and provider != "service":
+            params["provider"] = provider
 
         try:
             resp = requests.get(url, params=params, timeout=15)
@@ -167,11 +175,11 @@ class MarketDataProvider:
         return frame, metadata
 
     def _fetch_alpaca_history(self, symbol: str, period: str, auto_adjust: bool = False) -> pd.DataFrame:
-        frame, _ = self._fetch_service_history(symbol, period, auto_adjust=auto_adjust)
+        frame, _ = self._fetch_service_history(symbol, period, auto_adjust=auto_adjust, provider="alpaca")
         return frame
 
     def _fetch_yahoo_history(self, symbol: str, period: str, auto_adjust: bool = False) -> pd.DataFrame:
-        frame, _ = self._fetch_service_history(symbol, period, auto_adjust=auto_adjust)
+        frame, _ = self._fetch_service_history(symbol, period, auto_adjust=auto_adjust, provider="yahoo")
         return frame
 
     @staticmethod
