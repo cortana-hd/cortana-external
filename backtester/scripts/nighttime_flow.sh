@@ -13,6 +13,10 @@ JSON_OUTPUT="${JSON_OUTPUT:-0}"
 MARKET_DATA_SERVICE_URL="${MARKET_DATA_SERVICE_URL:-http://localhost:3033}"
 RUN_MARKET_DATA_OPS="${RUN_MARKET_DATA_OPS:-1}"
 RUN_PREDICTION_ACCURACY="${RUN_PREDICTION_ACCURACY:-1}"
+REQUIRE_MARKET_DATA_SERVICE="${REQUIRE_MARKET_DATA_SERVICE:-1}"
+REQUIRE_SCHWAB_CONFIGURED="${REQUIRE_SCHWAB_CONFIGURED:-1}"
+
+source "${SCRIPT_DIR}/market_data_preflight.sh"
 
 ARGS=(--limit "${NIGHTLY_LIMIT}")
 
@@ -30,6 +34,12 @@ fi
 
 echo "== Nighttime flow =="
 echo "Running nightly discovery with limit=${NIGHTLY_LIMIT}"
+
+if [[ "${REQUIRE_MARKET_DATA_SERVICE}" == "1" ]]; then
+  echo
+  echo "== Market data preflight =="
+  ensure_market_data_runtime_ready "${MARKET_DATA_SERVICE_URL}" "${REQUIRE_SCHWAB_CONFIGURED}"
+fi
 
 (
   cd "${BACKTESTER_DIR}"

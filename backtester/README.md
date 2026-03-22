@@ -76,6 +76,11 @@ Important notes:
 - Alpaca is no longer part of the default runtime chain; use it only for explicit compare/diagnostic checks
 - Polymarket integration is read-only
 - if you skip Polymarket refresh, the Python backtester still runs
+- the local `daytime_flow.sh` and `nighttime_flow.sh` wrappers now run a market-data preflight first
+- by default, those wrappers fail fast if the TS service is unreachable or Schwab is not configured yet
+- override with:
+  - `REQUIRE_MARKET_DATA_SERVICE=0` to skip the preflight entirely
+  - `REQUIRE_SCHWAB_CONFIGURED=0` to allow cache-only / degraded local runs on purpose
 
 ## Start Here
 
@@ -152,6 +157,9 @@ NIGHTLY_LIMIT=30 ./scripts/nighttime_flow.sh
 # Point the local wrappers at a non-default TS service URL
 MARKET_DATA_SERVICE_URL=http://localhost:3033 ./scripts/daytime_flow.sh
 
+# Intentionally allow degraded local wrapper runs without Schwab configured
+REQUIRE_SCHWAB_CONFIGURED=0 ./scripts/daytime_flow.sh
+
 # Pick which leader-bucket window feeds soft priority
 TRADING_LEADER_BASKET_PRIORITY_WINDOW=weekly ./scripts/daytime_flow.sh
 ```
@@ -209,8 +217,10 @@ What it does:
   - [var/local-workflows](./var/local-workflows)
 
 Service note:
-- the live engine expects the TS service at `http://localhost:3033` unless you override `MARKET_DATA_SERVICE_BASE_URL`
+- the live engine expects the TS service at `http://localhost:3033` unless you override `MARKET_DATA_SERVICE_URL`
 - if the service is unavailable, Python falls back to local cache where possible and otherwise uses conservative degraded behavior
+- the local daytime wrapper now checks `/market-data/ready` and `/market-data/ops` before it does expensive work
+- if the service is down or Schwab is not configured, the wrapper exits early with an operator-facing preflight message instead of grinding through a slow degraded run
 
 Best use:
 - during market hours
@@ -235,6 +245,8 @@ What it does:
 
 Service note:
 - nightly discovery also depends on the TS market-data service for history, fundamentals, risk data, and base-universe refresh
+- the local nightly wrapper now does the same market-data preflight as daytime
+- this avoids long degraded discovery runs when the TS service is down or Schwab has not been configured yet
 
 Best use:
 - after market close or overnight

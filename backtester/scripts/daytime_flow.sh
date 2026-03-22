@@ -22,8 +22,11 @@ LOCAL_RUN_DIR="${LOCAL_RUNS_ROOT}/${RUN_STAMP}"
 LEADER_BASKET_PATH="${LEADER_BASKET_PATH:-${BACKTESTER_DIR}/.cache/leader_baskets/leader-baskets-latest.json}"
 MARKET_DATA_SERVICE_URL="${MARKET_DATA_SERVICE_URL:-http://localhost:3033}"
 RUN_MARKET_DATA_OPS="${RUN_MARKET_DATA_OPS:-1}"
+REQUIRE_MARKET_DATA_SERVICE="${REQUIRE_MARKET_DATA_SERVICE:-1}"
+REQUIRE_SCHWAB_CONFIGURED="${REQUIRE_SCHWAB_CONFIGURED:-1}"
 
 mkdir -p "${LOCAL_RUN_DIR}"
+source "${SCRIPT_DIR}/market_data_preflight.sh"
 
 run_formatted_section() {
   local label="$1"
@@ -49,6 +52,12 @@ run_formatted_section() {
 }
 
 echo "== Daytime flow =="
+
+if [[ "${REQUIRE_MARKET_DATA_SERVICE}" == "1" ]]; then
+  echo
+  echo "== Market data preflight =="
+  ensure_market_data_runtime_ready "${MARKET_DATA_SERVICE_URL}" "${REQUIRE_SCHWAB_CONFIGURED}"
+fi
 
 if [[ "${RUN_MARKET_INTEL}" == "1" ]]; then
   echo

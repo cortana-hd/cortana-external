@@ -56,6 +56,17 @@ Default routine:
 ./scripts/daytime_flow.sh
 ```
 
+Wrapper note:
+- `daytime_flow.sh` and `nighttime_flow.sh` now do a market-data preflight before the expensive work starts
+- they check the local TS service readiness surface first
+- by default they fail fast if:
+  - the TS service is unreachable
+  - Schwab is not configured yet
+- this is intentional: it gives you a clear operator message instead of a slow degraded scan
+- you can still intentionally allow degraded local runs with:
+  - `REQUIRE_MARKET_DATA_SERVICE=0`
+  - or `REQUIRE_SCHWAB_CONFIGURED=0`
+
 ## Core Trading Flow
 
 ### Phase 1: Find Stocks
@@ -246,6 +257,13 @@ What the TS service owns now:
 - risk-data fetches used by regime/risk logic
 - base-universe artifact refresh
 - account activity groundwork for future position awareness
+
+What the local wrappers own now:
+
+- quick market-data preflight before daytime/nighttime runs
+- a clear local operator error when the TS service is down
+- a clear local operator error when Schwab credentials are not configured yet
+- optional overrides when you intentionally want cache-only behavior
 
 What Python still owns:
 
