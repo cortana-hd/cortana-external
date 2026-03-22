@@ -25,11 +25,5 @@ tqdm>=4.65.0
 # Pretty tables - format results nicely
 tabulate>=0.9.0
 
-# Yahoo Finance - for fundamental data (earnings, financials)
-yfinance>=0.2.0
-
-# XML parsing - required by yfinance for earnings data
-lxml>=4.9.0
-
 # Optional: VectorBT for fast optimization (can skip initially)
 # vectorbt>=0.26.0

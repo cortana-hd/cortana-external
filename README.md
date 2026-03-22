@@ -337,7 +337,7 @@ python main.py --symbol AAPL --years 2 --compare
 
 ### Dependencies
 - Python venv (`backtester/venv`)
-- `requirements.txt` (pandas, numpy, yfinance, requests, etc.)
+- `requirements.txt` (pandas, numpy, requests, etc.)
 - Alpaca credentials via `alpaca_keys.json`
 
 ---
@@ -477,7 +477,7 @@ launchctl list | grep -E "cortana.watchdog|cortana.fitness-service"
 - **Cron Health Dashboard** in Mission Control (`/api/cron-health`) with real-time OpenClaw-first state, smart fire timestamps, and triage-friendly collapse defaults
 - **Vitest unit tests** for Mission Control lib functions and API helpers
 - **TypeScript unit tests** for external service routes/health logic
-- **Earnings endpoint**: `GET /alpaca/earnings` with Alpaca-first + Yahoo fallback data path
+- **Earnings endpoint**: `GET /alpaca/earnings` with Alpaca news-only signal path
 - **Tonal self-heal**: auth token auto-reset/re-auth on `401/403`
 - **Task board pagination** for completed tasks
 - **Live status badges** for Postgres + Vector DB on dashboard

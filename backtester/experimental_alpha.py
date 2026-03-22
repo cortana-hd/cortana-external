@@ -502,7 +502,7 @@ def settle_alpha_snapshots(
     """
     root = root or default_alpha_root()
     now = normalize_datetime(now or datetime.now(UTC))
-    market_data = market_data or MarketDataProvider(provider_order="yahoo")
+    market_data = market_data or MarketDataProvider(provider_order="service")
     settled_records: list[SettledAlphaCandidate] = []
     price_cache: dict[str, pd.DataFrame] = {}
     out_dir = settled_dir(root)

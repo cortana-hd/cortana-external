@@ -25,17 +25,13 @@ class _Response:
         return self._payload
 
 
-def test_vix_fetch_from_yfinance_history_close_column():
-    """Validate VIX series extraction returns renamed close values from yfinance history."""
+def test_vix_history_is_empty_without_service_data():
+    """Validate VIX history stays service-only and does not synthesize a legacy fallback."""
     fetcher = RiskSignalFetcher()
-    idx = pd.date_range("2026-01-01", periods=3, freq="B")
-    hist = pd.DataFrame({"Close": [20.0, 22.0, 24.0]}, index=idx)
-
-    with patch.object(fetcher, "_fetch_yfinance_history", return_value=hist):
-        series = fetcher._fetch_vix_history(datetime(2026, 1, 1), datetime(2026, 1, 10))
+    series = fetcher._fetch_vix_history(datetime(2026, 1, 1), datetime(2026, 1, 10))
 
     assert series.name == "vix"
-    assert series.tolist() == [20.0, 22.0, 24.0]
+    assert series.empty
 
 
 def test_hy_spread_fetch_from_fred_series_json():
@@ -74,6 +70,9 @@ def test_put_call_ratio_handling_prefers_total_ratio_column():
 def test_fear_proxy_composite_calculation_in_history_builder():
     """Validate fear proxy is computed as mean of VIX percentile, HY percentile, and SPY distance score."""
     fetcher = RiskSignalFetcher()
+    fetcher.service_enabled = False
+    fetcher.legacy_fallback_enabled = True
+    fetcher.cache_ttl_hours = -1
     idx = pd.date_range("2025-01-01", periods=220, freq="B")
 
     vix = pd.Series(range(10, 230), index=idx, dtype=float, name="vix")
@@ -159,6 +158,9 @@ def test_get_history_returns_dataframe_with_required_columns():
 def test_graceful_fallback_when_apis_fail_returns_empty_or_defaults():
     """Validate failed upstream calls do not crash and return safe fallback outputs."""
     fetcher = RiskSignalFetcher()
+    fetcher.service_enabled = False
+    fetcher.legacy_fallback_enabled = True
+    fetcher.cache_ttl_hours = -1
 
     with patch("data.risk_signals.requests.get", side_effect=Exception("network down")):
         fred = fetcher._fetch_fred_series("BAMLH0A0HYM2", datetime(2026, 1, 1), datetime(2026, 1, 10))
@@ -187,23 +189,21 @@ def test_put_call_sanity_bounds_clamp_to_neutral_one():
     assert cleaned.tolist() == [1.0, 0.3, 1.2, 3.0, 1.0]
 
 
-def test_put_call_history_uses_spy_options_proxy_when_cboe_fails():
-    """When CBOE path is empty, yfinance SPY option-chain proxy should be used."""
+def test_put_call_history_returns_empty_when_cboe_fails():
+    """When CBOE data is unavailable, the put/call series stays empty."""
     fetcher = RiskSignalFetcher()
-    idx = pd.date_range("2026-01-01", periods=3, freq="B")
-    proxy = pd.Series([1.1, 1.1, 1.1], index=idx, name="put_call")
-
-    with patch.object(fetcher, "_fetch_put_call_from_cboe", return_value=pd.Series(dtype=float)), patch.object(
-        fetcher, "_fetch_put_call_from_yfinance_options", return_value=proxy
-    ):
+    with patch.object(fetcher, "_fetch_put_call_from_cboe", return_value=pd.Series(dtype=float)):
         out = fetcher._fetch_put_call_history(datetime(2026, 1, 1), datetime(2026, 1, 10))
 
-    assert out.equals(proxy)
+    assert out.empty
 
 
 def test_hy_spread_defaults_to_450_when_fred_fails():
     """HY spread fallback default should be 450 bps when FRED is unavailable."""
     fetcher = RiskSignalFetcher()
+    fetcher.service_enabled = False
+    fetcher.legacy_fallback_enabled = True
+    fetcher.cache_ttl_hours = -1
     idx = pd.date_range("2026-01-01", periods=180, freq="B")
     vix = pd.Series(np.linspace(20, 30, len(idx)), index=idx, name="vix")
     spy = pd.Series(np.linspace(400, 420, len(idx)), index=idx, name="spy_close")
@@ -221,6 +221,9 @@ def test_hy_spread_defaults_to_450_when_fred_fails():
 def test_fear_proxy_uses_simple_fallback_when_hy_percentile_missing():
     """Fear proxy should fallback to (vix_percentile + spy_distance_score)/2 when HY percentile is NaN."""
     fetcher = RiskSignalFetcher()
+    fetcher.service_enabled = False
+    fetcher.legacy_fallback_enabled = True
+    fetcher.cache_ttl_hours = -1
     idx = pd.date_range("2026-01-01", periods=220, freq="B")
     vix = pd.Series(np.linspace(15, 35, len(idx)), index=idx, name="vix")
     spy = pd.Series(np.linspace(500, 450, len(idx)), index=idx, name="spy_close")
@@ -245,6 +248,9 @@ def test_fear_proxy_uses_simple_fallback_when_hy_percentile_missing():
 def test_fear_proxy_always_numeric_and_bounded_0_100():
     """Fear proxy output should always be finite numeric values in [0, 100]."""
     fetcher = RiskSignalFetcher()
+    fetcher.service_enabled = False
+    fetcher.legacy_fallback_enabled = True
+    fetcher.cache_ttl_hours = -1
     idx = pd.date_range("2026-01-01", periods=220, freq="B")
     vix = pd.Series([np.nan] * len(idx), index=idx, name="vix")
     spy = pd.Series([np.nan] * len(idx), index=idx, name="spy_close")
@@ -264,6 +270,9 @@ def test_fear_proxy_always_numeric_and_bounded_0_100():
 def test_fred_fallback_metadata_is_exposed_in_snapshot():
     """Snapshot should surface HY fallback source/warning when FRED data is unavailable."""
     fetcher = RiskSignalFetcher()
+    fetcher.service_enabled = False
+    fetcher.legacy_fallback_enabled = True
+    fetcher.cache_ttl_hours = -1
     idx = pd.date_range("2026-01-01", periods=20, freq="B")
     vix = pd.Series(np.linspace(20, 24, len(idx)), index=idx, name="vix")
     spy = pd.Series(np.linspace(400, 410, len(idx)), index=idx, name="spy_close")

@@ -1,0 +1,104 @@
+import type { Hono } from "hono";
+
+import type { MarketDataService } from "./service.js";
+
+export function registerMarketDataRoutes(app: Hono, service: MarketDataService): void {
+  app.get("/auth/schwab/url", async (c) => {
+    const result = await service.handleSchwabAuthUrl();
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/auth/schwab/callback", async (c) => {
+    const result = await service.handleSchwabAuthCallback(c.req.raw);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/auth/schwab/status", async (c) => {
+    const result = await service.handleSchwabAuthStatus();
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/ready", async (c) => {
+    void c;
+    const result = await service.handleReady();
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/history/batch", async (c) => {
+    const result = await service.handleHistoryBatch(c.req.raw);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/history/:symbol", async (c) => {
+    const compareWith = c.req.query("compare_with");
+    const result = await service.handleHistory(c.req.raw, c.req.param("symbol"), compareWith);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/quote/batch", async (c) => {
+    const result = await service.handleQuoteBatch(c.req.raw);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/quote/:symbol", async (c) => {
+    const compareWith = c.req.query("compare_with");
+    const result = await service.handleQuote(c.req.raw, c.req.param("symbol"), compareWith);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/futures/:symbol", async (c) => {
+    const compareWith = c.req.query("compare_with");
+    const result = await service.handleQuote(c.req.raw, `/${c.req.param("symbol")}`, compareWith);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/snapshot/:symbol", async (c) => {
+    const compareWith = c.req.query("compare_with");
+    const result = await service.handleSnapshot(c.req.raw, c.req.param("symbol"), compareWith);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/fundamentals/:symbol", async (c) => {
+    const compareWith = c.req.query("compare_with");
+    const result = await service.handleFundamentals(c.req.raw, c.req.param("symbol"), compareWith);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/metadata/:symbol", async (c) => {
+    const compareWith = c.req.query("compare_with");
+    const result = await service.handleMetadata(c.req.raw, c.req.param("symbol"), compareWith);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/universe/base", async (c) => {
+    const result = await service.handleUniverseBase();
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/universe/audit", async (c) => {
+    const result = await service.handleUniverseAudit(c.req.raw);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.post("/market-data/universe/refresh", async (c) => {
+    const result = await service.handleUniverseRefresh();
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/risk/history", async (c) => {
+    const result = await service.handleRiskHistory(c.req.raw);
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/risk/snapshot", async (c) => {
+    void c;
+    const result = await service.handleRiskSnapshot();
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/market-data/ops", async (c) => {
+    void c;
+    const result = await service.handleOps();
+    return c.json(result.body, result.status as never);
+  });
+}

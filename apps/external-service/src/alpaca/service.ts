@@ -69,10 +69,6 @@ function keyFingerprint(keyID: string): string {
   return crypto.createHash("sha256").update(trimmed).digest("hex").slice(0, 12);
 }
 
-function normalizeEarningsSymbol(symbol: string): string {
-  return symbol.trim().toUpperCase().replaceAll("-", ".");
-}
-
 function normalizeSide(side: string): string {
   const normalized = side.trim().toLowerCase();
   if (normalized === "buy" || normalized === "sell") {
@@ -309,34 +305,6 @@ export class AlpacaService {
     return text;
   }
 
-  private async fetchYahooEarnings(symbol: string): Promise<{ date: string; confirmed: boolean } | null> {
-    const normalized = normalizeEarningsSymbol(symbol);
-    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${normalized}?modules=calendarEvents`;
-    const response = await this.fetchImpl(url, { headers: { "User-Agent": "Mozilla/5.0" } });
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`yahoo ${response.status}: ${body.slice(0, 512)}`);
-    }
-
-    const payload = (await response.json()) as {
-      quoteSummary?: {
-        result?: Array<{
-          calendarEvents?: {
-            earnings?: {
-              earningsDate?: Array<{ fmt?: string }>;
-            };
-          };
-        }>;
-      };
-    };
-
-    const date = payload.quoteSummary?.result?.[0]?.calendarEvents?.earnings?.earningsDate?.[0]?.fmt?.trim();
-    if (!date) {
-      return null;
-    }
-    return { date, confirmed: false };
-  }
-
   private async fetchAlpacaEarningsNewsSignal(symbol: string): Promise<boolean> {
     await this.ensureKeysLoaded();
     const keys = this.keys;
@@ -475,19 +443,9 @@ export class AlpacaService {
       const results: EarningsResult[] = [];
 
       for (const symbol of deduped) {
-        let yahooDate: string | undefined;
-        let yahooConfirmed = false;
-        let yahooError: unknown = null;
         let newsSignal = false;
         let newsError: unknown = null;
 
-        try {
-          const yahoo = await this.fetchYahooEarnings(symbol);
-          yahooDate = yahoo?.date;
-          yahooConfirmed = yahoo?.confirmed ?? false;
-        } catch (error) {
-          yahooError = error;
-        }
         try {
           newsSignal = await this.fetchAlpacaEarningsNewsSignal(symbol);
         } catch (error) {
@@ -496,23 +454,16 @@ export class AlpacaService {
 
         const item: EarningsResult = {
           symbol,
-          earnings_date: yahooDate,
-          confirmed: yahooConfirmed,
-          source: "yahoo",
-          days_until: daysUntil(yahooDate),
+          confirmed: false,
+          source: "alpaca_news_only",
         };
 
         if (newsSignal) {
           item.note = "alpaca_news_contains_earnings";
         }
 
-        if (yahooError) {
-          item.source = "alpaca_news_only";
-          delete item.earnings_date;
-          delete item.days_until;
-          if (newsError) {
-            item.note = "yahoo_and_alpaca_news_unavailable";
-          }
+        if (newsError) {
+          item.note = "alpaca_news_unavailable";
         }
 
         results.push(item);
@@ -521,7 +472,7 @@ export class AlpacaService {
       return c.json({
         results,
         timestamp: new Date().toISOString(),
-        strategy: "alpaca-news + yahoo-calendar-fallback",
+        strategy: "alpaca-news-only",
       });
     } catch (error) {
       const status = error instanceof Error && error.message.includes("failed to read keys") ? 503 : 502;

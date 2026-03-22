@@ -83,7 +83,7 @@ def test_format_alert_output_structure_and_tags_buy_watch_no_buy():
     )
     fake._analysis = {
         "MSFT": {"total_score": 9, "data_source": "alpaca", "recommendation": {"action": "BUY", "entry": 100.0, "stop_loss": 93.0}},
-        "AAPL": {"total_score": 7, "data_source": "yahoo", "recommendation": {"action": "WATCH", "reason": "Watch setup"}},
+        "AAPL": {"total_score": 7, "data_source": "schwab", "recommendation": {"action": "WATCH", "reason": "Watch setup"}},
         "TSLA": {"total_score": 5, "data_source": "cache", "recommendation": {"action": "NO_BUY", "reason": "Score too low"}},
     }
 
@@ -245,7 +245,7 @@ def test_format_alert_includes_decision_review_for_top_leaders():
             "uncertainty_pct": 31,
             "abstain": True,
             "abstain_reasons": ["macro inputs stale", "confidence assessment abstained"],
-            "data_source": "yahoo",
+            "data_source": "schwab",
             "recommendation": {
                 "action": "WATCH",
                 "reason": "Watch setup",

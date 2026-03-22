@@ -20,6 +20,7 @@ def _disable_polymarket_artifacts(monkeypatch, tmp_path):
     monkeypatch.setenv("POLYMARKET_COMPACT_REPORT_PATH", str(tmp_path / "missing-compact.txt"))
     monkeypatch.setenv("POLYMARKET_REPORT_JSON_PATH", str(tmp_path / "missing-report.json"))
     monkeypatch.setenv("POLYMARKET_WATCHLIST_PATH", str(tmp_path / "missing-watchlist.json"))
+    monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "0")
     monkeypatch.setattr("canslim_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
     monkeypatch.setattr("dipbuyer_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
 
@@ -44,7 +45,7 @@ class _FakeCanSlimAdvisor:
     def get_market_status(self, refresh: bool = False):
         return self._market
 
-    def analyze_stock(self, symbol: str):
+    def analyze_stock(self, symbol: str, *args):
         return self._analysis[symbol]
 
 
@@ -69,7 +70,7 @@ class _FakeDipBuyerAdvisor:
     def get_market_status(self, refresh: bool = False):
         return self._market
 
-    def analyze_dip_stock(self, symbol: str):
+    def analyze_dip_stock(self, symbol: str, *args):
         return self._analysis[symbol]
 
 
@@ -90,6 +91,7 @@ def test_priority_symbols_prefer_explicit_then_leader_baskets_then_bounded_watch
     monkeypatch.setenv("TRADING_PRIORITY_SYMBOLS", "TSLA")
     monkeypatch.delenv("TRADING_PRIORITY_FILE", raising=False)
     monkeypatch.setenv("TRADING_WATCHLIST_PRIORITY_LIMIT", "2")
+    monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "1")
     monkeypatch.setattr("canslim_alert.load_leader_priority_symbols", lambda: ["AMD", "NVDA"])
     monkeypatch.setattr("dipbuyer_alert.load_leader_priority_symbols", lambda: ["AMD", "NVDA"])
 
@@ -115,7 +117,7 @@ def test_canslim_alert_timing_line_surfaces_phase_and_nested_timings():
     fake._analysis = {
         "AAA": {
             "total_score": 8,
-            "data_source": "yahoo",
+            "data_source": "schwab",
             "data_staleness_seconds": 12.0,
             "timing": {"history": 0.8, "fundamentals": 0.2, "sector": 0.4},
             "recommendation": {"action": "WATCH", "reason": "watch", "trade_quality_score": 80.0},

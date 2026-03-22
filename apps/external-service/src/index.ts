@@ -1,4 +1,6 @@
-import { serve } from "@hono/node-server";
+import fs from "node:fs";
+import https from "node:https";
+import { createAdaptorServer, serve } from "@hono/node-server";
 
 import { createApplication } from "./app.js";
 import { getConfig } from "./config.js";
@@ -21,8 +23,21 @@ function withTimeout(timeoutMs: number): { signal: AbortSignal; cancel: () => vo
 async function main(): Promise<void> {
   const config = getConfig();
   await ensurePortAvailable(config.PORT);
+  const tlsCertPath = config.EXTERNAL_SERVICE_TLS_CERT_PATH.trim();
+  const tlsKeyPath = config.EXTERNAL_SERVICE_TLS_KEY_PATH.trim();
+  const tlsEnabled = Boolean(tlsCertPath && tlsKeyPath);
+  if (tlsEnabled) {
+    await ensurePortAvailable(config.EXTERNAL_SERVICE_TLS_PORT);
+  }
 
   const { app, services } = createApplication();
+
+  try {
+    await services.marketData.startup();
+    startupLogger.log("market-data startup ok");
+  } catch (error) {
+    startupLogger.error("market-data startup failed", error);
+  }
 
   const whoopWarmup = withTimeout(20_000);
   try {
@@ -79,7 +94,22 @@ async function main(): Promise<void> {
     port: config.PORT,
   });
 
+  let tlsServer: ReturnType<typeof createAdaptorServer> | null = null;
+  if (tlsEnabled) {
+    const cert = fs.readFileSync(tlsCertPath);
+    const key = fs.readFileSync(tlsKeyPath);
+    tlsServer = createAdaptorServer({
+      fetch: app.fetch,
+      createServer: https.createServer,
+      serverOptions: { cert, key },
+    });
+    tlsServer.listen(config.EXTERNAL_SERVICE_TLS_PORT, "127.0.0.1");
+  }
+
   startupLogger.log(`Starting server on 127.0.0.1:${config.PORT}`);
+  if (tlsEnabled) {
+    startupLogger.log(`Starting TLS server on 127.0.0.1:${config.EXTERNAL_SERVICE_TLS_PORT}`);
+  }
 
   let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
@@ -89,6 +119,10 @@ async function main(): Promise<void> {
     shuttingDown = true;
     shutdownLogger.log("draining connections...");
     clearInterval(maintenanceInterval);
+    await services.marketData.shutdown().catch((error) => {
+      shutdownLogger.error("market-data shutdown failed", error);
+    });
+    tlsServer?.close();
     server.close(() => {
       process.exit(0);
     });

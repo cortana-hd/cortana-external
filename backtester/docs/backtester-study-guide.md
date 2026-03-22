@@ -5,6 +5,9 @@ This is a plain-English learning doc for understanding the backtester from the g
 For the operating plan and next implementation phases, use:
 - [Roadmap](./roadmap.md)
 - [Session Handoff](./session-handoff.md)
+- [Market-data service reference](./market-data-service-reference.md)
+- [Streamer failure modes runbook](./streamer-failure-modes-runbook.md)
+- [Scoring and prediction accuracy reference](./scoring-prediction-accuracy-reference.md)
 
 The goal is to understand the system in the order it actually thinks:
 
@@ -53,6 +56,29 @@ Default routine:
 ./scripts/daytime_flow.sh
 ```
 
+Wrapper note:
+- `daytime_flow.sh` and `nighttime_flow.sh` now do a market-data preflight before the expensive work starts
+- they check the local TS service readiness surface first
+- by default they fail fast if:
+  - the TS service is unreachable
+  - Schwab is not configured yet
+- this is intentional: it gives you a clear operator message instead of a slow degraded scan
+- you can still intentionally allow degraded local runs with:
+  - `REQUIRE_MARKET_DATA_SERVICE=0`
+  - or `REQUIRE_SCHWAB_CONFIGURED=0`
+
+Local Schwab OAuth note:
+- the TS service now exposes a Schwab-specific local auth flow
+- register this callback in the Schwab portal:
+  - `https://127.0.0.1:8182/auth/schwab/callback`
+- the service gives you the login URL from:
+  - `GET /auth/schwab/url`
+- the browser redirect lands on:
+  - `GET /auth/schwab/callback`
+- token state is visible from:
+  - `GET /auth/schwab/status`
+- this uses a local HTTPS listener because Schwab requires an `https://` callback
+
 ## Core Trading Flow
 
 ### Phase 1: Find Stocks
@@ -72,18 +98,21 @@ For the nightly path, the system tries sources in this order:
 
 ```mermaid
 flowchart TD
-    A["Live S&P 500 table"] --> B["Cached S&P 500 list"]
-    B --> C["Bundled fallback list in universe.py"]
-    A --> D["Nightly base universe"]
-    B --> D
-    C --> D
+    A["TS base-universe artifact"] --> D["Nightly base universe"]
+    B["Bundled fallback list in universe.py"] --> D
     E["Growth watchlist"] --> D
     F["Dynamic names"] --> D
 ```
 
 Important note:
-- the bundled `SP500_TICKERS` list is only a fallback it is not the full current S&P 500
-- the nightly path is best when the live constituent refresh works
+- the TS service owns the base-universe artifact now
+- the TS service can build that artifact from a source ladder:
+  - configured remote JSON source
+  - configured local JSON source
+  - Python static seed fallback
+- the long-term goal is still to replace the Python fallback with a maintained constituent source or a curated internal artifact workflow
+- the bundled `SP500_TICKERS` list is only a fallback
+- Python no longer scrapes Wikipedia directly for this path
 
 #### Mental model
 
@@ -193,6 +222,171 @@ flowchart LR
 
 #### What advisor.py looks at
 
+##### 1a. TS Market-Data Service Boundary
+
+This is the biggest architecture change:
+
+- Python is now the analysis engine
+- TS is now the external-data layer
+
+Plain-English meaning:
+- Python should not worry about broker auth, websocket sessions, or fallback logic
+- Python should ask one local service for normalized data
+- the TS service should decide where that data came from
+
+Simple flow:
+
+```mermaid
+flowchart LR
+    A["Python engine<br/>advisor.py / market_regime.py / universe.py"] --> B["TS market-data service"]
+    B --> C["Schwab streamer<br/>fresh quotes + chart updates"]
+    B --> D["Schwab REST<br/>history / quote / metadata"]
+    B --> E["Schwab REST / cache fallback"]
+    E --> F["Normalized JSON response"]
+    D --> F
+    C --> F
+    F --> G["Python cache fallback if service is unavailable"]
+```
+
+The mental model is:
+
+- Python asks: "Give me market data for this symbol."
+- TS decides: "Use Schwab first, then cache if needed."
+- Python then scores the stock using the normalized answer.
+
+Why this is better:
+
+- one place owns auth and provider bugs
+- one place owns streamer sessions
+- Python stays focused on scoring and decisions
+- you can swap providers without rewriting strategy code
+
+What the TS service owns now:
+
+- Schwab REST requests
+- Schwab streamer session lifecycle
+- cache fallback
+- risk-data fetches used by regime/risk logic
+- base-universe artifact refresh
+- account activity groundwork for future position awareness
+
+What the local wrappers own now:
+
+- quick market-data preflight before daytime/nighttime runs
+- a clear local operator error when the TS service is down
+- a clear local operator error when Schwab credentials are not configured yet
+- optional overrides when you intentionally want cache-only behavior
+
+What Python still owns:
+
+- scoring
+- market-regime logic
+- technical analysis
+- recommendation logic
+- alert formatting
+
+##### 1b. How The Schwab Streamer Fits In
+
+The streamer exists so the TS service can keep fresher quote and chart state than plain polling.
+
+Simple flow:
+
+```mermaid
+flowchart TD
+    A["TS service starts"] --> B["Open Schwab websocket"]
+    B --> C["LOGIN"]
+    C --> D["Subscribe to LEVELONE_EQUITIES"]
+    C --> E["Subscribe to CHART_EQUITY"]
+    D --> F["Fresh quote updates"]
+    E --> G["Fresh intraday candle updates"]
+    F --> H["TS keeps in-memory / shared state"]
+    G --> H
+    H --> I["Python reads fresh data through HTTP"]
+```
+
+Plain-English meaning:
+
+- `LEVELONE_EQUITIES` gives fresher quote-style updates
+- `CHART_EQUITY` gives fresher intraday candle-style updates
+
+##### 1c. How Local Schwab OAuth Works
+
+```mermaid
+flowchart LR
+    A["You call /auth/schwab/url on 3033"] --> B["TS builds Schwab authorize URL"]
+    B --> C["Browser opens Schwab login/consent"]
+    C --> D["Schwab redirects to https://127.0.0.1:8182/auth/schwab/callback"]
+    D --> E["TS exchanges auth code for access + refresh token"]
+    E --> F["Token saved to SCHWAB_TOKEN_PATH"]
+    F --> G["Normal market-data requests can refresh automatically"]
+```
+
+Plain-English meaning:
+
+- `3033` is still the normal local API port
+- `8182` is the local HTTPS callback listener used only because Schwab requires `https://`
+- once the callback succeeds, the service stores the refresh token and starts behaving like a normal configured Schwab client
+- Python never talks to the websocket directly
+- Python still reads normal HTTP JSON from the TS service
+- the default `LEVELONE_EQUITIES` field set is now a little richer too:
+  - price
+  - total volume
+  - 52-week high / low
+  - security status
+  - net percent change
+
+So when you run the backtester, the engine is not "streaming."
+The TS service is streaming on its behalf.
+
+##### 1c. How The Stream Stays Healthy
+
+The streamer is not just "open a websocket and hope."
+
+The TS service now does all of this:
+
+- heartbeat tracking
+- reconnect backoff
+- explicit handling for Schwab failure codes
+- serialized mutation commands so `SUBS` / `ADD` / `UNSUBS` / `VIEW` do not race
+- leader/follower coordination when multiple TS instances exist
+- shared quote/chart state for follower instances
+- bounded in-memory cache eviction for older streamer data
+- ops reporting through `/market-data/ops`
+- readiness reporting through `/market-data/ready`
+- cache fallback protection when repeated service failures happen
+
+Simple health model:
+
+```mermaid
+flowchart LR
+    A["Healthy streamer"] --> B["Quotes + charts stay fresh"]
+    B --> C["TS serves fresh data"]
+    C --> D["Python scores stocks"]
+
+    A --> E["Failure or disconnect"]
+    E --> F["Reconnect / recover / fall back"]
+    F --> G["Use Schwab REST or cache if needed"]
+    G --> D
+```
+
+This is why the system is easier to trust now:
+
+- fresh data is preferred
+- degraded data is still available
+- the engine does not need to know which recovery path happened
+
+##### 1d. What You See As The Operator
+
+When you run the local scripts, you are mostly seeing the result of this service boundary:
+
+- fresher market context
+- clearer source/fallback behavior
+- leader/follower and ops summaries
+- streamer health and symbol-budget visibility
+- pre-market futures context from Schwab `LEVELONE_FUTURES` for `/ES` and `/NQ`
+
+The compact operator reference now lives in [Market-data service reference](./market-data-service-reference.md).
+
 ##### 1. Price history
 
 The advisor first gets recent market data for the stock.
@@ -206,6 +400,11 @@ This is used for:
 This is the basic question:
 - "What has the stock actually been doing?"
 
+Important clarification:
+- this now comes through the TS market-data service boundary described above
+- normal history requests now honor `interval=1d|1wk|1mo`
+- diagnostic and batch request shapes are documented in [Market-data service reference](./market-data-service-reference.md)
+
 ##### 2. Fundamentals
 
 The advisor pulls fundamental data like:
@@ -216,6 +415,12 @@ The advisor pulls fundamental data like:
 
 This is the basic question:
 - "Is the business strong enough to support the chart?"
+
+Important clarification:
+- fundamentals and symbol metadata are now normalized by the TS service before Python scores them
+- annual EPS growth is now horizon-aware again on the Python side when earnings history is available:
+  - if the service payload contains usable earnings-history rows, Python rebuilds the requested N-year CAGR locally
+  - if only the normalized summary field exists, Python only trusts that as the default 5-year-style annual growth value and returns `None` for other requested horizons instead of pretending they are all the same
 
 ##### 3. Technicals
 
@@ -243,7 +448,9 @@ This is the basic question:
 - "Even if the stock looks good, are market conditions good enough?"
 
 Important clarification:
-- market regime is primarily owned by the Python market-regime engine
+- market regime logic still lives in Python
+- but its raw inputs now come from the TS service risk endpoints
+- those TS risk endpoints own the external fetches for Schwab/FRED/CBOE
 
 Simple version:
 - market regime = "How healthy is the market?"

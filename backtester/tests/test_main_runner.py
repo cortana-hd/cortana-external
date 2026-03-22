@@ -49,7 +49,7 @@ def test_load_backtest_data_uses_provider_for_symbol_and_benchmark():
 
         def get_history(self, symbol: str, period: str = "1y", auto_adjust: bool = False):
             self.calls.append((symbol, period, auto_adjust))
-            return SimpleNamespace(frame=frame, source="yahoo", status="ok", degraded_reason="")
+            return SimpleNamespace(frame=frame, source="schwab", status="ok", degraded_reason="")
 
     provider = _Provider()
     loaded = load_backtest_data(symbol="NVDA", benchmark="SPY", years=2, provider=provider)
@@ -57,4 +57,3 @@ def test_load_backtest_data_uses_provider_for_symbol_and_benchmark():
     assert provider.calls == [("NVDA", "2y", False), ("SPY", "2y", False)]
     assert list(loaded["data"].columns) == ["open", "high", "low", "close", "volume"]
     assert loaded["benchmark_data"] is not None
-

@@ -263,7 +263,7 @@ class CANSLIMStrategy(Strategy):
         fund_str = ""
         if self.fundamental_scores:
             fund_str = f"""
-   Fundamental Scores (from yfinance):
+   Fundamental Scores (from market-data service):
      C (Current EPS):    {self.fundamental_scores.get('C', '?')}/2
      A (Annual EPS):     {self.fundamental_scores.get('A', '?')}/2
      I (Institutional):  {self.fundamental_scores.get('I', '?')}/2
