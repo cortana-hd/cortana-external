@@ -399,7 +399,7 @@ class MarketDataProvider:
             if not rows:
                 return None
             frame = pd.DataFrame(rows)
-            frame["date"] = pd.to_datetime(frame["date"])
+            frame["date"] = pd.to_datetime(frame["date"], utc=True)
             frame = frame.set_index("date")[["Open", "High", "Low", "Close", "Volume"]]
             self._validate_frame(frame, symbol=symbol, provider="cache")
             source = str(payload.get("source") or "unknown")

@@ -107,3 +107,31 @@ def test_quote_happy_path(tmp_path):
     assert result.source == "schwab_streamer"
     assert result.quote["symbol"] == "/ES"
     assert result.quote["price"] == 5200.25
+
+
+def test_cache_read_handles_mixed_timezone_rows(tmp_path):
+    provider = MarketDataProvider(cache_dir=str(tmp_path), cache_ttl_seconds=999999, max_retries=0)
+    cache_path = tmp_path / "SPY_90d.json"
+    cache_path.write_text(
+        """
+{
+  "schema_version": 1,
+  "symbol": "SPY",
+  "period": "90d",
+  "source": "yahoo",
+  "generated_at_utc": "2026-03-22T00:00:00+00:00",
+  "rows": [
+    {"date": "2026-03-07T00:00:00-05:00", "Open": 1, "High": 2, "Low": 0.5, "Close": 1.5, "Volume": 10},
+    {"date": "2026-03-10T00:00:00-04:00", "Open": 2, "High": 3, "Low": 1.5, "Close": 2.5, "Volume": 11}
+  ]
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    cached = provider._read_cache("SPY", "90d")
+
+    assert cached is not None
+    frame, source, _ = cached
+    assert source == "yahoo"
+    assert len(frame) == 2
