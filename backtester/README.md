@@ -13,6 +13,7 @@ Use the study guide when you want to understand the system conceptually:
 - [Backtester Study Guide](./docs/backtester-study-guide.md)
 - [Roadmap](./docs/roadmap.md)
 - [Session Handoff](./docs/session-handoff.md)
+- [Schwab OAuth Reauth Runbook](./docs/schwab-oauth-reauth-runbook.md)
 - [Streamer Failure Modes Runbook](./docs/streamer-failure-modes-runbook.md)
 - [Scoring and Prediction Accuracy Reference](./docs/scoring-prediction-accuracy-reference.md)
 
@@ -25,6 +26,7 @@ Other useful docs:
 - [Uncertainty/confidence PRD](./docs/uncertainty-confidence-prd.md)
 - [Uncertainty runtime wiring](./docs/uncertainty-confidence-runtime-wiring.md)
 - [Market-data service reference](./docs/market-data-service-reference.md)
+- [Schwab OAuth reauth runbook](./docs/schwab-oauth-reauth-runbook.md)
 - [Streamer failure modes runbook](./docs/streamer-failure-modes-runbook.md)
 
 ## Setup
@@ -81,6 +83,9 @@ curl http://127.0.0.1:3033/auth/schwab/url
 # Check whether the token was saved successfully
 curl http://127.0.0.1:3033/auth/schwab/status
 ```
+
+If Schwab auth breaks or needs to be rotated later, use:
+- [Schwab OAuth Reauth Runbook](./docs/schwab-oauth-reauth-runbook.md)
 
 Notes:
 - Schwab requires an `https://` callback URL

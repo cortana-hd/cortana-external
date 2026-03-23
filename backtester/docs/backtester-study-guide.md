@@ -6,6 +6,7 @@ For the operating plan and next implementation phases, use:
 - [Roadmap](./roadmap.md)
 - [Session Handoff](./session-handoff.md)
 - [Market-data service reference](./market-data-service-reference.md)
+- [Schwab OAuth Reauth Runbook](./schwab-oauth-reauth-runbook.md)
 - [Streamer failure modes runbook](./streamer-failure-modes-runbook.md)
 - [Scoring and prediction accuracy reference](./scoring-prediction-accuracy-reference.md)
 
@@ -78,6 +79,7 @@ Local Schwab OAuth note:
 - token state is visible from:
   - `GET /auth/schwab/status`
 - this uses a local HTTPS listener because Schwab requires an `https://` callback
+- use [Schwab OAuth Reauth Runbook](./schwab-oauth-reauth-runbook.md) for full re-link and troubleshooting steps
 
 ## Core Trading Flow
 

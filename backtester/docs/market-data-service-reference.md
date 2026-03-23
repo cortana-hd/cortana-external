@@ -88,6 +88,9 @@ History requests accept the usual provider controls documented by the service an
 
 Use this flow when you need to create or rotate the local Schwab refresh token.
 
+Full recovery/debugging instructions live in:
+- [Schwab OAuth Reauth Runbook](./schwab-oauth-reauth-runbook.md)
+
 Portal callback to register:
 
 ```text

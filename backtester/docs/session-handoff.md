@@ -8,6 +8,7 @@ Read these files first:
 - `/Users/hd/Developer/cortana-external/backtester/README.md`
 - `/Users/hd/Developer/cortana-external/backtester/docs/backtester-study-guide.md`
 - `/Users/hd/Developer/cortana-external/backtester/docs/roadmap.md`
+- `/Users/hd/Developer/cortana-external/backtester/docs/schwab-oauth-reauth-runbook.md`
 
 ## Bootstrap Prompt
 
@@ -18,6 +19,7 @@ Read these first and use them as the source of truth before making changes:
 - /Users/hd/Developer/cortana-external/backtester/docs/backtester-study-guide.md
 - /Users/hd/Developer/cortana-external/backtester/docs/roadmap.md
 - /Users/hd/Developer/cortana-external/backtester/docs/session-handoff.md
+- /Users/hd/Developer/cortana-external/backtester/docs/schwab-oauth-reauth-runbook.md
 
 Then inspect the latest local workflow artifacts and summarize:
 1. current system shape
@@ -27,6 +29,7 @@ Then inspect the latest local workflow artifacts and summarize:
 
 Important context:
 - the current focus is the core operator path, not the experimental lane
+- Schwab auth recovery and callback debugging now live in the Schwab OAuth reauth runbook
 - leader buckets are selection input and leadership memory, not direct trade authority
 - the next observation window is about whether leader buckets improve the live 120 basket and final watchlists
 - longer term, the system should eventually support hold / trim / sell context, not just buy / watch
