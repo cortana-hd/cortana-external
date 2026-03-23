@@ -1,0 +1,54 @@
+Traceback (most recent call last):
+  File "/Users/hd/Developer/cortana-external/backtester/dipbuyer_alert.py", line 625, in <module>
+    main()
+    ~~~~^^
+  File "/Users/hd/Developer/cortana-external/backtester/dipbuyer_alert.py", line 615, in main
+    format_alert(
+    ~~~~~~~~~~~~^
+        limit=args.limit,
+        ^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+        review_detail_limit=max(1, int(args.review_detail_limit)),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/hd/Developer/cortana-external/backtester/dipbuyer_alert.py", line 477, in format_alert
+    analysis = _run_quiet(advisor.analyze_dip_stock, symbol)
+  File "/Users/hd/Developer/cortana-external/backtester/dipbuyer_alert.py", line 53, in _run_quiet
+    return fn(*args, **kwargs)
+  File "/Users/hd/Developer/cortana-external/backtester/advisor.py", line 566, in analyze_dip_stock
+    return self._analyze_dip_with_context(symbol, market, risk_snapshot, quiet=quiet)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hd/Developer/cortana-external/backtester/advisor.py", line 508, in _analyze_dip_with_context
+    setup = strategy.evaluate_setup(
+        strategy_data,
+    ...<3 lines>...
+        data_staleness_seconds=hist_result.staleness_seconds,
+    )
+  File "/Users/hd/Developer/cortana-external/backtester/strategies/dip_buyer.py", line 458, in evaluate_setup
+    scores = self.build_score_frame(
+        data,
+    ...<3 lines>...
+        data_staleness_seconds=data_staleness_seconds,
+    )
+  File "/Users/hd/Developer/cortana-external/backtester/strategies/dip_buyer.py", line 366, in build_score_frame
+    risk = self._prepare_risk_frame(data.index, risk_snapshot=risk_snapshot)
+  File "/Users/hd/Developer/cortana-external/backtester/strategies/dip_buyer.py", line 285, in _prepare_risk_frame
+    risk_history = self.risk_fetcher.get_history(days=max(len(data_index), 200))
+  File "/Users/hd/Developer/cortana-external/backtester/data/risk_signals.py", line 704, in get_history
+    return self._build_history(days)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/hd/Developer/cortana-external/backtester/data/risk_signals.py", line 695, in _build_history
+    history = self._load_history(days)
+  File "/Users/hd/Developer/cortana-external/backtester/data/risk_signals.py", line 647, in _load_history
+    history = self._load_history_from_service(days)
+  File "/Users/hd/Developer/cortana-external/backtester/data/risk_signals.py", line 234, in _load_history_from_service
+    frame = frame.set_index(pd.to_datetime(frame["date"]).tz_localize(None))
+                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/pandas/core/generic.py", line 11171, in tz_localize
+    ax = _tz_localize(ax, tz, ambiguous, nonexistent)
+  File "/Users/hd/Developer/cortana-external/backtester/.venv/lib/python3.14/site-packages/pandas/core/generic.py", line 11154, in _tz_localize
+    raise TypeError(
+        f"{ax_name} is not a valid DatetimeIndex or PeriodIndex"
+    )
+TypeError: index is not a valid DatetimeIndex or PeriodIndex

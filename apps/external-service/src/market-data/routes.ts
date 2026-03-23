@@ -70,6 +70,11 @@ export function registerMarketDataRoutes(app: Hono, service: MarketDataService):
     return c.json(result.body, result.status as never);
   });
 
+  app.post("/market-data/crypto/refresh", async (c) => {
+    const result = await service.handleCryptoRefresh(c.req.raw);
+    return c.json(result.body, result.status as never);
+  });
+
   app.get("/market-data/universe/base", async (c) => {
     const result = await service.handleUniverseBase();
     return c.json(result.body, result.status as never);

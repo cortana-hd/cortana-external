@@ -1,0 +1,6 @@
+
+Quick check: BTC -> avoid for now
+Path: dip_buyer | Asset: crypto
+Polymarket: conflicting | Divergence watch
+Risk budget: remaining 0% | cap 0% | aggression lean more selective | note market regime correction
+Reason: Insufficient price data

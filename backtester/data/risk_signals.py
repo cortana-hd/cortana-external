@@ -231,7 +231,8 @@ class RiskSignalFetcher:
             default_name="fear_greed",
         )
 
-        frame = frame.set_index(pd.to_datetime(frame["date"]).tz_localize(None))
+        date_index = pd.DatetimeIndex(pd.to_datetime(frame["date"], utc=True)).tz_convert(None)
+        frame = frame.set_index(date_index)
         return frame.sort_index().tail(days)[[
             "vix",
             "spy_close",
@@ -710,14 +711,19 @@ class RiskSignalFetcher:
             snap = cached_snapshot.get("snapshot", {})
             if snap:
                 result = self._finalize_snapshot_payload(snap)
-                if result:
+                if result and self._snapshot_payload_is_usable(result):
                     return result
 
         payload = self._load_snapshot_from_service()
         if payload:
             snapshot = payload.get("snapshot") or {}
-            self._write_cache_payload(self._risk_snapshot_cache_path(), {"snapshot": snapshot, "metadata": payload.get("metadata", {})})
-            return self._finalize_snapshot_payload(snapshot)
+            result = self._finalize_snapshot_payload(snapshot)
+            if result and self._snapshot_payload_is_usable(result):
+                self._write_cache_payload(
+                    self._risk_snapshot_cache_path(),
+                    {"snapshot": snapshot, "metadata": payload.get("metadata", {})},
+                )
+                return result
 
         history = self._build_history(200)
         if history.empty:
@@ -735,7 +741,7 @@ class RiskSignalFetcher:
             'vix_percentile': float(latest.get('vix_percentile', np.nan)),
             'hy_spread_percentile': float(latest.get('hy_spread_percentile', np.nan)),
             'spy_distance_score': float(latest.get('spy_distance_score', np.nan)),
-            'hy_spread_change_10d': float(hy_change_10d) if pd.notna(hy_change_10d) else np.nan,
+            'hy_spread_change_10d': float(hy_change_10d) if pd.notna(hy_change_10d) else 0.0,
             'hy_spread_source': self._hy_spread_meta.get('source', 'unknown'),
             'hy_spread_fallback': bool(self._hy_spread_meta.get('fallback', False)),
             'hy_spread_warning': self._hy_spread_meta.get('warning', ''),
@@ -764,13 +770,31 @@ class RiskSignalFetcher:
             "spy_distance_score": float(payload.get("spy_distance_score", np.nan)),
             "hy_spread_change_10d": float(payload.get("hy_spread_change_10d", np.nan))
             if payload.get("hy_spread_change_10d") is not None and pd.notna(payload.get("hy_spread_change_10d"))
-            else np.nan,
+            else 0.0,
             "hy_spread_source": str(payload.get("hy_spread_source", self._hy_spread_meta.get("source", "unknown"))),
             "hy_spread_fallback": bool(payload.get("hy_spread_fallback", self._hy_spread_meta.get("fallback", False))),
             "hy_spread_warning": str(
                 payload.get("hy_spread_warning", warning_text or self._hy_spread_meta.get("warning", ""))
             ),
         }
+
+    @staticmethod
+    def _snapshot_payload_is_usable(payload: dict) -> bool:
+        required_numeric_fields = (
+            "vix",
+            "put_call",
+            "hy_spread",
+            "fear_greed",
+            "vix_percentile",
+            "hy_spread_percentile",
+            "spy_distance_score",
+            "hy_spread_change_10d",
+        )
+        for field in required_numeric_fields:
+            value = payload.get(field)
+            if value is None or pd.isna(value):
+                return False
+        return True
 
 
 if __name__ == "__main__":

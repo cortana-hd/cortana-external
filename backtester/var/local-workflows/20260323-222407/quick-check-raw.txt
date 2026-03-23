@@ -1,0 +1,7 @@
+
+Quick check: BTC -> avoid for now
+Path: dip_buyer | Asset: crypto
+Polymarket: conflicting | Divergence watch
+Risk budget: remaining 0% | cap 0% | aggression lean more selective | note market regime correction
+Execution quality: quality good | liquidity high | slippage high | good liquidity | high | slippage high (196.7bps)
+Reason: Failed to fetch BTC-USD (6mo) from providers service; transient=service: market-data service transient error 503

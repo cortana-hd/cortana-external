@@ -9,6 +9,7 @@ flowchart LR
     A["Python backtester"] --> B["TS market-data service"]
     B --> C["Schwab streamer"]
     B --> D["Schwab REST"]
+    B --> G["CoinMarketCap<br/>direct crypto quote/snapshot"]
     B --> E["Python/local cache fallback"]
     B --> F["Shared state + ops"]
 ```
@@ -20,6 +21,17 @@ The Python layer asks for normalized market data. TS decides which provider to u
 - Postgres shared streamer state is now the default.
 - File-backed shared state is dev-only and should be treated as a local convenience path, not the production default.
 - Follower instances read shared quote/chart state from the leader and do not open their own Schwab socket.
+
+## Direct Crypto Cache
+
+Direct crypto data is sourced from CoinMarketCap through the TS service.
+
+- `quote`, `snapshot`, `metadata`, and `fundamentals` come from CoinMarketCap
+- the service supports a daily refresh flow for direct crypto symbols such as `BTC` and `ETH`
+- wrapper runs can enable that refresh with `RUN_CRYPTO_DAILY_REFRESH=1`
+- `CRYPTO_REFRESH_SYMBOLS=BTC,ETH` overrides the default refresh set
+- the refreshed daily artifact is persisted at `.cache/market_data/crypto-daily-cache.json`
+- `history` reads that artifact first and only falls back to the unsupported CoinMarketCap historical endpoint if no cached rows exist yet
 
 ## Readiness and Ops
 
@@ -77,12 +89,45 @@ Common endpoints:
 - `GET /market-data/snapshot/:symbol`
 - `GET /market-data/fundamentals/:symbol`
 - `GET /market-data/metadata/:symbol`
+- `POST /market-data/crypto/refresh`
 - `GET /market-data/universe/base`
 - `POST /market-data/universe/refresh`
 - `GET /market-data/risk/history`
 - `GET /market-data/risk/snapshot`
 
 History requests accept the usual provider controls documented by the service and the main study guide.
+
+## Direct Crypto
+
+Direct crypto now uses CoinMarketCap inside the TS market-data boundary.
+
+Configured env vars:
+
+- `COINMARKETCAP_API_KEY`
+- `COINMARKETCAP_API_BASE_URL`
+
+Current behavior:
+
+- direct crypto `quote`, `snapshot`, `metadata`, and `fundamentals` come from CoinMarketCap
+- the current CoinMarketCap API plan does not support historical quotes
+- to work around that, the service can refresh one daily row per direct crypto symbol into:
+  - `.cache/market_data/crypto-daily-cache.json`
+- direct crypto history reads that artifact first
+
+Operator route:
+
+- `POST /market-data/crypto/refresh?symbols=BTC,ETH`
+
+Wrapper flags:
+
+- `RUN_CRYPTO_DAILY_REFRESH=1`
+- `CRYPTO_REFRESH_SYMBOLS=BTC,ETH`
+
+Practical meaning:
+
+- refreshing once per day is enough for the current direct-crypto path
+- history depth grows over time as daily rows accumulate
+- direct crypto quick-check will still be thin until enough daily rows exist
 
 ## Local Schwab OAuth
 

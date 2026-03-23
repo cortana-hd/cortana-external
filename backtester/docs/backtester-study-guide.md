@@ -64,6 +64,12 @@ Wrapper note:
   - the TS service is unreachable
   - Schwab is not configured yet
 - this is intentional: it gives you a clear operator message instead of a slow degraded scan
+- they also support an optional direct-crypto refresh flag:
+  - `RUN_CRYPTO_DAILY_REFRESH=1`
+  - optional symbols override: `CRYPTO_REFRESH_SYMBOLS=BTC,ETH`
+  - the TS service refresh is idempotent for the UTC day unless you force it
+- the refresh writes the direct-crypto daily cache to `.cache/market_data/crypto-daily-cache.json`
+- that cache is what the service uses first for direct crypto `history` when CoinMarketCap has no historical quote support
 - you can still intentionally allow degraded local runs with:
   - `REQUIRE_MARKET_DATA_SERVICE=0`
   - or `REQUIRE_SCHWAB_CONFIGURED=0`
@@ -249,6 +255,15 @@ flowchart LR
     C --> F
     F --> G["Python cache fallback if service is unavailable"]
 ```
+
+Crypto note:
+- direct crypto `quote`, `snapshot`, `metadata`, and `fundamentals` now come from CoinMarketCap through the TS market-data service
+- the TS service reads `COINMARKETCAP_API_KEY` and `COINMARKETCAP_API_BASE_URL` for that integration
+- the current CoinMarketCap plan does not support historical crypto quotes
+- to work around that, the TS service can refresh and persist one direct-crypto daily row for symbols like `BTC` and `ETH`
+- that artifact lives at `.cache/market_data/crypto-daily-cache.json`
+- direct crypto `history` uses the cached daily rows first and only falls back to the unsupported CoinMarketCap historical endpoint if no rows exist yet
+- direct crypto `quick-check` gets better as those daily rows accumulate, but it will still be thin at the beginning of the series
 
 The mental model is:
 

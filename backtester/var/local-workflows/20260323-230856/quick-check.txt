@@ -1,0 +1,9 @@
+Quick check: BTC -> avoid for now
+
+Takeaway
+- Setup: dip_buyer | Asset: crypto
+- Macro: conflicting | Divergence watch
+- Risk: remaining risk budget 0% | exposure cap 0% | market regime correction
+
+Verdict
+- Why: Insufficient price data

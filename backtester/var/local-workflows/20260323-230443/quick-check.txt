@@ -1,0 +1,10 @@
+Quick check: BTC -> avoid for now
+
+Takeaway
+- Setup: dip_buyer | Asset: crypto
+- Macro: conflicting | Divergence watch
+- Risk: remaining risk budget 0% | exposure cap 0% | market regime correction
+- Trading conditions: quality good | liquidity high | slippage high
+
+Verdict
+- Why: Failed to fetch BTC-USD (6mo) from providers service; transient=service: Schwab returned no candles for BTC-USD

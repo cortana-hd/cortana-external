@@ -108,6 +108,14 @@ pnpm install
 Important notes:
 - Alpaca keys are no longer required for normal backtester runs
 - the Python engine now reads external market data through the local TS service
+- direct crypto `quote`, `snapshot`, `metadata`, and `fundamentals` now come from CoinMarketCap through the TS market-data service
+- configure CoinMarketCap with:
+  - `COINMARKETCAP_API_KEY`
+  - `COINMARKETCAP_API_BASE_URL` (defaults to `https://pro-api.coinmarketcap.com`)
+- the current CoinMarketCap API plan does not support historical crypto quotes, so the TS service supports a daily direct-crypto refresh flow for `BTC` / `ETH` style symbols
+- that refresh appends one daily row per symbol into `.cache/market_data/crypto-daily-cache.json`
+- direct crypto `history` uses that artifact first and only falls back to the unsupported CoinMarketCap historical endpoint if no cached rows exist yet
+- direct crypto `quick-check` therefore improves over time as daily rows accumulate, but it will still be thin at the beginning of the series
 - default runtime order is `Schwab -> Python cache`
 - quote freshness can use `LEVELONE_EQUITIES` and snapshot freshness can use `CHART_EQUITY` inside the Schwab streamer session when credentials and user preferences are available
 - local Schwab OAuth is now exposed through:
@@ -196,6 +204,9 @@ RUN_MARKET_DATA_OPS=0 ./scripts/daytime_flow.sh
 # Change the quick-check symbol
 QUICK_CHECK_SYMBOL=NVDA ./scripts/daytime_flow.sh
 
+# Refresh direct crypto daily cache before the run
+RUN_CRYPTO_DAILY_REFRESH=1 CRYPTO_REFRESH_SYMBOLS=BTC,ETH ./scripts/daytime_flow.sh
+
 # Include a full stock deep dive in daytime flow
 RUN_DEEP_DIVE=1 DEEP_DIVE_SYMBOL=AAPL ./scripts/daytime_flow.sh
 
@@ -204,6 +215,9 @@ SKIP_LIVE_PREFILTER_REFRESH=1 ./scripts/nighttime_flow.sh
 
 # Broader nightly scan
 NIGHTLY_LIMIT=30 ./scripts/nighttime_flow.sh
+
+# Refresh direct crypto daily cache during the overnight pass
+RUN_CRYPTO_DAILY_REFRESH=1 CRYPTO_REFRESH_SYMBOLS=BTC,ETH ./scripts/nighttime_flow.sh
 
 # Point the local wrappers at a non-default TS service URL
 MARKET_DATA_SERVICE_URL=http://localhost:3033 ./scripts/daytime_flow.sh
@@ -222,9 +236,11 @@ Use this as the default operator cadence:
 - `./scripts/daytime_flow.sh`
   - run during market hours when you want the current regime, live bucket context, market-data ops summary, CANSLIM, Dip Buyer, and a quick-check in one local view
   - best for `pre-market`, `morning`, `midday`, or `late afternoon` spot checks
+  - optional: pass `RUN_CRYPTO_DAILY_REFRESH=1` to refresh the direct crypto daily cache once before the rest of the run
 - `./scripts/nighttime_flow.sh`
   - run after market close or overnight
   - use it to refresh the next day’s inputs, rebuild leader buckets, print the current market-data ops state, settle logged prediction snapshots, and persist nightly research artifacts
+  - optional: pass `RUN_CRYPTO_DAILY_REFRESH=1` to seed/update the direct crypto daily cache overnight
 - `./scripts/backtest_flow.sh`
   - run when you want to test a strategy on past data instead of reading the live operator flow
   - best for idea validation, not live decisions

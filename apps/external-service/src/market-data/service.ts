@@ -31,6 +31,16 @@ import {
 import { normalizeSchwabQuoteEnvelope, type SchwabQuoteEnvelope } from "./schwab-normalizers.js";
 import { buildRiskPayload, type RiskPayloadResult } from "./risk-stack.js";
 import {
+  extractCoinMarketCapSymbol,
+  mapCoinMarketCapInterval,
+  normalizeCoinMarketCapFundamentals,
+  normalizeCoinMarketCapHistory,
+  normalizeCoinMarketCapMetadata,
+  normalizeCoinMarketCapQuote,
+  pickCoinMarketCapInfoEntry,
+  resolveCoinMarketCapTimeRange,
+} from "./coinmarketcap-client.js";
+import {
   SchwabStreamerSession,
   type SchwabStreamerPreferences,
   type SharedStreamerState,
@@ -128,6 +138,20 @@ interface ProviderMetrics {
   fallbackUsage: Record<string, number>;
 }
 
+interface CryptoDailyCacheEntry {
+  symbol: string;
+  refreshedAt: string;
+  quote: MarketDataQuote;
+  fundamentals: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  rows: MarketDataHistoryPoint[];
+}
+
+interface CryptoDailyCacheFile {
+  updatedAt: string;
+  symbols: Record<string, CryptoDailyCacheEntry>;
+}
+
 export class MarketDataService {
   private readonly logger: AppLogger;
   private readonly fetchImpl: FetchImpl;
@@ -188,6 +212,8 @@ export class MarketDataService {
       MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "",
       MARKET_DATA_SCHWAB_FAILURE_THRESHOLD: 3,
       MARKET_DATA_SCHWAB_COOLDOWN_MS: 20_000,
+      COINMARKETCAP_API_KEY: "",
+      COINMARKETCAP_API_BASE_URL: "https://pro-api.coinmarketcap.com",
       SCHWAB_CLIENT_ID: "",
       SCHWAB_CLIENT_SECRET: "",
       SCHWAB_REFRESH_TOKEN: "",
@@ -265,6 +291,7 @@ export class MarketDataService {
     return {
       status: "healthy",
       providers: {
+        coinmarketcap: this.isCoinMarketCapConfigured() ? "configured" : "disabled",
         schwab: this.isSchwabConfigured() ? "configured" : "disabled",
         schwabStreamer: this.streamer ? "enabled" : "disabled",
         schwabStreamerMeta: streamerHealth,
@@ -798,6 +825,50 @@ export class MarketDataService {
     }
   }
 
+  async handleCryptoRefresh(request: Request): Promise<MarketDataRouteResult<Record<string, unknown>>> {
+    const rawSymbols = resolveQuery(request.url, "symbols", "BTC,ETH");
+    const force = resolveQuery(request.url, "force", "0").trim().toLowerCase();
+    const symbols = [
+      ...new Set(
+        rawSymbols
+          .split(",")
+          .map((value) => extractCoinMarketCapSymbol(value))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ];
+    if (!symbols.length) {
+      return {
+        status: 400,
+        body: marketDataErrorResponse("invalid symbols", "error", {
+          reason: "direct crypto symbols are required; example symbols=BTC,ETH",
+        }),
+      };
+    }
+    if (!this.isCoinMarketCapConfigured()) {
+      return {
+        status: 503,
+        body: marketDataErrorResponse("coinmarketcap unavailable", "degraded", {
+          reason: "COINMARKETCAP_API_KEY is required for direct crypto refresh",
+        }),
+      };
+    }
+    try {
+      const result = await this.refreshCryptoDailyCache(symbols, ["1", "true", "yes", "on"].includes(force));
+      return {
+        status: 200,
+        body: {
+          source: "service",
+          status: "ok",
+          degradedReason: null,
+          stalenessSeconds: 0,
+          data: result,
+        },
+      };
+    } catch (error) {
+      return this.toErrorRoute<Record<string, unknown>>(error, { symbols, refreshed: [] });
+    }
+  }
+
   async handleNews(
     _request: Request,
     rawSymbol: string,
@@ -1004,6 +1075,16 @@ export class MarketDataService {
     interval: HistoryInterval,
     provider: HistoryProvider = "service",
   ): Promise<HistoryFetchResult> {
+    if (extractCoinMarketCapSymbol(symbol)) {
+      if (provider !== "service") {
+        throw new Error(`provider '${provider}' is not supported for crypto symbol ${symbol}`);
+      }
+      if (!this.isCoinMarketCapConfigured()) {
+        throw new Error("CoinMarketCap API key is not configured");
+      }
+      const rows = await this.fetchCoinMarketCapHistory(symbol, period, interval);
+      return { source: "coinmarketcap", status: "ok", stalenessSeconds: 0, rows };
+    }
     if (provider === "schwab") {
       if (!this.isSchwabConfigured()) {
         throw new Error("Schwab credentials are not configured");
@@ -1034,6 +1115,13 @@ export class MarketDataService {
 
   private async fetchPrimaryQuote(symbol: string): Promise<QuoteFetchResult> {
     await this.enforceStreamerFailurePolicy();
+    if (extractCoinMarketCapSymbol(symbol)) {
+      if (!this.isCoinMarketCapConfigured()) {
+        throw new Error("CoinMarketCap API key is not configured");
+      }
+      const quote = await this.fetchCoinMarketCapQuote(symbol);
+      return { source: "coinmarketcap", status: "ok", stalenessSeconds: 0, quote };
+    }
     const reasons: string[] = [];
     const isFuturesSymbol = symbol.startsWith("/");
     if (this.isSchwabConfigured()) {
@@ -1097,6 +1185,19 @@ export class MarketDataService {
     symbol: string,
     asOfDate?: string,
   ): Promise<ServiceMetadata & { payload: Record<string, unknown> }> {
+    if (extractCoinMarketCapSymbol(symbol)) {
+      if (!this.isCoinMarketCapConfigured()) {
+        throw new Error("CoinMarketCap API key is not configured");
+      }
+      const payload = await this.fetchCoinMarketCapFundamentals(symbol);
+      return {
+        source: "coinmarketcap",
+        status: "ok",
+        degradedReason: null,
+        stalenessSeconds: 0,
+        payload,
+      };
+    }
     const reasons: string[] = [];
     const targetAsOfDate = asOfDate || new Date().toISOString().slice(0, 10);
     let schwabPayload: Record<string, unknown> = {};
@@ -1126,6 +1227,12 @@ export class MarketDataService {
   }
 
   private async fetchPrimaryMetadata(symbol: string): Promise<Record<string, unknown>> {
+    if (extractCoinMarketCapSymbol(symbol)) {
+      if (!this.isCoinMarketCapConfigured()) {
+        throw new Error("CoinMarketCap API key is not configured");
+      }
+      return this.fetchCoinMarketCapMetadata(symbol);
+    }
     const reasons: string[] = [];
     let schwabPayload: Record<string, unknown> = {};
     if (this.isSchwabConfigured()) {
@@ -1520,6 +1627,282 @@ export class MarketDataService {
       timestamp: typeof trade.t === "string" ? trade.t : new Date().toISOString(),
       currency: "USD",
     };
+  }
+
+  private isCoinMarketCapConfigured(): boolean {
+    return Boolean(this.config.COINMARKETCAP_API_KEY.trim());
+  }
+
+  private async fetchCoinMarketCapQuote(symbol: string): Promise<MarketDataQuote> {
+    const cached = this.readCryptoDailyCacheEntry(symbol);
+    if (cached && isSameUtcDay(cached.refreshedAt, new Date().toISOString())) {
+      return cached.quote;
+    }
+    const entry = await this.fetchCoinMarketCapLatestEntry(symbol);
+    const quote = normalizeCoinMarketCapQuote(entry, symbol);
+    await this.maybeRefreshCryptoDailyCacheFromLiveEntry(symbol, entry);
+    return quote;
+  }
+
+  private async fetchCoinMarketCapFundamentals(symbol: string): Promise<Record<string, unknown>> {
+    const cached = this.readCryptoDailyCacheEntry(symbol);
+    if (cached && isSameUtcDay(cached.refreshedAt, new Date().toISOString())) {
+      return cached.fundamentals;
+    }
+    const entry = await this.fetchCoinMarketCapLatestEntry(symbol);
+    const fundamentals = normalizeCoinMarketCapFundamentals(entry, symbol);
+    await this.maybeRefreshCryptoDailyCacheFromLiveEntry(symbol, entry);
+    return fundamentals;
+  }
+
+  private async fetchCoinMarketCapMetadata(symbol: string): Promise<Record<string, unknown>> {
+    const cached = this.readCryptoDailyCacheEntry(symbol);
+    if (cached && isSameUtcDay(cached.refreshedAt, new Date().toISOString())) {
+      return cached.metadata;
+    }
+    const entry = await this.fetchCoinMarketCapLatestEntry(symbol);
+    const infoEntry = await this.fetchCoinMarketCapInfoEntry(symbol, firstString(entry.slug));
+    const metadata = normalizeCoinMarketCapMetadata(entry, infoEntry, symbol);
+    await this.writeCryptoDailyCacheEntry(symbol, entry, infoEntry);
+    return metadata;
+  }
+
+  private async fetchCoinMarketCapHistory(
+    symbol: string,
+    period: string,
+    interval: HistoryInterval,
+  ): Promise<MarketDataHistoryPoint[]> {
+    const cached = this.readCryptoDailyCacheEntry(symbol);
+    if (cached?.rows?.length) {
+      const rows = this.filterCryptoHistoryRows(cached.rows, period, interval);
+      if (rows.length) {
+        return rows;
+      }
+    }
+    const entry = await this.fetchCoinMarketCapLatestEntry(symbol);
+    const coinId = toNumber(entry.id);
+    if (coinId == null) {
+      throw new Error(`CoinMarketCap returned no canonical id for ${symbol}`);
+    }
+    const { timeStart, timeEnd } = resolveCoinMarketCapTimeRange(period);
+    const payload = await this.fetchCoinMarketCapJson<JsonRecord>("/v1/cryptocurrency/quotes/historical", {
+      id: String(coinId),
+      convert: "USD",
+      interval: mapCoinMarketCapInterval(interval),
+      time_start: timeStart,
+      time_end: timeEnd,
+    });
+    const quotes = Array.isArray((payload.data as JsonRecord | undefined)?.quotes)
+      ? (((payload.data as JsonRecord).quotes as JsonRecord[]) ?? [])
+      : [];
+    const rows = normalizeCoinMarketCapHistory(quotes, symbol);
+    if (!rows.length) {
+      throw new Error(`CoinMarketCap returned no historical quotes for ${symbol}`);
+    }
+    return rows;
+  }
+
+  private async fetchCoinMarketCapLatestEntry(symbol: string): Promise<JsonRecord> {
+    const cmcSymbol = extractCoinMarketCapSymbol(symbol);
+    if (!cmcSymbol) {
+      throw new Error(`CoinMarketCap does not support non-crypto symbol ${symbol}`);
+    }
+    const payload = await this.fetchCoinMarketCapJson<JsonRecord>("/v1/cryptocurrency/quotes/latest", {
+      symbol: cmcSymbol,
+      convert: "USD",
+    });
+    const data = (payload.data as JsonRecord | undefined) ?? {};
+    const entry = data[cmcSymbol];
+    if (entry && !Array.isArray(entry) && typeof entry === "object") {
+      return entry as JsonRecord;
+    }
+    if (Array.isArray(entry) && entry[0] && typeof entry[0] === "object") {
+      return entry[0] as JsonRecord;
+    }
+    throw new Error(`CoinMarketCap returned no quote payload for ${symbol}`);
+  }
+
+  private async maybeRefreshCryptoDailyCacheFromLiveEntry(symbol: string, entry: JsonRecord): Promise<void> {
+    const cached = this.readCryptoDailyCacheEntry(symbol);
+    if (cached && isSameUtcDay(cached.refreshedAt, new Date().toISOString())) {
+      return;
+    }
+    const infoEntry = await this.fetchCoinMarketCapInfoEntry(symbol, firstString(entry.slug)).catch(() => undefined);
+    await this.writeCryptoDailyCacheEntry(symbol, entry, infoEntry);
+  }
+
+  private async fetchCoinMarketCapInfoEntry(symbol: string, preferredSlug?: string): Promise<JsonRecord | undefined> {
+    const cmcSymbol = extractCoinMarketCapSymbol(symbol);
+    if (!cmcSymbol) {
+      return undefined;
+    }
+    const payload = await this.fetchCoinMarketCapJson<JsonRecord>("/v2/cryptocurrency/info", {
+      symbol: cmcSymbol,
+    });
+    const data = (payload.data as JsonRecord | undefined) ?? {};
+    return pickCoinMarketCapInfoEntry(data[cmcSymbol], preferredSlug);
+  }
+
+  private async refreshCryptoDailyCache(symbols: string[], force: boolean): Promise<Record<string, unknown>> {
+    const cache = this.readCryptoDailyCache();
+    const refreshed: Array<Record<string, unknown>> = [];
+    const today = new Date().toISOString();
+    for (const symbol of symbols) {
+      const existing = cache.symbols[symbol];
+      if (!force && existing && isSameUtcDay(existing.refreshedAt, today)) {
+        refreshed.push({ symbol, status: "skipped", refreshedAt: existing.refreshedAt, rowCount: existing.rows.length });
+        continue;
+      }
+      const entry = await this.fetchCoinMarketCapLatestEntry(symbol);
+      const infoEntry = await this.fetchCoinMarketCapInfoEntry(symbol, firstString(entry.slug));
+      const updated = this.buildCryptoDailyCacheEntry(symbol, entry, infoEntry, existing?.rows ?? []);
+      cache.symbols[symbol] = updated;
+      refreshed.push({ symbol, status: "refreshed", refreshedAt: updated.refreshedAt, rowCount: updated.rows.length });
+    }
+    cache.updatedAt = new Date().toISOString();
+    this.writeCryptoDailyCache(cache);
+    return {
+      updatedAt: cache.updatedAt,
+      symbols,
+      refreshed,
+      artifactPath: this.cryptoDailyCachePath(),
+    };
+  }
+
+  private readCryptoDailyCacheEntry(symbol: string): CryptoDailyCacheEntry | null {
+    return this.readCryptoDailyCache().symbols[normalizeCryptoCacheKey(symbol)] ?? null;
+  }
+
+  private readCryptoDailyCache(): CryptoDailyCacheFile {
+    const artifactPath = this.cryptoDailyCachePath();
+    try {
+      const raw = fs.readFileSync(artifactPath, "utf8");
+      const parsed = JSON.parse(raw) as CryptoDailyCacheFile;
+      return {
+        updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : null,
+        symbols: parsed && typeof parsed.symbols === "object" && parsed.symbols ? parsed.symbols : {},
+      } as CryptoDailyCacheFile;
+    } catch {
+      return { updatedAt: new Date(0).toISOString(), symbols: {} };
+    }
+  }
+
+  private writeCryptoDailyCache(cache: CryptoDailyCacheFile): void {
+    try {
+      fs.mkdirSync(this.cacheDir, { recursive: true });
+      fs.writeFileSync(this.cryptoDailyCachePath(), JSON.stringify(cache, null, 2));
+    } catch (error) {
+      this.logger.error("Unable to persist crypto daily cache", error);
+    }
+  }
+
+  private async writeCryptoDailyCacheEntry(symbol: string, entry: JsonRecord, infoEntry?: JsonRecord): Promise<void> {
+    const cache = this.readCryptoDailyCache();
+    const cacheKey = normalizeCryptoCacheKey(symbol);
+    cache.symbols[cacheKey] = this.buildCryptoDailyCacheEntry(cacheKey, entry, infoEntry, cache.symbols[cacheKey]?.rows ?? []);
+    cache.updatedAt = new Date().toISOString();
+    this.writeCryptoDailyCache(cache);
+  }
+
+  private buildCryptoDailyCacheEntry(
+    symbol: string,
+    entry: JsonRecord,
+    infoEntry: JsonRecord | undefined,
+    existingRows: MarketDataHistoryPoint[],
+  ): CryptoDailyCacheEntry {
+    const quote = normalizeCoinMarketCapQuote(entry, symbol);
+    const fundamentals = normalizeCoinMarketCapFundamentals(entry, symbol);
+    const metadata = normalizeCoinMarketCapMetadata(entry, infoEntry, symbol);
+    const refreshedAt = quote.timestamp || new Date().toISOString();
+    const dailyRow: MarketDataHistoryPoint = {
+      timestamp: startOfUtcDayIso(refreshedAt),
+      open: quote.price ?? 0,
+      high: quote.price ?? 0,
+      low: quote.price ?? 0,
+      close: quote.price ?? 0,
+      volume: quote.volume ?? 0,
+    };
+    const rows = upsertDailyHistoryRow(existingRows, dailyRow).slice(-400);
+    return {
+      symbol,
+      refreshedAt,
+      quote,
+      fundamentals,
+      metadata,
+      rows,
+    };
+  }
+
+  private filterCryptoHistoryRows(
+    rows: MarketDataHistoryPoint[],
+    period: string,
+    interval: HistoryInterval,
+  ): MarketDataHistoryPoint[] {
+    const cutoff = resolveCoinMarketCapTimeRange(period).timeStart;
+    const cutoffMs = Date.parse(cutoff);
+    const filtered = rows.filter((row) => Date.parse(row.timestamp) >= cutoffMs).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+    if (interval === "1d") {
+      return filtered;
+    }
+    return compressHistoryRows(filtered, interval);
+  }
+
+  private cryptoDailyCachePath(): string {
+    return path.join(this.cacheDir, "crypto-daily-cache.json");
+  }
+
+  private async fetchCoinMarketCapJson<T>(endpoint: string, params: Record<string, string>): Promise<T> {
+    const apiKey = this.config.COINMARKETCAP_API_KEY.trim();
+    if (!apiKey) {
+      throw new Error("CoinMarketCap API key is not configured");
+    }
+    const url = new URL(`${this.config.COINMARKETCAP_API_BASE_URL.replace(/\/+$/, "")}${endpoint}`);
+    Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+    let payload: JsonRecord;
+    try {
+      payload = await this.fetchJson<JsonRecord>(url.toString(), {
+        headers: {
+          "X-CMC_PRO_API_KEY": apiKey,
+          accept: "application/json",
+        },
+      });
+    } catch (error) {
+      if (error instanceof HttpError) {
+        const parsed = this.tryParseCoinMarketCapErrorPayload(error.body);
+        if (parsed) {
+          throw new Error(parsed);
+        }
+      }
+      throw error;
+    }
+    const status = (payload.status as JsonRecord | undefined) ?? {};
+    const errorCode = toNumber(status.error_code) ?? 0;
+    if (errorCode !== 0) {
+      const message = firstString(status.error_message) ?? "CoinMarketCap request failed";
+      if (errorCode === 1006 && endpoint.includes("/historical")) {
+        throw new Error("CoinMarketCap historical quotes are not available on the configured API plan");
+      }
+      throw new Error(message);
+    }
+    return payload as T;
+  }
+
+  private tryParseCoinMarketCapErrorPayload(rawBody: string): string | null {
+    try {
+      const payload = JSON.parse(rawBody) as JsonRecord;
+      const status = (payload.status as JsonRecord | undefined) ?? {};
+      const errorCode = toNumber(status.error_code) ?? 0;
+      const message = firstString(status.error_message);
+      if (!errorCode && !message) {
+        return null;
+      }
+      if (errorCode === 1006) {
+        return "CoinMarketCap historical quotes are not available on the configured API plan";
+      }
+      return message ?? `CoinMarketCap request failed (${errorCode})`;
+    } catch {
+      return null;
+    }
   }
 
   private async getAlpacaKeys(): Promise<AlpacaKeys> {
@@ -2041,4 +2424,59 @@ function resolveOptionalRepoPath(rawPath: string): string | null {
 
 function summarizeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function startOfUtcDayIso(value: string): string {
+  const date = new Date(value);
+  date.setUTCHours(0, 0, 0, 0);
+  return date.toISOString();
+}
+
+function isSameUtcDay(left: string, right: string): boolean {
+  return startOfUtcDayIso(left) === startOfUtcDayIso(right);
+}
+
+function normalizeCryptoCacheKey(symbol: string): string {
+  return extractCoinMarketCapSymbol(symbol) ?? symbol;
+}
+
+function upsertDailyHistoryRow(rows: MarketDataHistoryPoint[], nextRow: MarketDataHistoryPoint): MarketDataHistoryPoint[] {
+  const nextDay = startOfUtcDayIso(nextRow.timestamp);
+  const filtered = rows.filter((row) => startOfUtcDayIso(row.timestamp) !== nextDay);
+  filtered.push({ ...nextRow, timestamp: nextDay });
+  return filtered.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+}
+
+function compressHistoryRows(rows: MarketDataHistoryPoint[], interval: HistoryInterval): MarketDataHistoryPoint[] {
+  const buckets = new Map<string, MarketDataHistoryPoint[]>();
+  for (const row of rows) {
+    const timestamp = new Date(row.timestamp);
+    const key =
+      interval === "1wk"
+        ? `${timestamp.getUTCFullYear()}-W${isoWeekNumber(timestamp)}`
+        : `${timestamp.getUTCFullYear()}-${String(timestamp.getUTCMonth() + 1).padStart(2, "0")}`;
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(row);
+    buckets.set(key, bucket);
+  }
+  return [...buckets.values()].map((bucket) => {
+    const ordered = bucket.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+    return {
+      timestamp: ordered[0].timestamp,
+      open: ordered[0].open,
+      high: Math.max(...ordered.map((row) => row.high)),
+      low: Math.min(...ordered.map((row) => row.low)),
+      close: ordered[ordered.length - 1].close,
+      volume: ordered.reduce((sum, row) => sum + row.volume, 0),
+    };
+  });
+}
+
+function isoWeekNumber(date: Date): number {
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNr = (target.getUTCDay() + 6) % 7;
+  target.setUTCDate(target.getUTCDate() - dayNr + 3);
+  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
+  const diff = target.getTime() - firstThursday.getTime();
+  return 1 + Math.round(diff / 604_800_000);
 }

@@ -218,10 +218,13 @@ class MarketDataProvider:
         except requests.RequestException as exc:
             raise MarketDataError(f"market-data service request failed: {exc}", transient=True) from exc
 
+        service_reason = self._extract_service_error_reason(resp)
         if resp.status_code in {404, 429, 500, 502, 503, 504}:
-            raise MarketDataError(f"market-data service transient error {resp.status_code}", transient=True)
+            detail = service_reason or f"market-data service transient error {resp.status_code}"
+            raise MarketDataError(detail, transient=True)
         if resp.status_code != 200:
-            raise MarketDataError(f"market-data service error {resp.status_code}: {resp.text[:180]}", transient=False)
+            detail = service_reason or f"market-data service error {resp.status_code}: {resp.text[:180]}"
+            raise MarketDataError(detail, transient=False)
 
         try:
             payload = resp.json() or {}
@@ -255,10 +258,13 @@ class MarketDataProvider:
         except requests.RequestException as exc:
             raise MarketDataError(f"market-data service quote request failed: {exc}", transient=True) from exc
 
+        service_reason = self._extract_service_error_reason(resp)
         if resp.status_code in {404, 429, 500, 502, 503, 504}:
-            raise MarketDataError(f"market-data service transient quote error {resp.status_code}", transient=True)
+            detail = service_reason or f"market-data service transient quote error {resp.status_code}"
+            raise MarketDataError(detail, transient=True)
         if resp.status_code != 200:
-            raise MarketDataError(f"market-data service quote error {resp.status_code}: {resp.text[:180]}", transient=False)
+            detail = service_reason or f"market-data service quote error {resp.status_code}: {resp.text[:180]}"
+            raise MarketDataError(detail, transient=False)
 
         try:
             payload = resp.json() or {}
@@ -276,6 +282,24 @@ class MarketDataProvider:
         }
         return data, metadata
 
+    @staticmethod
+    def _extract_service_error_reason(resp: requests.Response) -> str:
+        try:
+            payload = resp.json() or {}
+        except ValueError:
+            return ""
+        if not isinstance(payload, dict):
+            return ""
+        reason = payload.get("degradedReason") or payload.get("degraded_reason")
+        if isinstance(reason, str) and reason.strip():
+            return reason.strip()
+        data = payload.get("data")
+        if isinstance(data, dict):
+            error = data.get("error")
+            if isinstance(error, str) and error.strip():
+                return error.strip()
+        return ""
+
     def _fetch_alpaca_history(self, symbol: str, period: str, auto_adjust: bool = False) -> pd.DataFrame:
         frame, _ = self._fetch_service_history(symbol, period, auto_adjust=auto_adjust, provider="alpaca")
         return frame
@@ -283,8 +307,13 @@ class MarketDataProvider:
     @staticmethod
     def _build_frame_from_service_payload(payload: dict, *, symbol: str) -> pd.DataFrame:
         rows = payload.get("rows")
-        if rows is None:
-            rows = payload.get("data")
+        if isinstance(rows, dict):
+            rows = (
+                rows.get("rows")
+                or rows.get("history")
+                or rows.get("bars")
+                or []
+            )
         if rows is None and isinstance(payload.get("data"), dict):
             rows = (
                 payload["data"].get("rows")
@@ -292,6 +321,8 @@ class MarketDataProvider:
                 or payload["data"].get("bars")
                 or []
             )
+        elif rows is None:
+            rows = payload.get("data")
         if rows is None and isinstance(payload, dict):
             rows = (
                 payload.get("bars")

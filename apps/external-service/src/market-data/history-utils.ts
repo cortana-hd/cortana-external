@@ -24,6 +24,9 @@ export function mapSchwabPeriod(period: string, interval: HistoryInterval): Reco
   const frequencyType = mapSchwabFrequencyType(interval);
   if (normalized.endsWith("d")) {
     const days = Math.max(parseInt(normalized.slice(0, -1), 10) || 5, 1);
+    if (frequencyType === "daily" || frequencyType === "weekly" || frequencyType === "monthly") {
+      return mapSchwabDayLookback(days, frequencyType);
+    }
     return {
       periodType: "day",
       period: Math.min(days, 10),
@@ -93,4 +96,29 @@ function mapSchwabFrequencyType(interval: HistoryInterval): "daily" | "weekly" |
     return "monthly";
   }
   return "daily";
+}
+
+function mapSchwabDayLookback(
+  days: number,
+  frequencyType: "daily" | "weekly" | "monthly",
+): Record<string, string | number> {
+  if (days <= 180) {
+    return {
+      periodType: "month",
+      period: Math.min(Math.max(Math.ceil(days / 30), 1), 6),
+      frequencyType,
+      frequency: 1,
+      needExtendedHoursData: "false",
+      needPreviousClose: "true",
+    };
+  }
+
+  return {
+    periodType: "year",
+    period: Math.min(Math.max(Math.ceil(days / 365), 1), 20),
+    frequencyType,
+    frequency: 1,
+    needExtendedHoursData: "false",
+    needPreviousClose: "true",
+  };
 }

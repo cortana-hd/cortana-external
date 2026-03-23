@@ -1,0 +1,10 @@
+Market data ops
+
+Takeaway
+- Streamer role: leader (configured leader) | lock held no
+- Service state: healthy
+- Stream state: healthy | policy none | connected no
+- Symbol budget: LEVELONE_EQUITIES: 0/250 requested | headroom 250 | CHART_EQUITY: 0/250 requested | headroom 250
+- Fallbacks: shared_state 0 | primary source mix schwab 657
+- Universe: static_python_seed | updated 2026-03-23T22:15:50.440Z
+- Universe ownership: TS owns the artifact refresh path; python_seed is a terminal fallback only.
