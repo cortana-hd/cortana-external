@@ -22,8 +22,11 @@ LOCAL_RUN_DIR="${LOCAL_RUNS_ROOT}/${RUN_STAMP}"
 LEADER_BASKET_PATH="${LEADER_BASKET_PATH:-${BACKTESTER_DIR}/.cache/leader_baskets/leader-baskets-latest.json}"
 MARKET_DATA_SERVICE_URL="${MARKET_DATA_SERVICE_URL:-http://localhost:3033}"
 RUN_MARKET_DATA_OPS="${RUN_MARKET_DATA_OPS:-1}"
+RUN_CRYPTO_DAILY_REFRESH="${RUN_CRYPTO_DAILY_REFRESH:-0}"
+CRYPTO_REFRESH_SYMBOLS="${CRYPTO_REFRESH_SYMBOLS:-BTC,ETH}"
 REQUIRE_MARKET_DATA_SERVICE="${REQUIRE_MARKET_DATA_SERVICE:-1}"
 REQUIRE_SCHWAB_CONFIGURED="${REQUIRE_SCHWAB_CONFIGURED:-1}"
+AUTO_COMMIT_PR="${AUTO_COMMIT_PR:-0}"
 
 mkdir -p "${LOCAL_RUN_DIR}"
 source "${SCRIPT_DIR}/market_data_preflight.sh"
@@ -69,6 +72,31 @@ if [[ "${RUN_MARKET_INTEL}" == "1" ]]; then
 else
   echo
   echo "== Skipping market context refresh (RUN_MARKET_INTEL=0) =="
+fi
+
+if [[ "${RUN_CRYPTO_DAILY_REFRESH}" == "1" ]]; then
+  echo
+  echo "== Refreshing direct crypto cache (${CRYPTO_REFRESH_SYMBOLS}) =="
+  if curl -fsS -X POST "${MARKET_DATA_SERVICE_URL}/market-data/crypto/refresh?symbols=${CRYPTO_REFRESH_SYMBOLS}" \
+    >"${LOCAL_RUN_DIR}/crypto-refresh-raw.json" 2>/dev/null; then
+    python3 - "${LOCAL_RUN_DIR}/crypto-refresh-raw.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+rows = ((payload.get("data") or {}).get("refreshed") or [])
+print("Crypto refresh\n")
+for row in rows:
+    print(
+        f"- {row.get('symbol')}: {row.get('status')} | "
+        f"rows {row.get('rowCount')} | refreshedAt {row.get('refreshedAt')}"
+    )
+PY
+  else
+    printf '%s\n' "Crypto refresh" "" "- Unable to refresh ${CRYPTO_REFRESH_SYMBOLS} via ${MARKET_DATA_SERVICE_URL}/market-data/crypto/refresh"
+  fi
 fi
 
 echo
@@ -149,6 +177,7 @@ cat "${LOCAL_RUN_DIR}/quick-check.txt"
 echo
 echo "Saved local run outputs: ${LOCAL_RUN_DIR}"
 
-# Auto-commit workflow outputs on a branch and open a PR
-source "${SCRIPT_DIR}/auto_commit_pr.sh"
-auto_commit_pr "daytime" "${RUN_STAMP}" "${REPO_ROOT}"
+if [[ "${AUTO_COMMIT_PR}" == "1" ]]; then
+  source "${SCRIPT_DIR}/auto_commit_pr.sh"
+  auto_commit_pr "daytime" "${RUN_STAMP}" "${REPO_ROOT}"
+fi

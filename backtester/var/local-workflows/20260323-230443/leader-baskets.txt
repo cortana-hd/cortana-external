@@ -1,0 +1,11 @@
+Leader buckets
+
+Takeaway
+- Updated: 2026-03-23T22:24:12.870167+00:00
+- Priority set: OXY, GEV, FANG, MPC, PSX, AKAM, XOM, DVN
+
+Buckets
+- Format: % move over that bucket window | (x) = number of appearances in that bucket
+- Daily: none yet
+- Weekly: OXY +0.0% (2x), GEV +0.0% (2x), FANG +0.0% (2x), MPC +0.0% (2x), PSX +0.0% (2x), AKAM +0.0% (2x), XOM +0.0% (2x), DVN +0.0% (2x), VLO +0.0% (2x), EQT +0.0% (2x), LYB +0.0% (2x), ROST +0.0% (2x), HAL +0.0% (2x), PWR +0.0% (2x), TPL +0.0% (2x), TRGP +0.0% (2x)
+- Monthly: OXY +0.0% (2x), GEV +0.0% (2x), FANG +0.0% (2x), MPC +0.0% (2x), PSX +0.0% (2x), AKAM +0.0% (2x), XOM +0.0% (2x), DVN +0.0% (2x), VLO +0.0% (2x), EQT +0.0% (2x), LYB +0.0% (2x), ROST +0.0% (2x), HAL +0.0% (2x), PWR +0.0% (2x), TPL +0.0% (2x), TRGP +0.0% (2x), APA n/a (1x), CTRA n/a (1x), CAMT n/a (1x), DELL n/a (1x)

@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 
 import type { AppConfig } from "../config.js";
+import { mapSchwabPeriod } from "../market-data/history-utils.js";
 import { registerMarketDataRoutes } from "../market-data/index.js";
 import { MarketDataService } from "../market-data/service.js";
 import { normalizeMarketSymbol } from "../market-data/route-utils.js";
@@ -23,6 +24,8 @@ const TEST_CONFIG: AppConfig = {
   MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH: "",
   MARKET_DATA_SCHWAB_FAILURE_THRESHOLD: 3,
   MARKET_DATA_SCHWAB_COOLDOWN_MS: 20_000,
+  COINMARKETCAP_API_KEY: "cmc-key",
+  COINMARKETCAP_API_BASE_URL: "https://pro-api.coinmarketcap.com",
   SCHWAB_CLIENT_ID: "client",
   SCHWAB_CLIENT_SECRET: "secret",
   SCHWAB_REFRESH_TOKEN: "refresh",
@@ -374,6 +377,21 @@ class FailureWebSocket extends FakeWebSocket {
 }
 
 describe("market-data routes", () => {
+  it("maps day lookbacks to valid Schwab daily history periods", () => {
+    expect(mapSchwabPeriod("90d", "1d")).toMatchObject({
+      periodType: "month",
+      period: 3,
+      frequencyType: "daily",
+      frequency: 1,
+    });
+    expect(mapSchwabPeriod("400d", "1d")).toMatchObject({
+      periodType: "year",
+      period: 2,
+      frequencyType: "daily",
+      frequency: 1,
+    });
+  });
+
   it("surfaces streamer health metadata after a streamer-backed quote", async () => {
     FakeWebSocket.createdCount = 0;
     FakeWebSocket.sentRequests = [];
@@ -568,6 +586,7 @@ describe("market-data routes", () => {
     const service = new MarketDataService({
       config: {
         ...TEST_CONFIG,
+        MARKET_DATA_CACHE_DIR: path.join(TEST_TEMP_ROOT, "crypto-quote-cache"),
         SCHWAB_STREAMER_ENABLED: "0",
       },
       fetchImpl: async (input) => {
@@ -787,6 +806,315 @@ describe("market-data routes", () => {
     expect(body.source).toBe("schwab_streamer");
     expect(body.data.symbol).toBe("AAPL");
     expect(body.data.price).toBe(201.5);
+  });
+
+  it("serves direct crypto quotes from CoinMarketCap", async () => {
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        MARKET_DATA_CACHE_DIR: path.join(TEST_TEMP_ROOT, "crypto-snapshot-cache"),
+        SCHWAB_STREAMER_ENABLED: "0",
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/v1/cryptocurrency/quotes/latest?symbol=BTC")) {
+          return new Response(
+            JSON.stringify({
+              status: { error_code: 0, error_message: null },
+              data: {
+                BTC: {
+                  id: 1,
+                  name: "Bitcoin",
+                  symbol: "BTC",
+                  slug: "bitcoin",
+                  last_updated: "2026-03-23T22:40:00.000Z",
+                  quote: {
+                    USD: {
+                      price: 70652.75,
+                      volume_24h: 51632763594.22,
+                      percent_change_24h: 3.54,
+                      last_updated: "2026-03-23T22:40:00.000Z",
+                    },
+                  },
+                },
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/market-data/quote/BTC-USD");
+    const body = (await response.json()) as { source: string; data: { symbol: string; price?: number; currency?: string } };
+
+    expect(response.status).toBe(200);
+    expect(body.source).toBe("coinmarketcap");
+    expect(body.data.symbol).toBe("BTC-USD");
+    expect(body.data.price).toBe(70652.75);
+    expect(body.data.currency).toBe("USD");
+  });
+
+  it("enriches crypto snapshots from CoinMarketCap quote and info endpoints", async () => {
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        MARKET_DATA_CACHE_DIR: path.join(TEST_TEMP_ROOT, "crypto-history-unavailable-cache"),
+        SCHWAB_STREAMER_ENABLED: "0",
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/v1/cryptocurrency/quotes/latest?symbol=BTC")) {
+          return new Response(
+            JSON.stringify({
+              status: { error_code: 0, error_message: null },
+              data: {
+                BTC: {
+                  id: 1,
+                  name: "Bitcoin",
+                  symbol: "BTC",
+                  slug: "bitcoin",
+                  category: "coin",
+                  cmc_rank: 1,
+                  circulating_supply: 20003043,
+                  total_supply: 20003043,
+                  max_supply: 21000000,
+                  last_updated: "2026-03-23T22:40:00.000Z",
+                  quote: {
+                    USD: {
+                      price: 70652.75,
+                      volume_24h: 51632763594.22,
+                      market_cap: 1413269989028.65,
+                      fully_diluted_market_cap: 1483707742347.09,
+                      percent_change_24h: 3.54,
+                      percent_change_7d: -5.42,
+                      last_updated: "2026-03-23T22:40:00.000Z",
+                    },
+                  },
+                },
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/v2/cryptocurrency/info?symbol=BTC")) {
+          return new Response(
+            JSON.stringify({
+              status: { error_code: 0, error_message: null },
+              data: {
+                BTC: [
+                  {
+                    id: 1,
+                    name: "Bitcoin",
+                    symbol: "BTC",
+                    slug: "bitcoin",
+                    category: "coin",
+                    description: "Bitcoin description",
+                    logo: "https://example.test/btc.png",
+                    urls: {
+                      website: ["https://bitcoin.org/"],
+                      technical_doc: ["https://bitcoin.org/bitcoin.pdf"],
+                    },
+                    platform: null,
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/market-data/snapshot/BTC-USD");
+    const body = (await response.json()) as {
+      source: string;
+      data: {
+        quote?: { price?: number };
+        metadata?: { description?: string; website?: string };
+        fundamentals?: { market_cap?: number; rank?: number };
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.source).toBe("coinmarketcap");
+    expect(body.data.quote?.price).toBe(70652.75);
+    expect(body.data.metadata?.description).toBe("Bitcoin description");
+    expect(body.data.metadata?.website).toBe("https://bitcoin.org/");
+    expect(body.data.fundamentals?.market_cap).toBe(1413269989028.65);
+    expect(body.data.fundamentals?.rank).toBe(1);
+  });
+
+  it("surfaces a clear error when CoinMarketCap historical quotes are unavailable on the plan", async () => {
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_STREAMER_ENABLED: "0",
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/v1/cryptocurrency/quotes/latest?symbol=BTC")) {
+          return new Response(
+            JSON.stringify({
+              status: { error_code: 0, error_message: null },
+              data: {
+                BTC: {
+                  id: 1,
+                  name: "Bitcoin",
+                  symbol: "BTC",
+                  slug: "bitcoin",
+                  quote: { USD: { price: 70652.75, last_updated: "2026-03-23T22:40:00.000Z" } },
+                },
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/v1/cryptocurrency/quotes/historical?id=1")) {
+          return new Response(
+            JSON.stringify({
+              status: { error_code: 1006, error_message: "Your API Key subscription plan doesn't support this endpoint." },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/market-data/history/BTC-USD?period=6mo");
+    const body = (await response.json()) as { degradedReason?: string; data: { rows: unknown[] } };
+
+    expect(response.status).toBe(503);
+    expect(body.degradedReason).toContain("CoinMarketCap historical quotes are not available");
+    expect(body.data.rows).toEqual([]);
+  });
+
+  it("refreshes daily crypto cache for BTC and serves cached daily history", async () => {
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        MARKET_DATA_CACHE_DIR: path.join(TEST_TEMP_ROOT, "crypto-refresh-cache"),
+        SCHWAB_STREAMER_ENABLED: "0",
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/v1/cryptocurrency/quotes/latest?symbol=BTC")) {
+          return new Response(
+            JSON.stringify({
+              status: { error_code: 0, error_message: null },
+              data: {
+                BTC: {
+                  id: 1,
+                  name: "Bitcoin",
+                  symbol: "BTC",
+                  slug: "bitcoin",
+                  quote: {
+                    USD: {
+                      price: 70000,
+                      volume_24h: 123456,
+                      percent_change_24h: 2.5,
+                      last_updated: "2026-03-23T22:40:00.000Z",
+                    },
+                  },
+                },
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/v2/cryptocurrency/info?symbol=BTC")) {
+          return new Response(
+            JSON.stringify({
+              status: { error_code: 0, error_message: null },
+              data: { BTC: [{ id: 1, slug: "bitcoin", description: "Bitcoin", urls: { website: ["https://bitcoin.org/"] } }] },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const refreshResponse = await app.request("/market-data/crypto/refresh?symbols=BTC", { method: "POST" });
+    const refreshBody = (await refreshResponse.json()) as { data: { refreshed: Array<{ symbol: string; rowCount: number; status: string }> } };
+    expect(refreshResponse.status).toBe(200);
+    expect(refreshBody.data.refreshed[0]).toMatchObject({ symbol: "BTC", status: "refreshed", rowCount: 1 });
+
+    const historyResponse = await app.request("/market-data/history/BTC-USD?period=6mo");
+    const historyBody = (await historyResponse.json()) as { source: string; data: { rows: Array<{ close: number }> } };
+    expect(historyResponse.status).toBe(200);
+    expect(historyBody.source).toBe("coinmarketcap");
+    expect(historyBody.data.rows).toHaveLength(1);
+    expect(historyBody.data.rows[0]?.close).toBe(70000);
+  });
+
+  it("skips same-day crypto refresh unless force=1", async () => {
+    const refreshedAt = new Date().toISOString();
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        MARKET_DATA_CACHE_DIR: path.join(TEST_TEMP_ROOT, "crypto-refresh-skip-cache"),
+        SCHWAB_STREAMER_ENABLED: "0",
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/v1/cryptocurrency/quotes/latest?symbol=ETH")) {
+          return new Response(
+            JSON.stringify({
+              status: { error_code: 0, error_message: null },
+              data: {
+                ETH: {
+                  id: 1027,
+                  name: "Ethereum",
+                  symbol: "ETH",
+                  slug: "ethereum",
+                  quote: {
+                    USD: {
+                      price: 3500,
+                      volume_24h: 654321,
+                      percent_change_24h: 1.5,
+                      last_updated: refreshedAt,
+                    },
+                  },
+                },
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/v2/cryptocurrency/info?symbol=ETH")) {
+          return new Response(
+            JSON.stringify({
+              status: { error_code: 0, error_message: null },
+              data: { ETH: [{ id: 1027, slug: "ethereum", description: "Ethereum", urls: { website: ["https://ethereum.org/"] } }] },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const first = await app.request("/market-data/crypto/refresh?symbols=ETH", { method: "POST" });
+    const second = await app.request("/market-data/crypto/refresh?symbols=ETH", { method: "POST" });
+    const firstBody = (await first.json()) as { data: { refreshed: Array<{ status: string }> } };
+    const secondBody = (await second.json()) as { data: { refreshed: Array<{ status: string }> } };
+
+    expect(firstBody.data.refreshed[0]?.status).toBe("refreshed");
+    expect(secondBody.data.refreshed[0]?.status).toBe("skipped");
   });
 
   it("enriches snapshot payloads with streamer-backed chart equity data", async () => {

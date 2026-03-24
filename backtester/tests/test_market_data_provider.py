@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 
 import pandas as pd
+import requests
+import pytest
 
 from data.market_data_provider import MarketDataError, MarketDataProvider
 
@@ -135,3 +137,54 @@ def test_cache_read_handles_mixed_timezone_rows(tmp_path):
     frame, source, _ = cached
     assert source == "schwab"
     assert len(frame) == 2
+
+
+def test_build_frame_from_nested_service_rows():
+    payload = {
+        "source": "schwab",
+        "status": "ok",
+        "data": {
+            "symbol": "SPY",
+            "period": "90d",
+            "interval": "1d",
+            "rows": [
+                {
+                    "timestamp": "2026-03-20T05:00:00.000Z",
+                    "open": 656.51,
+                    "high": 656.69,
+                    "low": 644.72,
+                    "close": 648.57,
+                    "volume": 163617522,
+                },
+                {
+                    "timestamp": "2026-03-23T05:00:00.000Z",
+                    "open": 649.0,
+                    "high": 655.5,
+                    "low": 648.25,
+                    "close": 654.94,
+                    "volume": 134460396,
+                },
+            ],
+        },
+    }
+
+    frame = MarketDataProvider._build_frame_from_service_payload(payload, symbol="SPY")
+
+    assert len(frame) == 2
+    assert float(frame.iloc[-1]["Close"]) == 654.94
+
+
+def test_service_error_reason_is_extracted_from_degraded_payload(tmp_path, monkeypatch):
+    provider = MarketDataProvider(cache_dir=str(tmp_path), max_retries=0)
+
+    response = requests.Response()
+    response.status_code = 503
+    response._content = b'{"source":"service","status":"error","degradedReason":"CoinMarketCap historical quotes are not available on the configured API plan","data":{"error":"rows unavailable"}}'
+    response.headers["Content-Type"] = "application/json"
+
+    monkeypatch.setattr("data.market_data_provider.requests.get", lambda *args, **kwargs: response)
+
+    with pytest.raises(MarketDataError) as exc:
+        provider.get_history("BTC-USD", period="6mo")
+
+    assert "CoinMarketCap historical quotes are not available on the configured API plan" in str(exc.value)

@@ -1,0 +1,14 @@
+Dip Buyer Scan
+
+Takeaway
+- Market: correction
+- Macro: Risk-on conflict — Polymarket is leaning risk-on, but the current equity regime is not fully supportive.
+- Polymarket snapshot: Fed easing odds 71% (0 pts/24h); US recession odds 34% (0 pts/24h); Inflation upside risk 25% (0 pts/24h)
+- Risk: remaining risk budget 0% | exposure cap 0% | market regime correction
+- Scan input: 20 pinned + 100 ranked names | source fallback
+
+Decision
+- Qualified setups: 0 of 120 scanned | BUY 0 | WATCH 0
+- Top leaders: OXY, GEV, FANG
+- Final action: DO NOT BUY — market regime veto (Regime score -7: 7 distribution days and -6.4% drawdown. Stay defensive)
+- Leader-bucket overlap: priority OXY, GEV, FANG | weekly OXY, GEV, FANG | monthly OXY, GEV, FANG

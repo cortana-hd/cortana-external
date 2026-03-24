@@ -218,6 +218,50 @@ def test_hy_spread_defaults_to_450_when_fred_fails():
     assert (history["hy_spread"] == 450.0).all()
 
 
+def test_service_history_parses_nested_dates_without_series_tz_localize_error():
+    fetcher = RiskSignalFetcher()
+    fetcher._service_request = MagicMock(  # type: ignore[method-assign]
+        return_value=(
+            {
+                "status": "ok",
+                "data": {
+                    "history": [
+                        {
+                            "date": "2026-03-20T05:00:00.000Z",
+                            "vix": 22.0,
+                            "spyClose": 648.57,
+                            "hySpread": 410.0,
+                            "putCall": 0.95,
+                            "vixPercentile": 61.0,
+                            "hySpreadPercentile": 58.0,
+                            "spyDistanceScore": 43.0,
+                            "fearGreed": 54.0,
+                        },
+                        {
+                            "date": "2026-03-23T05:00:00.000Z",
+                            "vix": 21.5,
+                            "spyClose": 654.94,
+                            "hySpread": 405.0,
+                            "putCall": 0.92,
+                            "vixPercentile": 57.0,
+                            "hySpreadPercentile": 55.0,
+                            "spyDistanceScore": 47.0,
+                            "fearGreed": 53.0,
+                        },
+                    ]
+                },
+            },
+            200,
+        )
+    )
+
+    history = fetcher._load_history_from_service(days=30)
+
+    assert len(history) == 2
+    assert history.index.tz is None
+    assert history.iloc[-1]["spy_close"] == pytest.approx(654.94)
+
+
 def test_fear_proxy_uses_simple_fallback_when_hy_percentile_missing():
     """Fear proxy should fallback to (vix_percentile + spy_distance_score)/2 when HY percentile is NaN."""
     fetcher = RiskSignalFetcher()

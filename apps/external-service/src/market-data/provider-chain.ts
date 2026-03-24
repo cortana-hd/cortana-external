@@ -1,0 +1,292 @@
+import { buildUnavailableCompare } from "./route-utils.js";
+import { extractCoinMarketCapSymbol } from "./coinmarketcap-client.js";
+import type { CoinMarketCapService } from "./coinmarketcap-service.js";
+import type { AlpacaClient } from "./alpaca-client.js";
+import type { SchwabRestClient, ProviderMetrics } from "./schwab-rest-client.js";
+import type { SchwabStreamerRuntime } from "./schwab-streamer-runtime.js";
+import { compareHistoryRows, compareQuotes, type HistoryInterval, type HistoryProvider } from "./history-utils.js";
+import type {
+  MarketDataComparison,
+  MarketDataGenericPayload,
+  MarketDataHistoryPoint,
+  MarketDataQuote,
+  MarketDataSnapshot,
+  MarketDataStatus,
+} from "./types.js";
+
+interface ServiceMetadata {
+  source: string;
+  status: MarketDataStatus;
+  degradedReason?: string | null;
+  stalenessSeconds: number | null;
+}
+
+export interface HistoryFetchResult extends ServiceMetadata {
+  rows: MarketDataHistoryPoint[];
+}
+
+export interface QuoteFetchResult extends ServiceMetadata {
+  quote: MarketDataQuote;
+}
+
+export interface SnapshotFetchResult extends ServiceMetadata {
+  snapshot: MarketDataSnapshot;
+}
+
+interface ProviderChainConfig {
+  coinMarketCap: CoinMarketCapService;
+  schwabRestClient: SchwabRestClient;
+  alpacaClient: AlpacaClient;
+  streamerRuntime: SchwabStreamerRuntime;
+  providerMetrics: ProviderMetrics;
+}
+
+export class ProviderChain {
+  private readonly coinMarketCap: CoinMarketCapService;
+  private readonly schwabRestClient: SchwabRestClient;
+  private readonly alpacaClient: AlpacaClient;
+  private readonly streamerRuntime: SchwabStreamerRuntime;
+  private readonly providerMetrics: ProviderMetrics;
+
+  constructor(config: ProviderChainConfig) {
+    this.coinMarketCap = config.coinMarketCap;
+    this.schwabRestClient = config.schwabRestClient;
+    this.alpacaClient = config.alpacaClient;
+    this.streamerRuntime = config.streamerRuntime;
+    this.providerMetrics = config.providerMetrics;
+  }
+
+  async fetchPrimaryHistory(symbol: string, period: string, interval: HistoryInterval, provider: HistoryProvider = "service"): Promise<HistoryFetchResult> {
+    if (extractCoinMarketCapSymbol(symbol)) {
+      if (provider !== "service") {
+        throw new Error(`provider '${provider}' is not supported for crypto symbol ${symbol}`);
+      }
+      if (!this.coinMarketCap.isConfigured()) {
+        throw new Error("CoinMarketCap API key is not configured");
+      }
+      const rows = await this.coinMarketCap.fetchHistory(symbol, period, interval);
+      return { source: "coinmarketcap", status: "ok", stalenessSeconds: 0, rows };
+    }
+    if (provider === "schwab") {
+      if (!this.schwabRestClient.isConfigured()) {
+        throw new Error("Schwab credentials are not configured");
+      }
+      const rows = await this.schwabRestClient.fetchHistory(symbol, period, interval);
+      return { source: "schwab", status: "ok", stalenessSeconds: 0, rows };
+    }
+    if (provider === "alpaca") {
+      const rows = await this.alpacaClient.fetchHistory(symbol, period, interval);
+      return { source: "alpaca", status: "ok", stalenessSeconds: 0, rows };
+    }
+    if (!this.schwabRestClient.isConfigured()) {
+      throw new Error("Schwab credentials are not configured");
+    }
+    if (!this.schwabRestClient.isRestAvailable()) {
+      throw new Error(this.schwabRestClient.getUnavailableReason());
+    }
+    try {
+      const rows = await this.schwabRestClient.fetchHistory(symbol, period, interval);
+      return { source: "schwab", status: "ok", stalenessSeconds: 0, rows };
+    } catch (error) {
+      this.schwabRestClient.recordFailure(error);
+      throw error;
+    }
+  }
+
+  async fetchPrimaryQuote(symbol: string): Promise<QuoteFetchResult> {
+    await this.streamerRuntime.enforceFailurePolicy();
+    if (extractCoinMarketCapSymbol(symbol)) {
+      if (!this.coinMarketCap.isConfigured()) {
+        throw new Error("CoinMarketCap API key is not configured");
+      }
+      const quote = await this.coinMarketCap.fetchQuote(symbol);
+      return { source: "coinmarketcap", status: "ok", stalenessSeconds: 0, quote };
+    }
+    const isFuturesSymbol = symbol.startsWith("/");
+    if (!this.schwabRestClient.isConfigured()) {
+      throw new Error("Schwab credentials are not configured");
+    }
+    try {
+      const streamer = this.streamerRuntime.getStreamer();
+      const streamed = isFuturesSymbol
+        ? await streamer?.getFuturesQuote(symbol)
+        : await streamer?.getQuote(symbol);
+      if (streamed?.price != null) {
+        return { source: "schwab_streamer", status: "ok", stalenessSeconds: 0, quote: streamed };
+      }
+    } catch {
+      // Shared state / REST fallback below remains the source of truth when streamer reads fail.
+    }
+    const shared = isFuturesSymbol
+      ? await this.streamerRuntime.readSharedFuturesQuote(symbol)
+      : await this.streamerRuntime.readSharedQuote(symbol);
+    if (shared?.price != null) {
+      return { source: "schwab_streamer_shared", status: "ok", stalenessSeconds: 0, quote: shared };
+    }
+    if (isFuturesSymbol) {
+      throw new Error(`No live Schwab futures quote available for ${symbol}`);
+    }
+    if (!this.schwabRestClient.isRestAvailable()) {
+      throw new Error(this.schwabRestClient.getUnavailableReason());
+    }
+    try {
+      const quote = (await this.schwabRestClient.fetchQuoteEnvelope(symbol)).quote;
+      return { source: "schwab", status: "ok", stalenessSeconds: 0, quote };
+    } catch (error) {
+      this.schwabRestClient.recordFailure(error);
+      throw error;
+    }
+  }
+
+  async fetchPrimarySnapshot(symbol: string): Promise<SnapshotFetchResult> {
+    const quote = await this.fetchPrimaryQuote(symbol);
+    const streamer = this.streamerRuntime.getStreamer();
+    const chartEquity =
+      symbol.startsWith("/")
+        ? null
+        : (await streamer?.getChartEquity(symbol).catch(() => null)) ?? (await this.streamerRuntime.readSharedChart(symbol));
+    const [metadata, fundamentals] = await Promise.all([
+      symbol.startsWith("/") ? Promise.resolve({}) : this.fetchPrimaryMetadata(symbol).catch(() => ({})),
+      symbol.startsWith("/") ? Promise.resolve({}) : this.fetchPrimaryFundamentals(symbol).then((result) => result.payload).catch(() => ({})),
+    ]);
+    return {
+      source: quote.source,
+      status: quote.status,
+      degradedReason: quote.degradedReason ?? null,
+      stalenessSeconds: quote.stalenessSeconds,
+      snapshot: {
+        symbol,
+        quote: quote.quote as unknown as Record<string, unknown>,
+        metadata,
+        fundamentals,
+        ...(chartEquity ? { chartEquity } : {}),
+      },
+    };
+  }
+
+  async fetchPrimaryFundamentals(symbol: string, asOfDate?: string): Promise<ServiceMetadata & { payload: Record<string, unknown> }> {
+    if (extractCoinMarketCapSymbol(symbol)) {
+      if (!this.coinMarketCap.isConfigured()) {
+        throw new Error("CoinMarketCap API key is not configured");
+      }
+      const payload = await this.coinMarketCap.fetchFundamentals(symbol);
+      return { source: "coinmarketcap", status: "ok", degradedReason: null, stalenessSeconds: 0, payload };
+    }
+    const reasons: string[] = [];
+    const targetAsOfDate = asOfDate || new Date().toISOString().slice(0, 10);
+    let schwabPayload: Record<string, unknown> = {};
+    if (this.schwabRestClient.isConfigured()) {
+      if (!this.schwabRestClient.isRestAvailable()) {
+        reasons.push(this.schwabRestClient.getUnavailableReason());
+      } else {
+        try {
+          schwabPayload = (await this.schwabRestClient.fetchQuoteEnvelope(symbol, targetAsOfDate)).fundamentals;
+        } catch (error) {
+          this.schwabRestClient.recordFailure(error);
+          reasons.push(summarizeError(error));
+        }
+      }
+    }
+    if (Object.keys(schwabPayload).length) {
+      return {
+        source: "schwab",
+        status: reasons.length ? "degraded" : "ok",
+        degradedReason: reasons.length ? reasons[0] : null,
+        stalenessSeconds: 0,
+        payload: schwabPayload,
+      };
+    }
+    throw new Error(reasons[0] ?? `Unable to fetch fundamentals for ${symbol}`);
+  }
+
+  async fetchPrimaryMetadata(symbol: string): Promise<Record<string, unknown>> {
+    if (extractCoinMarketCapSymbol(symbol)) {
+      if (!this.coinMarketCap.isConfigured()) {
+        throw new Error("CoinMarketCap API key is not configured");
+      }
+      return this.coinMarketCap.fetchMetadata(symbol);
+    }
+    const reasons: string[] = [];
+    let schwabPayload: Record<string, unknown> = {};
+    if (this.schwabRestClient.isConfigured()) {
+      if (!this.schwabRestClient.isRestAvailable()) {
+        reasons.push(this.schwabRestClient.getUnavailableReason());
+      } else {
+        try {
+          schwabPayload = (await this.schwabRestClient.fetchQuoteEnvelope(symbol)).metadata;
+        } catch (error) {
+          this.schwabRestClient.recordFailure(error);
+          reasons.push(summarizeError(error));
+        }
+      }
+    }
+    if (Object.keys(schwabPayload).length) {
+      return schwabPayload;
+    }
+    throw new Error(reasons[0] ?? `Unable to fetch metadata for ${symbol}`);
+  }
+
+  async buildHistoryComparison(symbol: string, period: string, interval: HistoryInterval, compareWith: string | undefined, primaryRows: MarketDataHistoryPoint[]): Promise<MarketDataComparison | undefined> {
+    const source = compareWith;
+    if (!source) {
+      return undefined;
+    }
+    try {
+      let rows: MarketDataHistoryPoint[];
+      if (source === "schwab") {
+        if (!this.schwabRestClient.isConfigured()) {
+          return buildUnavailableCompare(source, "Schwab credentials are not configured");
+        }
+        rows = await this.schwabRestClient.fetchHistory(symbol, period, interval);
+      } else if (source === "alpaca") {
+        rows = await this.alpacaClient.fetchHistory(symbol, period, interval);
+      } else {
+        return buildUnavailableCompare(source, "Unsupported comparison provider");
+      }
+      return {
+        source,
+        available: true,
+        mismatchSummary: compareHistoryRows(primaryRows, rows),
+        stalenessSeconds: 0,
+      };
+    } catch (error) {
+      return buildUnavailableCompare(source, summarizeError(error));
+    }
+  }
+
+  async buildQuoteComparison(symbol: string, compareWith: string | undefined, primaryQuote: MarketDataQuote | undefined): Promise<MarketDataComparison | undefined> {
+    const source = compareWith;
+    if (!source || !primaryQuote) {
+      return undefined;
+    }
+    try {
+      let quote: MarketDataQuote;
+      if (source === "schwab") {
+        if (!this.schwabRestClient.isConfigured()) {
+          return buildUnavailableCompare(source, "Schwab credentials are not configured");
+        }
+        quote = (await this.schwabRestClient.fetchQuoteEnvelope(symbol)).quote;
+      } else if (source === "alpaca") {
+        quote = await this.alpacaClient.fetchQuote(symbol);
+      } else {
+        return buildUnavailableCompare(source, "Unsupported comparison provider");
+      }
+      return {
+        source,
+        available: true,
+        mismatchSummary: compareQuotes(primaryQuote, quote),
+        stalenessSeconds: 0,
+      };
+    } catch (error) {
+      return buildUnavailableCompare(source, summarizeError(error));
+    }
+  }
+
+  recordSourceUsage(source: string): void {
+    this.providerMetrics.sourceUsage[source] = (this.providerMetrics.sourceUsage[source] ?? 0) + 1;
+  }
+}
+
+function summarizeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

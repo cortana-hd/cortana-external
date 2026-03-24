@@ -1,0 +1,14 @@
+CANSLIM Scan
+
+Takeaway
+- Market: correction — no new positions
+- Macro: Mixed overlay — Top Polymarket themes are pulling in different directions.
+- Polymarket snapshot: Fed easing odds 75% (0 pts/24h); US recession odds 34% (0 pts/24h); Inflation upside risk 98% (+1 pts/24h)
+- Risk: remaining risk budget 0% | exposure cap 0% | market regime correction
+- Scan input: 20 pinned + 100 ranked names | source cache | cache age 0.4h
+
+Decision
+- Scan result: Scanned 120 | market gate active | 0 BUY | 0 WATCH
+- Top names considered: OXY, GEV, FANG
+- Why no buys: Regime score -7: 7 distribution days and -6.4% drawdown. Stay defensive
+- Leader-bucket overlap: priority OXY, GEV, FANG | weekly OXY, GEV, FANG | monthly OXY, GEV, FANG

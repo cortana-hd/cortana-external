@@ -13,8 +13,11 @@ JSON_OUTPUT="${JSON_OUTPUT:-0}"
 MARKET_DATA_SERVICE_URL="${MARKET_DATA_SERVICE_URL:-http://localhost:3033}"
 RUN_MARKET_DATA_OPS="${RUN_MARKET_DATA_OPS:-1}"
 RUN_PREDICTION_ACCURACY="${RUN_PREDICTION_ACCURACY:-1}"
+RUN_CRYPTO_DAILY_REFRESH="${RUN_CRYPTO_DAILY_REFRESH:-0}"
+CRYPTO_REFRESH_SYMBOLS="${CRYPTO_REFRESH_SYMBOLS:-BTC,ETH}"
 REQUIRE_MARKET_DATA_SERVICE="${REQUIRE_MARKET_DATA_SERVICE:-1}"
 REQUIRE_SCHWAB_CONFIGURED="${REQUIRE_SCHWAB_CONFIGURED:-1}"
+AUTO_COMMIT_PR="${AUTO_COMMIT_PR:-0}"
 
 source "${SCRIPT_DIR}/market_data_preflight.sh"
 
@@ -41,6 +44,34 @@ if [[ "${REQUIRE_MARKET_DATA_SERVICE}" == "1" ]]; then
   ensure_market_data_runtime_ready "${MARKET_DATA_SERVICE_URL}" "${REQUIRE_SCHWAB_CONFIGURED}"
 fi
 
+if [[ "${RUN_CRYPTO_DAILY_REFRESH}" == "1" ]]; then
+  echo
+  echo "== Refreshing direct crypto cache (${CRYPTO_REFRESH_SYMBOLS}) =="
+  CRYPTO_REFRESH_RAW="$(mktemp)"
+  if curl -fsS -X POST "${MARKET_DATA_SERVICE_URL}/market-data/crypto/refresh?symbols=${CRYPTO_REFRESH_SYMBOLS}" \
+    >"${CRYPTO_REFRESH_RAW}" 2>/dev/null
+  then
+    python3 - "${CRYPTO_REFRESH_RAW}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+rows = ((payload.get("data") or {}).get("refreshed") or [])
+print("Crypto refresh\n")
+for row in rows:
+    print(
+        f"- {row.get('symbol')}: {row.get('status')} | "
+        f"rows {row.get('rowCount')} | refreshedAt {row.get('refreshedAt')}"
+    )
+PY
+  else
+    printf '%s\n' "Crypto refresh" "" "- Unable to refresh ${CRYPTO_REFRESH_SYMBOLS} via ${MARKET_DATA_SERVICE_URL}/market-data/crypto/refresh"
+  fi
+  rm -f "${CRYPTO_REFRESH_RAW}"
+fi
+
 (
   cd "${BACKTESTER_DIR}"
   uv run python nightly_discovery.py "${ARGS[@]}"
@@ -64,5 +95,7 @@ if [[ "${RUN_PREDICTION_ACCURACY}" == "1" ]]; then
   )
 fi
 
-source "${SCRIPT_DIR}/auto_commit_pr.sh"
-auto_commit_pr "nighttime" "${RUN_STAMP}" "${REPO_ROOT}"
+if [[ "${AUTO_COMMIT_PR}" == "1" ]]; then
+  source "${SCRIPT_DIR}/auto_commit_pr.sh"
+  auto_commit_pr "nighttime" "${RUN_STAMP}" "${REPO_ROOT}"
+fi
