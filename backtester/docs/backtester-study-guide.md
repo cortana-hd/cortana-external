@@ -112,6 +112,8 @@ alias cxauth='cd /Users/hd/Developer/cortana-external && ./tools/stock-discovery
 alias crefresh_watchlists='cd /Users/hd/Developer/cortana-external && ./tools/market-intel/run_market_intel.sh && ./tools/stock-discovery/trend_sweep.sh'
 alias cwatch='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/watchlist_watch.sh'
 alias cwatch20='cd /Users/hd/Developer/cortana-external/backtester && WATCHLIST_LIMIT=20 ./scripts/watchlist_watch.sh'
+alias ctrade='cd /Users/hd/Developer/cortana-external/backtester && uv run python paper_trade_cycle.py --mode manual'
+alias ctrade_report='cd /Users/hd/Developer/cortana-external/backtester && uv run python paper_trade_report.py'
 ```
 
 How to think about them:
@@ -135,6 +137,10 @@ How to think about them:
   - quick live watchlist pulse using the latest watchlist artifacts
 - `cwatch20`
   - same as `cwatch`, but with a larger top-20 list
+- `ctrade`
+  - manually rerun the paper-trade lifecycle without rerunning the full wrappers
+- `ctrade_report`
+  - inspect the current paper-trade book and recent closed trades
 
 X/Twitter auth note:
 
@@ -307,6 +313,24 @@ If you still see `No settled prediction samples yet`:
 - `5d` starts getting more informative after about two weeks
 - `20d` is the one to take seriously after roughly a month of normal operation
 
+`Paper trade review`
+
+- this is the paper-trade lifecycle running in `nighttime` mode
+- it reviews existing paper positions using current Schwab-backed analysis
+- it does not open new positions by default during the nightly wrapper
+- `Sell now / closed now`
+  - paper positions that were closed during the latest review
+  - current reasons:
+    - stop hit
+    - target hit
+    - max hold reached
+    - signal downgrade to `NO_BUY`
+- `Open positions`
+  - the paper positions still active after the latest review
+- `Closed-trade performance`
+  - realized paper-trade summary
+  - this is not the same as the forward-return prediction-accuracy report
+
 #### Daytime Flow Sections
 
 `Registry audit`
@@ -355,6 +379,34 @@ If you still see `No settled prediction samples yet`:
   - what the strategy actually wants to do with those conditions
 - `WATCH only — correction regime blocks new dip buys`
   - the symbol(s) may be technically interesting, but the market regime is vetoing new entries
+
+`Paper trade cycle`
+
+- this is the paper-trade lifecycle running in `daytime` mode
+- it uses the latest alert snapshots from the current daytime run
+- new paper entries are allowed here, but only from fresh `BUY` signals
+- it will not open duplicate positions in the same symbol
+- `Opened now`
+  - new paper positions opened from the latest alert signals
+- `Sell now / closed now`
+  - paper positions closed because an exit rule fired
+- `Open positions`
+  - paper positions still live after the latest review
+
+Current paper defaults:
+
+- CANSLIM
+  - target `+15%`
+  - max hold `20` days
+- Dip Buyer
+  - target `+12%`
+  - max hold `10` days
+
+Important boundary:
+
+- this is still paper-only
+- the system is tracking trade decisions and realized paper P&L
+- it is not sending real brokerage orders
 
 #### BTC Quick Check
 

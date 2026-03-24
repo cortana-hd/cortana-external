@@ -14,6 +14,7 @@ JSON_OUTPUT="${JSON_OUTPUT:-0}"
 MARKET_DATA_SERVICE_URL="${MARKET_DATA_SERVICE_URL:-http://localhost:3033}"
 RUN_MARKET_DATA_OPS="${RUN_MARKET_DATA_OPS:-1}"
 RUN_PREDICTION_ACCURACY="${RUN_PREDICTION_ACCURACY:-1}"
+RUN_PAPER_TRADE_CYCLE="${RUN_PAPER_TRADE_CYCLE:-1}"
 RUN_CRYPTO_DAILY_REFRESH="${RUN_CRYPTO_DAILY_REFRESH:-0}"
 CRYPTO_REFRESH_SYMBOLS="${CRYPTO_REFRESH_SYMBOLS:-BTC,ETH}"
 REQUIRE_MARKET_DATA_SERVICE="${REQUIRE_MARKET_DATA_SERVICE:-1}"
@@ -98,6 +99,15 @@ if [[ "${RUN_PREDICTION_ACCURACY}" == "1" ]]; then
   (
     cd "${BACKTESTER_DIR}"
     uv run python prediction_accuracy_report.py
+  )
+fi
+
+if [[ "${RUN_PAPER_TRADE_CYCLE}" == "1" ]]; then
+  echo
+  echo "== Paper trade review =="
+  (
+    cd "${BACKTESTER_DIR}"
+    uv run python paper_trade_cycle.py --mode nighttime
   )
 fi
 

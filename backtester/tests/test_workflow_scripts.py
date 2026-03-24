@@ -96,6 +96,110 @@ def test_nighttime_flow_forces_progress_and_unbuffered_python(tmp_path):
     assert "NIGHTLY_PROGRESS=1" in uv_invocation
 
 
+def test_daytime_flow_runs_paper_trade_cycle_when_enabled(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uv_log = tmp_path / "uv.log"
+    _write_executable(
+        bin_dir / "curl",
+        textwrap.dedent(
+            """\
+            #!/usr/bin/env bash
+            if [[ "$1" == "-fsS" && "$2" == "http://localhost:3033/market-data/ops" ]]; then
+              printf '%s' '{"source":"service","status":"ok","data":{"serviceOperatorState":"healthy","serviceOperatorAction":"No operator action required."}}'
+              exit 0
+            fi
+            printf '%s' '{"source":"service","status":"ok","data":{"ready":true,"operatorState":"healthy","schwabStatus":"ok"}}'
+            """
+        ),
+    )
+    _write_executable(
+        bin_dir / "uv",
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            printf '%s\\n' "ARGS:$*" >>"{uv_log}"
+            if [[ "$1" == "run" && "$2" == "python" && "$3" == "paper_trade_cycle.py" && "$4" == "--mode" && "$5" == "daytime" ]]; then
+              printf '%s\\n' "Paper trade cycle"
+            fi
+            exit 0
+            """
+        ),
+    )
+
+    env = _shell_env(bin_dir)
+    env["RUN_MARKET_INTEL"] = "0"
+    env["RUN_DYNAMIC_WATCHLIST_REFRESH"] = "0"
+    env["RUN_DEEP_DIVE"] = "0"
+    env["RUN_CRYPTO_DAILY_REFRESH"] = "0"
+    env["REQUIRE_SCHWAB_CONFIGURED"] = "0"
+    env["LOCAL_RUNS_ROOT"] = str(tmp_path / "runs")
+
+    result = subprocess.run(
+        ["bash", str(DAYTIME_FLOW)],
+        cwd=str(BACKTESTER_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "== Paper trade cycle ==" in result.stdout
+    assert "Paper trade cycle" in result.stdout
+    uv_invocation = uv_log.read_text(encoding="utf-8")
+    assert "ARGS:run python paper_trade_cycle.py --mode daytime" in uv_invocation
+
+
+def test_nighttime_flow_runs_paper_trade_cycle_review_when_enabled(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uv_log = tmp_path / "uv.log"
+    _write_executable(
+        bin_dir / "uv",
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            printf '%s\\n' "ARGS:$*" >>"{uv_log}"
+            if [[ "$1" == "run" && "$2" == "python" && "$3" == "-u" && "$4" == "nightly_discovery.py" ]]; then
+              printf '%s\\n' "Nightly discovery progress: screening 1/1 TEST"
+              exit 0
+            fi
+            if [[ "$1" == "run" && "$2" == "python" && "$3" == "paper_trade_cycle.py" && "$4" == "--mode" && "$5" == "nighttime" ]]; then
+              printf '%s\\n' "Paper trade cycle"
+              exit 0
+            fi
+            exit 0
+            """
+        ),
+    )
+
+    env = _shell_env(bin_dir)
+    env["REQUIRE_MARKET_DATA_SERVICE"] = "0"
+    env["RUN_MARKET_DATA_OPS"] = "0"
+    env["RUN_PREDICTION_ACCURACY"] = "0"
+    env["RUN_CRYPTO_DAILY_REFRESH"] = "0"
+    env["NIGHTLY_LIMIT"] = "1"
+    env["SKIP_LIVE_PREFILTER_REFRESH"] = "1"
+
+    result = subprocess.run(
+        ["bash", str(NIGHTTIME_FLOW)],
+        cwd=str(BACKTESTER_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "== Paper trade review ==" in result.stdout
+    assert "Paper trade cycle" in result.stdout
+    uv_invocation = uv_log.read_text(encoding="utf-8")
+    assert "ARGS:run python paper_trade_cycle.py --mode nighttime" in uv_invocation
+
+
 def test_trend_sweep_preserves_existing_watchlist_when_x_auth_is_unavailable(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

@@ -166,6 +166,10 @@ uv run python dipbuyer_alert.py --limit 8 --min-score 6
 
 # Broader overnight discovery
 uv run python nightly_discovery.py --limit 20
+
+# Run the paper-trade lifecycle directly
+uv run python paper_trade_cycle.py --mode manual
+uv run python paper_trade_report.py
 ```
 
 ## Workflow Wrappers
@@ -178,6 +182,10 @@ From [backtester](.):
 
 # Nighttime discovery flow: broader scan and cache refresh
 ./scripts/nighttime_flow.sh
+
+# Paper-trade lifecycle and current paper book summary
+uv run python paper_trade_cycle.py --mode manual
+uv run python paper_trade_report.py
 
 # Historical strategy backtest flow
 ./scripts/backtest_flow.sh
@@ -206,6 +214,10 @@ RUN_DYNAMIC_WATCHLIST_REFRESH=0 ./scripts/daytime_flow.sh
 
 # Skip the market-data ops summary in the local wrappers
 RUN_MARKET_DATA_OPS=0 ./scripts/daytime_flow.sh
+
+# Skip the paper-trade lifecycle in the wrappers
+RUN_PAPER_TRADE_CYCLE=0 ./scripts/daytime_flow.sh
+RUN_PAPER_TRADE_CYCLE=0 ./scripts/nighttime_flow.sh
 
 # Change the quick-check symbol
 QUICK_CHECK_SYMBOL=NVDA ./scripts/daytime_flow.sh
@@ -290,6 +302,8 @@ alias cxauth='cd /Users/hd/Developer/cortana-external && ./tools/stock-discovery
 alias crefresh_watchlists='cd /Users/hd/Developer/cortana-external && ./tools/market-intel/run_market_intel.sh && ./tools/stock-discovery/trend_sweep.sh'
 alias cwatch='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/watchlist_watch.sh'
 alias cwatch20='cd /Users/hd/Developer/cortana-external/backtester && WATCHLIST_LIMIT=20 ./scripts/watchlist_watch.sh'
+alias ctrade='cd /Users/hd/Developer/cortana-external/backtester && uv run python paper_trade_cycle.py --mode manual'
+alias ctrade_report='cd /Users/hd/Developer/cortana-external/backtester && uv run python paper_trade_report.py'
 ```
 
 How to think about them:
@@ -313,6 +327,10 @@ How to think about them:
   - quick live watchlist pulse using the latest Polymarket + dynamic watchlists
 - `cwatch20`
   - same as `cwatch`, but shows a larger top-20 slice
+- `ctrade`
+  - manually rerun the paper-trade lifecycle outside the wrappers
+- `ctrade_report`
+  - inspect the current paper book, recent closes, and closed-trade performance
 
 X/Twitter auth note:
 
@@ -363,21 +381,113 @@ If you are SSHed into the Mac mini:
   - `cday_nostream`
   - `clive`
   - `clive4`
-  - `cwatch`
-  - `cwatch20`
+- `cwatch`
+- `cwatch20`
+- `ctrade`
+- `ctrade_report`
+
+## Paper Trade Lifecycle
+
+The paper-trade layer sits on top of the existing analysis engine.
+
+What it does:
+
+- reads the latest `BUY / WATCH / NO_BUY` snapshots from the current alert system
+- opens paper positions only from fresh `BUY` signals
+- reviews existing paper positions against current Schwab-backed analysis
+- closes paper positions when a simple exit rule fires
+- tracks realized performance separately from the older prediction-accuracy report
+
+Important boundary:
+
+- TS still owns market-data access
+- Python owns the trade-analysis and paper-trade lifecycle
+- this is still paper-only
+- nothing here sends real brokerage orders
+
+Default wrapper behavior:
+
+- `cday`
+  - refreshes context
+  - runs CANSLIM and Dip Buyer
+  - then runs the paper-trade cycle in `daytime` mode
+  - new paper entries are allowed here
+- `cnight`
+  - runs nightly discovery and prediction accuracy
+  - then runs the paper-trade cycle in `nighttime` mode
+  - this reviews and closes positions, but does not open fresh entries by default
+
+Current entry and exit rules:
+
+- entries
+  - require a fresh `BUY` signal from the latest strategy snapshot
+  - only one open paper position per symbol
+  - capped by the paper-trade max-open and max-new-position limits
+- exits
+  - stop hit
+  - target hit
+  - max hold reached
+  - current strategy signal downgrades to `NO_BUY`
+
+Current targets:
+
+- CANSLIM
+  - default paper target `+15%`
+  - default max hold `20` days
+- Dip Buyer
+  - default paper target `+12%`
+  - default max hold `10` days
+
+Artifacts written:
+
+- open positions:
+  - [.cache/paper_trades/open_positions.json](./.cache/paper_trades/open_positions.json)
+- closed positions:
+  - [.cache/paper_trades/closed_positions.json](./.cache/paper_trades/closed_positions.json)
+- latest cycle summary:
+  - [.cache/paper_trades/cycle-latest.json](./.cache/paper_trades/cycle-latest.json)
+- performance summary:
+  - [.cache/paper_trades/performance-summary.json](./.cache/paper_trades/performance-summary.json)
+
+How to use it:
+
+1. run `cday`
+   - this gives you the normal operator view and updates the paper-trade book
+2. if you want to inspect the trade book again without rerunning the whole daytime flow:
+   - run `ctrade_report`
+3. after the close, run `cnight`
+   - this settles prediction-accuracy samples and reviews the paper-trade book overnight
+4. if you want to rerun the paper-trade engine manually:
+   - run `ctrade`
+
+How to read the paper-trade section:
+
+- `Opened now`
+  - new paper positions opened from fresh `BUY` signals
+- `Sell now / closed now`
+  - positions that were closed by stop, target, time stop, or signal downgrade
+- `Open positions`
+  - positions still live after the latest review
+- `Closed-trade performance`
+  - realized paper-trade summary
+  - this is separate from the broader prediction-accuracy forward-return loop
 
 ## When To Run Each Script
 
 Use this as the default operator cadence:
 
 - `./scripts/daytime_flow.sh`
-  - run during market hours when you want the current regime, live bucket context, market-data ops summary, CANSLIM, Dip Buyer, and a quick-check in one local view
+  - run during market hours when you want the current regime, live bucket context, market-data ops summary, CANSLIM, Dip Buyer, the paper-trade cycle, and a quick-check in one local view
   - best for `pre-market`, `morning`, `midday`, or `late afternoon` spot checks
   - optional: pass `RUN_CRYPTO_DAILY_REFRESH=1` to refresh the direct crypto daily cache once before the rest of the run
 - `./scripts/nighttime_flow.sh`
   - run after market close or overnight
-  - use it to refresh the next day’s inputs, rebuild leader buckets, print the current market-data ops state, settle logged prediction snapshots, and persist nightly research artifacts
+  - use it to refresh the next day’s inputs, rebuild leader buckets, print the current market-data ops state, settle logged prediction snapshots, review the paper-trade book, and persist nightly research artifacts
   - optional: pass `RUN_CRYPTO_DAILY_REFRESH=1` to seed/update the direct crypto daily cache overnight
+- `uv run python paper_trade_cycle.py --mode manual`
+  - run when you want to manually refresh the paper-trade lifecycle without rerunning the full wrappers
+- `uv run python paper_trade_report.py`
+  - run when you want a compact paper-book / recent-close summary only
 - `./scripts/backtest_flow.sh`
   - run when you want to test a strategy on past data instead of reading the live operator flow
   - best for idea validation, not live decisions

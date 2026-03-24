@@ -28,6 +28,7 @@ RUN_CRYPTO_DAILY_REFRESH="${RUN_CRYPTO_DAILY_REFRESH:-0}"
 CRYPTO_REFRESH_SYMBOLS="${CRYPTO_REFRESH_SYMBOLS:-BTC,ETH}"
 REQUIRE_MARKET_DATA_SERVICE="${REQUIRE_MARKET_DATA_SERVICE:-1}"
 REQUIRE_SCHWAB_CONFIGURED="${REQUIRE_SCHWAB_CONFIGURED:-1}"
+RUN_PAPER_TRADE_CYCLE="${RUN_PAPER_TRADE_CYCLE:-1}"
 AUTO_COMMIT_PR="${AUTO_COMMIT_PR:-0}"
 
 mkdir -p "${LOCAL_RUN_DIR}"
@@ -166,6 +167,17 @@ run_formatted_section \
     --limit "${DIPBUYER_LIMIT}" \
     --min-score "${DIPBUYER_MIN_SCORE}" \
     --review-detail-limit "${REVIEW_DETAIL_LIMIT}"
+
+if [[ "${RUN_PAPER_TRADE_CYCLE}" == "1" ]]; then
+  echo
+  echo "== Paper trade cycle =="
+  (
+    cd "${BACKTESTER_DIR}"
+    uv run python paper_trade_cycle.py --mode daytime \
+      >"${LOCAL_RUN_DIR}/paper-trade-cycle.txt" 2>&1
+  )
+  cat "${LOCAL_RUN_DIR}/paper-trade-cycle.txt"
+fi
 
 if [[ "${RUN_DEEP_DIVE}" == "1" ]]; then
   echo
