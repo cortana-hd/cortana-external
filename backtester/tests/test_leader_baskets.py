@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from data.leader_baskets import build_leader_baskets, load_leader_priority_symbols, persist_leader_snapshot
@@ -45,11 +46,12 @@ def test_build_leader_baskets_aggregates_daily_weekly_monthly_history(tmp_path):
 
 
 def test_load_leader_priority_symbols_respects_artifact_age(tmp_path):
+    generated_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
     artifact_path = Path(tmp_path) / "leader-baskets-latest.json"
     artifact_path.write_text(
         json.dumps(
             {
-                "generated_at": "2026-03-20T12:00:00+00:00",
+                "generated_at": generated_at,
                 "priority": {"symbols": ["NVDA", "AMD", "MSFT"]},
             }
         ),

@@ -1060,6 +1060,7 @@ describe("market-data routes", () => {
   });
 
   it("skips same-day crypto refresh unless force=1", async () => {
+    const refreshedAt = new Date().toISOString();
     const app = new Hono();
     const service = new MarketDataService({
       config: {
@@ -1084,7 +1085,7 @@ describe("market-data routes", () => {
                       price: 3500,
                       volume_24h: 654321,
                       percent_change_24h: 1.5,
-                      last_updated: "2026-03-23T22:40:00.000Z",
+                      last_updated: refreshedAt,
                     },
                   },
                 },
