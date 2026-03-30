@@ -60,4 +60,4 @@ def test_distribution_calendar_note_explains_missing_latest_day():
 
     note = detector.get_distribution_calendar_note(lookback=25)
 
-    assert note == "Today is not listed because it did not qualify as a distribution day."
+    assert note == "2026-03-24 is not listed because it did not qualify as a distribution day."

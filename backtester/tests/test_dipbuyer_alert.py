@@ -19,6 +19,7 @@ def _disable_polymarket_artifacts(monkeypatch, tmp_path):
     monkeypatch.setenv("POLYMARKET_COMPACT_REPORT_PATH", str(tmp_path / "missing-compact.txt"))
     monkeypatch.setenv("POLYMARKET_REPORT_JSON_PATH", str(tmp_path / "missing-report.json"))
     monkeypatch.setenv("POLYMARKET_WATCHLIST_PATH", str(tmp_path / "missing-watchlist.json"))
+    monkeypatch.setenv("BUY_DECISION_CALIBRATION_PATH", str(tmp_path / "missing-calibration.json"))
     monkeypatch.setattr("dipbuyer_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
 
 

@@ -24,6 +24,11 @@ from data.leader_baskets import load_leader_priority_symbols
 from data.polymarket_context import build_alert_context_lines
 from data.universe import GROWTH_WATCHLIST
 from data.universe_selection import RankedUniverseSelector, UniverseSelectionResult
+from evaluation.alert_posture import (
+    describe_alert_posture,
+    describe_calibration_note,
+    load_buy_decision_calibration_summary,
+)
 from evaluation.prediction_accuracy import persist_prediction_snapshot
 from evaluation.decision_review import render_decision_review
 
@@ -390,6 +395,7 @@ def format_alert(
         symbol_hint=symbols[0] if symbols else None,
         selected_symbols=symbols,
     )
+    calibration_note = describe_calibration_note(load_buy_decision_calibration_summary())
     if timing_enabled:
         phase_timings["universe"] = time.perf_counter() - start
 
@@ -404,6 +410,8 @@ def format_alert(
     execution_line = _execution_quality_line(execution_overlay)
     if execution_line:
         lines.append(execution_line)
+    if calibration_note:
+        lines.append(calibration_note)
     selection_summary = _selection_line(selection, len(symbols))
     if selection_summary:
         lines.append(selection_summary)
@@ -413,6 +421,9 @@ def format_alert(
     if getattr(getattr(market, "regime", None), "value", "") == "correction":
         blocked = [{"symbol": s, "action": "NO_BUY", "score": 0, "reason": market.notes or "market correction gate"} for s in symbols[:limit]]
         _persist_predictions(market=market, records=blocked)
+        posture_line = describe_alert_posture(market_regime=regime_value, buy_count=0, watch_count=0)
+        if posture_line:
+            lines.append(posture_line)
         lines.append(f"Scanned {len(symbols)} | market gate active | 0 BUY | 0 WATCH")
         lines.append(f"Top names considered: {_top_names([{'symbol': s} for s in symbols], 3)}")
         lines.append(f"Why no buys: {_dedupe_reason(market.notes or 'market correction gate')}")
@@ -505,6 +516,9 @@ def format_alert(
     watch_count = sum(1 for c in candidates if c["action"] == "WATCH")
     no_buy_count = sum(1 for c in candidates if c["action"] == "NO_BUY")
 
+    posture_line = describe_alert_posture(market_regime=regime_value, buy_count=buy_count, watch_count=watch_count)
+    if posture_line:
+        lines.append(posture_line)
     lines.append(f"Scanned {len(symbols)} | {len(passed)} passed threshold | {buy_count} BUY | {watch_count} WATCH")
     lines.append(f"Top names considered: {_top_names(candidates, 3)}")
 

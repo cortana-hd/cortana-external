@@ -13,6 +13,8 @@ SPEC.loader.exec_module(MODULE)
 def test_format_alert_simplifies_context_and_decision():
     raw = """CANSLIM Scan
 Market: correction — no new positions
+Alert posture: review only — correction regime. Treat surfaced names as a watchlist, not a buy-now alert.
+Calibration note: uncalibrated — no settled outcomes yet, so confidence is still model-estimated rather than proven.
 Polymarket: Fed easing odds 64% (0 pts/24h); US recession odds 36% (0 pts/24h)
 Overlay: Risk-on conflict — Polymarket is leaning risk-on, but the current equity regime is not fully supportive.
 Risk budget: remaining 0% | cap 0% | aggression lean more selective | note market regime correction
@@ -25,6 +27,8 @@ Why no buys: Regime score -7: 6 distribution days and -5.9% drawdown. Stay defen
 
     assert "Takeaway" in text
     assert "- Market: correction — no new positions" in text
+    assert "- Alert posture: review only — correction regime. Treat surfaced names as a watchlist, not a buy-now alert." in text
+    assert "- Calibration: uncalibrated — no settled outcomes yet, so confidence is still model-estimated rather than proven." in text
     assert "- Macro: Risk-on conflict — Polymarket is leaning risk-on, but the current equity regime is not fully supportive." in text
     assert "- Risk: remaining risk budget 0% | exposure cap 0% | market regime correction" in text
     assert "- Trading conditions: quality good | liquidity high | slippage high" in text

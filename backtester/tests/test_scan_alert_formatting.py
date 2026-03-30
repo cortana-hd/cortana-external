@@ -20,6 +20,7 @@ def _disable_polymarket_artifacts(monkeypatch, tmp_path):
     monkeypatch.setenv("POLYMARKET_COMPACT_REPORT_PATH", str(tmp_path / "missing-compact.txt"))
     monkeypatch.setenv("POLYMARKET_REPORT_JSON_PATH", str(tmp_path / "missing-report.json"))
     monkeypatch.setenv("POLYMARKET_WATCHLIST_PATH", str(tmp_path / "missing-watchlist.json"))
+    monkeypatch.setenv("BUY_DECISION_CALIBRATION_PATH", str(tmp_path / "missing-calibration.json"))
     monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "0")
     monkeypatch.setattr("canslim_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
     monkeypatch.setattr("dipbuyer_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
@@ -81,6 +82,7 @@ def test_canslim_alert_is_compact_when_market_gate_blocks_buys():
     assert text.splitlines() == [
         "CANSLIM Scan",
         "Market: correction — no new positions",
+        "Alert posture: stand aside — correction regime. This is a status update, not a buy-now alert.",
         "Scanned 4 | market gate active | 0 BUY | 0 WATCH",
         "Top names considered: CFLT, HWM, ALUR",
         "Why no buys: market correction gate",
@@ -207,6 +209,7 @@ def test_dipbuyer_alert_is_compact_when_market_gate_blocks_buys():
     assert text.splitlines() == [
         "Dip Buyer Scan",
         "Market regime: correction",
+        "Alert posture: stand aside — correction regime. This is a status update, not a buy-now alert.",
         "Qualified setups: 3 of 4 scanned | BUY 0 | WATCH 0",
         "BUY names: none",
         "Top leaders: CFLT NO_BUY (7/12) | HWM NO_BUY (7/12) | ALUR NO_BUY (6/12)",
@@ -253,10 +256,29 @@ def test_dipbuyer_alert_downgrades_buys_to_watch_in_correction_mode():
     ), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
         text = format_dipbuyer(limit=5, min_score=6, universe_size=4, review_detail_limit=5)
 
+    assert "Alert posture: review only — correction regime. Treat surfaced names as a watchlist, not a buy-now alert." in text
     assert "Qualified setups: 3 of 4 scanned | BUY 0 | WATCH 3" in text
     assert "Watch names (regime-blocked buys): CFLT, HWM, ALUR" in text
     assert "Top leaders: CFLT WATCH (9/12) | HWM WATCH (8/12) | ALUR WATCH (7/12)" in text
     assert "Final action: WATCH only — correction regime blocks new dip buys" in text
+
+
+def test_alerts_surface_uncalibrated_confidence_note_when_no_settled_records(tmp_path, monkeypatch):
+    calibration_path = tmp_path / "buy-decision-calibration.json"
+    calibration_path.write_text(
+        '{"freshness":{"is_stale":true,"reason":"no_settled_records"},"summary":{"settled_candidates":0}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BUY_DECISION_CALIBRATION_PATH", str(calibration_path))
+    fake = _FakeCanSlimAdvisor()
+
+    with patch("canslim_alert.TradingAdvisor", return_value=fake), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
+        text = format_canslim(limit=5, min_score=6, universe_size=4)
+
+    assert (
+        "Calibration note: uncalibrated — no settled outcomes yet, so confidence is still model-estimated rather than proven."
+        in text
+    )
 
 
 def test_canslim_alert_uses_trade_quality_order_for_leaders():

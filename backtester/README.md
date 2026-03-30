@@ -420,6 +420,18 @@ What it does:
 - saves raw and formatted local artifacts under:
   - [var/local-workflows](./var/local-workflows)
 
+New alert wording:
+- `Alert posture`
+  - the compact urgency label for the alert itself
+  - `review only`
+    - this is a watchlist/status update, not a buy-now alert
+  - `stand aside`
+    - the market posture is defensive and the alert is not asking for action now
+- `Calibration note`
+  - tells you whether confidence is backed by settled history yet
+  - `uncalibrated`
+    - the model can still rank names, but the confidence number is not proven by closed outcomes yet
+
 Service note:
 - the live engine expects the TS service at `http://localhost:3033` unless you override `MARKET_DATA_SERVICE_URL`
 - if the service is unavailable, Python falls back to local cache where possible and otherwise uses conservative degraded behavior
@@ -769,6 +781,9 @@ If `.cache` is missing:
 - calibration says `no_settled_records`
   - the pipeline is usually fine
   - it means the research history exists but there are no settled samples yet
+  - if daytime alerts say `Calibration note: uncalibrated`, read that as:
+    - ranking is still live
+    - confidence is still model-estimated rather than validated by enough closed outcomes
 
 - prediction accuracy says `No settled prediction samples yet.`
   - snapshot logging is working

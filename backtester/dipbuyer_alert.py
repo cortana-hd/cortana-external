@@ -23,6 +23,11 @@ from data.polymarket_context import build_alert_context_lines
 from data.universe import GROWTH_WATCHLIST
 from data.universe_selection import RankedUniverseSelector, UniverseSelectionResult
 from data.x_sentiment import XSentimentAnalyzer
+from evaluation.alert_posture import (
+    describe_alert_posture,
+    describe_calibration_note,
+    load_buy_decision_calibration_summary,
+)
 from evaluation.prediction_accuracy import persist_prediction_snapshot
 from evaluation.decision_review import render_decision_review
 from strategies.dip_buyer import DIPBUYER_CONFIG
@@ -447,6 +452,7 @@ def format_alert(
         symbol_hint=symbols[0] if symbols else None,
         selected_symbols=symbols,
     )
+    calibration_note = describe_calibration_note(load_buy_decision_calibration_summary())
 
     lines = [
         "Dip Buyer Scan",
@@ -459,6 +465,8 @@ def format_alert(
     execution_line = _execution_quality_line(execution_overlay)
     if execution_line:
         lines.append(execution_line)
+    if calibration_note:
+        lines.append(calibration_note)
     selection_summary = _selection_line(selection, len(symbols))
     if selection_summary:
         lines.append(selection_summary)
@@ -543,6 +551,9 @@ def format_alert(
     if not passed:
         blocked = [{"symbol": s, "action": "NO_BUY", "score": 0, "reason": market.notes or "market correction gate"} for s in symbols[:limit]]
         _persist_predictions(market=market, records=blocked)
+        posture_line = describe_alert_posture(market_regime=regime_value, buy_count=0, watch_count=0)
+        if posture_line:
+            lines.append(posture_line)
         lines.append(f"Qualified setups: 0 of {len(symbols)} scanned | BUY 0 | WATCH 0")
         lines.append(f"Top leaders: {_top_names([{'symbol': s} for s in symbols], 3)}")
         lines.append(f"Final action: DO NOT BUY — market regime veto ({_dedupe_reason(market.notes or 'market correction gate')})")
@@ -558,6 +569,9 @@ def format_alert(
     watch_count = len(watch_candidates)
     blocked_buy_count = sum(1 for c in candidates if c["action"] == "BUY") if regime_value == "correction" else 0
 
+    posture_line = describe_alert_posture(market_regime=regime_value, buy_count=buy_count, watch_count=watch_count)
+    if posture_line:
+        lines.append(posture_line)
     lines.append(f"Qualified setups: {len(passed)} of {len(symbols)} scanned | BUY {buy_count} | WATCH {watch_count}")
     if regime_value == "correction" and watch_count > 0:
         lines.append(f"Watch names (regime-blocked buys): {_all_names(watch_candidates, 10)}")

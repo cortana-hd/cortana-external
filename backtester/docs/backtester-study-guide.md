@@ -928,6 +928,12 @@ Plain-English meaning:
 Use it when you want:
 - a summarized list of the strongest CANSLIM-style setups
 
+New operator wording:
+- `Alert posture`
+  - the alert’s urgency label
+  - in a `correction`, this is intentionally phrased as `review only` or `stand aside`
+  - that is there to prevent downstream wrappers from turning a defensive watchlist update into a fake buy-now alert
+
 #### Dip Buyer alert
 
 File:
@@ -938,6 +944,13 @@ Plain-English meaning:
 
 Use it when you want:
 - a summarized list of dip-style setups and watch names
+
+Confidence wording:
+- `Calibration note`
+  - tells you whether confidence is already backed by settled outcomes
+  - `uncalibrated`
+    - the signal can still be useful
+    - but the confidence number should be read as model-estimated, not yet proven by closed outcomes
 
 #### Quick-check
 
@@ -1060,6 +1073,14 @@ Sometimes the calibration artifact exists but still says:
 That usually means:
 - the file was created correctly
 - but there are no old research snapshots with settled outcomes yet
+
+When that happens, daytime alerts now say:
+- `Calibration note: uncalibrated`
+
+Read that as:
+- the scan still works
+- the ranking still works
+- but the confidence value is not yet validated by enough settled history
 
 So this does **not** automatically mean:
 - the pipeline is broken

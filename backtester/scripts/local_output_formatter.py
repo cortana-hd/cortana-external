@@ -196,10 +196,16 @@ def format_alert(text: str, *, leader_bucket_path: str | None = None) -> str:
     takeaway: list[str] = []
     market = _find_line(lines, "Market:")
     market_regime = _find_line(lines, "Market regime:")
+    alert_posture = _find_line(lines, "Alert posture:")
+    calibration_note = _find_line(lines, "Calibration note:")
     if market:
         takeaway.append(f"Market: {market}")
     elif market_regime:
         takeaway.append(f"Market: {market_regime}")
+    if alert_posture:
+        takeaway.append(f"Alert posture: {alert_posture}")
+    if calibration_note:
+        takeaway.append(f"Calibration: {calibration_note}")
     takeaway.extend(_summarize_polymarket(lines))
     takeaway.extend(_summarize_risk(lines))
 
