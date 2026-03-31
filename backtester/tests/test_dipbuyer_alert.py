@@ -215,7 +215,8 @@ def test_format_alert_reports_degraded_market_status_with_next_action():
     assert "Qualified setups: 1 of 1 scanned | BUY 0 | WATCH 1" in text
     assert "Watch names (regime-blocked buys): MSFT" in text
     assert "Final action: WATCH only — correction regime blocks new dip buys (Cached market fallback active)" in text
-    assert "Note: degraded market data (720s stale)" in text
+    assert "Warning: degraded market regime input — Providers unavailable. Using cached market snapshot (12m old) (snapshot age 12m)" in text
+    assert "Recovery: Retry market fetch after cooldown (45s) or refresh cache" in text
 
 
 def test_format_alert_includes_decision_review_for_top_leaders():

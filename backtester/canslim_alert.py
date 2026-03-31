@@ -60,6 +60,36 @@ def _market_headline(market) -> str:
     return f"Market: {regime} — position sizing {market.position_sizing:.0%}"
 
 
+def _age_to_human(seconds: float) -> str:
+    seconds = max(float(seconds or 0.0), 0.0)
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m"
+    return f"{seconds / 3600:.1f}h"
+
+
+def _market_degraded_warning_line(market) -> str:
+    if getattr(market, "status", "ok") != "degraded":
+        return ""
+    reason = _dedupe_reason(
+        getattr(market, "degraded_reason", "") or "Market regime inputs are degraded"
+    )
+    age_seconds = float(getattr(market, "snapshot_age_seconds", 0.0) or 0.0)
+    if age_seconds > 0:
+        reason += f" (snapshot age {_age_to_human(age_seconds)})"
+    return f"Warning: degraded market regime input — {reason}"
+
+
+def _market_recovery_line(market) -> str:
+    if getattr(market, "status", "ok") != "degraded":
+        return ""
+    next_action = _dedupe_reason(getattr(market, "next_action", "") or "")
+    if not next_action:
+        return ""
+    return f"Recovery: {next_action}"
+
+
 def _top_names(records: list[dict], limit: int = 3) -> str:
     names = []
     seen = set()
@@ -403,6 +433,9 @@ def format_alert(
         "CANSLIM Scan",
         _market_headline(market),
     ]
+    degraded_warning = _market_degraded_warning_line(market)
+    if degraded_warning:
+        lines.append(degraded_warning)
     lines.extend(_run_quiet(build_alert_context_lines, GROWTH_WATCHLIST))
     risk_line = _risk_budget_line(risk_overlay)
     if risk_line:
@@ -427,6 +460,9 @@ def format_alert(
         lines.append(f"Scanned {len(symbols)} | market gate active | 0 BUY | 0 WATCH")
         lines.append(f"Top names considered: {_top_names([{'symbol': s} for s in symbols], 3)}")
         lines.append(f"Why no buys: {_dedupe_reason(market.notes or 'market correction gate')}")
+        recovery_line = _market_recovery_line(market)
+        if recovery_line:
+            lines.append(recovery_line)
         if timing_enabled:
             lines.append(_format_timing_line(phase_timings, nested_timings))
         return "\n".join(lines)
@@ -533,8 +569,9 @@ def format_alert(
         review_pool = candidates[: min(limit, max(review_detail_limit, 5))]
         lines.extend(render_decision_review(review_pool, detail_limit=review_detail_limit))
 
-    if getattr(market, "status", "ok") == "degraded":
-        lines.append(f"Note: degraded market data ({float(getattr(market, 'snapshot_age_seconds', 0.0) or 0.0):.0f}s stale)")
+    recovery_line = _market_recovery_line(market)
+    if recovery_line:
+        lines.append(recovery_line)
     if timing_enabled:
         lines.append(_format_timing_line(phase_timings, nested_timings))
     return "\n".join(lines)

@@ -89,6 +89,26 @@ def test_canslim_alert_is_compact_when_market_gate_blocks_buys():
     ]
 
 
+def test_canslim_alert_surfaces_degraded_market_warning_in_compact_correction_mode():
+    fake = _FakeCanSlimAdvisor()
+    fake._market = SimpleNamespace(
+        regime=MarketRegime.CORRECTION,
+        position_sizing=0.0,
+        notes="Cached market fallback active.",
+        snapshot_age_seconds=7200.0,
+        status="degraded",
+        data_source="cache",
+        degraded_reason="Provider cooldown while fetching SPY 90d. Using cached market snapshot (2.0h old, beyond live TTL but within bounded fallback window).",
+        next_action="Retry market fetch after cooldown (45s) or refresh cache.",
+    )
+
+    with patch("canslim_alert.TradingAdvisor", return_value=fake), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
+        text = format_canslim(limit=5, min_score=6, universe_size=4)
+
+    assert "Warning: degraded market regime input — Provider cooldown while fetching SPY 90d. Using cached market snapshot (2.0h old, beyond live TTL but within bounded fallback window) (snapshot age 2.0h)" in text
+    assert "Recovery: Retry market fetch after cooldown (45s) or refresh cache" in text
+
+
 def test_priority_symbols_prefer_explicit_then_leader_baskets_then_bounded_watchlist(monkeypatch):
     monkeypatch.setenv("TRADING_PRIORITY_SYMBOLS", "TSLA")
     monkeypatch.delenv("TRADING_PRIORITY_FILE", raising=False)

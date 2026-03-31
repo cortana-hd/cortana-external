@@ -57,6 +57,7 @@ class MarketDataProvider:
         backoff_base_seconds: float = 0.75,
         backoff_jitter_seconds: float = 0.35,
         cooldown_seconds: int = 45,
+        stale_fallback_max_age_hours: float = 24.0,
     ):
         self.providers = [p.strip().lower() for p in provider_order.split(",") if p.strip()]
         self.service_base_url = os.getenv("MARKET_DATA_SERVICE_URL", service_base_url).rstrip("/")
@@ -66,6 +67,9 @@ class MarketDataProvider:
         self.backoff_base_seconds = float(backoff_base_seconds)
         self.backoff_jitter_seconds = float(backoff_jitter_seconds)
         self.cooldown_seconds = int(cooldown_seconds)
+        self.stale_fallback_max_age_hours = float(
+            os.getenv("MARKET_DATA_STALE_FALLBACK_MAX_AGE_HOURS", str(stale_fallback_max_age_hours))
+        )
 
     def get_history(self, symbol: str, period: str = "1y", auto_adjust: bool = False) -> MarketHistoryResult:
         symbol = symbol.upper().strip()
@@ -114,6 +118,20 @@ class MarketDataProvider:
                 ),
                 staleness_seconds=age_seconds,
             )
+        if transient_failures:
+            cached = self._read_cache(symbol, period, allow_stale_recent=True)
+            if cached is not None:
+                cached_frame, cache_source, age_seconds = cached
+                return MarketHistoryResult(
+                    frame=cached_frame,
+                    source="cache",
+                    status="degraded",
+                    degraded_reason=(
+                        "Live providers unavailable; using stale cached data "
+                        f"({int(age_seconds)}s old, original_source={cache_source}, beyond live TTL but within bounded fallback window)."
+                    ),
+                    staleness_seconds=age_seconds,
+                )
 
         reason_chunks = []
         if transient_failures:
@@ -407,7 +425,13 @@ class MarketDataProvider:
             # Cache write failure should never block live data path.
             return
 
-    def _read_cache(self, symbol: str, period: str) -> Optional[tuple[pd.DataFrame, str, float]]:
+    def _read_cache(
+        self,
+        symbol: str,
+        period: str,
+        *,
+        allow_stale_recent: bool = False,
+    ) -> Optional[tuple[pd.DataFrame, str, float]]:
         path = self._cache_path(symbol, period)
         if not path.exists():
             return None
@@ -420,7 +444,9 @@ class MarketDataProvider:
                 generated = generated.replace(tzinfo=timezone.utc)
             age_seconds = max((datetime.now(timezone.utc) - generated).total_seconds(), 0.0)
             if age_seconds > self.cache_ttl_seconds:
-                return None
+                max_stale_seconds = max(self.stale_fallback_max_age_hours * 3600.0, float(self.cache_ttl_seconds))
+                if not allow_stale_recent or age_seconds > max_stale_seconds:
+                    return None
 
             rows = payload.get("rows") or []
             if not rows:

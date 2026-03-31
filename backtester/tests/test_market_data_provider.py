@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+import json
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import requests
@@ -74,6 +75,86 @@ def test_degraded_cache_path_when_live_providers_fail(tmp_path):
     assert result.source == "cache"
     assert result.status == "degraded"
     assert "cached" in result.degraded_reason.lower()
+
+
+def test_stale_cache_within_bounded_window_is_used_for_transient_failures(tmp_path):
+    provider = MarketDataProvider(
+        cache_dir=str(tmp_path),
+        cache_ttl_seconds=60,
+        max_retries=0,
+        stale_fallback_max_age_hours=24,
+    )
+    cache_path = tmp_path / "SPY_90d.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "symbol": "SPY",
+                "period": "90d",
+                "source": "schwab",
+                "generated_at_utc": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
+                "rows": [
+                    {
+                        "date": idx.isoformat(),
+                        "Open": float(row["Open"]),
+                        "High": float(row["High"]),
+                        "Low": float(row["Low"]),
+                        "Close": float(row["Close"]),
+                        "Volume": float(row["Volume"]),
+                    }
+                    for idx, row in _frame().iterrows()
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    provider._fetch_service_history = lambda *args, **kwargs: (_ for _ in ()).throw(MarketDataError("provider cooldown", transient=True))  # type: ignore[method-assign]
+    result = provider.get_history("SPY", period="90d")
+
+    assert result.source == "cache"
+    assert result.status == "degraded"
+    assert "bounded fallback window" in result.degraded_reason
+
+
+def test_stale_cache_beyond_bounded_window_is_not_used(tmp_path):
+    provider = MarketDataProvider(
+        cache_dir=str(tmp_path),
+        cache_ttl_seconds=60,
+        max_retries=0,
+        stale_fallback_max_age_hours=1,
+    )
+    cache_path = tmp_path / "SPY_90d.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "symbol": "SPY",
+                "period": "90d",
+                "source": "schwab",
+                "generated_at_utc": (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(),
+                "rows": [
+                    {
+                        "date": idx.isoformat(),
+                        "Open": float(row["Open"]),
+                        "High": float(row["High"]),
+                        "Low": float(row["Low"]),
+                        "Close": float(row["Close"]),
+                        "Volume": float(row["Volume"]),
+                    }
+                    for idx, row in _frame().iterrows()
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    provider._fetch_service_history = lambda *args, **kwargs: (_ for _ in ()).throw(MarketDataError("provider cooldown", transient=True))  # type: ignore[method-assign]
+
+    with pytest.raises(MarketDataError) as exc:
+        provider.get_history("SPY", period="90d")
+
+    assert "provider cooldown" in str(exc.value)
 
 
 def test_fallback_between_supported_providers_defaults_to_service(tmp_path):

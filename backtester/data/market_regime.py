@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -138,6 +139,9 @@ class MarketRegimeDetector:
         backoff_base_seconds: float = 0.75,
         backoff_jitter_seconds: float = 0.35,
         cooldown_seconds: int = 45,
+        transient_retry_attempts: int = 2,
+        transient_retry_backoff_seconds: float = 1.5,
+        stale_fallback_max_age_hours: float = 24.0,
     ):
         self.symbol = symbol
         self._data: Optional[pd.DataFrame] = None
@@ -148,6 +152,15 @@ class MarketRegimeDetector:
         self.cache_path = Path(cache_path or os.getenv("MARKET_REGIME_CACHE_PATH", str(default_cache))).expanduser()
         self.cache_ttl_seconds = int(os.getenv("MARKET_REGIME_CACHE_TTL_SECONDS", str(cache_ttl_seconds)))
         self.cooldown_seconds = int(os.getenv("MARKET_REGIME_FETCH_COOLDOWN_SECONDS", str(cooldown_seconds)))
+        self.transient_retry_attempts = int(
+            os.getenv("MARKET_REGIME_TRANSIENT_RETRY_ATTEMPTS", str(transient_retry_attempts))
+        )
+        self.transient_retry_backoff_seconds = float(
+            os.getenv("MARKET_REGIME_TRANSIENT_RETRY_BACKOFF_SECONDS", str(transient_retry_backoff_seconds))
+        )
+        self.stale_fallback_max_age_hours = float(
+            os.getenv("MARKET_REGIME_STALE_FALLBACK_MAX_AGE_HOURS", str(stale_fallback_max_age_hours))
+        )
         self.data_provider = MarketDataProvider(
             cache_ttl_seconds=self.cache_ttl_seconds,
             max_retries=int(os.getenv("MARKET_REGIME_FETCH_MAX_RETRIES", str(max_retries))),
@@ -157,6 +170,8 @@ class MarketRegimeDetector:
         )
         self.last_data_source = "unknown"
         self.last_data_staleness_seconds = 0.0
+        self.last_fetch_status = "ok"
+        self.last_degraded_reason = ""
 
     @staticmethod
     def _age_to_human(seconds: float) -> str:
@@ -181,6 +196,10 @@ class MarketRegimeDetector:
                 "position_sizing": status.position_sizing,
                 "notes": status.notes,
                 "data_source": status.data_source,
+                "status": status.status,
+                "degraded_reason": status.degraded_reason,
+                "snapshot_age_seconds": status.snapshot_age_seconds,
+                "next_action": status.next_action,
                 "regime_score": status.regime_score,
                 "drawdown_pct": status.drawdown_pct,
                 "recent_return_pct": status.recent_return_pct,
@@ -203,7 +222,7 @@ class MarketRegimeDetector:
         except Exception:
             return None
 
-    def _build_degraded_status(self, failure_reason: str) -> MarketStatus:
+    def _build_degraded_status(self, failure_reason: str, *, allow_stale_recent: bool = False) -> MarketStatus:
         payload = self._read_snapshot_cache()
         if not payload:
             raise MarketDataFetchError(f"{failure_reason}. No usable market snapshot cache at {self.cache_path}.", transient=True)
@@ -218,12 +237,19 @@ class MarketRegimeDetector:
         except Exception as exc:
             raise MarketDataFetchError(f"{failure_reason}. Snapshot timestamp invalid.", transient=True) from exc
 
-        age_seconds = max((datetime.now(timezone.utc) - generated_at).total_seconds(), 0.0)
+        generated_age_seconds = max((datetime.now(timezone.utc) - generated_at).total_seconds(), 0.0)
+        inherited_snapshot_age = float(cached.get("snapshot_age_seconds", 0.0) or 0.0)
+        age_seconds = generated_age_seconds + inherited_snapshot_age
         if age_seconds > ttl_seconds:
-            raise MarketDataFetchError(
-                f"{failure_reason}. Cached snapshot is stale ({self._age_to_human(age_seconds)} old, ttl={ttl_seconds}s).",
-                transient=True,
-            )
+            max_stale_seconds = max(self.stale_fallback_max_age_hours * 3600.0, float(ttl_seconds))
+            if not allow_stale_recent or age_seconds > max_stale_seconds:
+                raise MarketDataFetchError(
+                    (
+                        f"{failure_reason}. Cached snapshot is stale ({self._age_to_human(age_seconds)} old, ttl={ttl_seconds}s, "
+                        f"max_fallback={self._age_to_human(max_stale_seconds)})."
+                    ),
+                    transient=True,
+                )
 
         try:
             regime = MarketRegime(cached["regime"])
@@ -237,12 +263,20 @@ class MarketRegimeDetector:
             last_ftd=cached.get("last_ftd"),
             trend_direction=cached.get("trend_direction", "sideways"),
             position_sizing=float(cached.get("position_sizing", 0.0)),
-            notes=f"{cached.get('notes', '')} [DEGRADED: cached market inputs, age={stale_age}]".strip(),
+            notes=(
+                f"{cached.get('notes', '')} "
+                f"[DEGRADED: cached market inputs, age={stale_age}"
+                f"{' beyond live TTL' if age_seconds > ttl_seconds else ''}]"
+            ).strip(),
             data_source="cache",
-            status="degraded",
-            degraded_reason=f"{failure_reason}. Using cached market snapshot ({stale_age} old).",
+            status=str(cached.get("status") or "degraded"),
+            degraded_reason=(
+                f"{cached.get('degraded_reason') + ' ' if cached.get('degraded_reason') else ''}"
+                f"{failure_reason}. Using cached market snapshot ({stale_age} old"
+                f"{', beyond live TTL but within bounded fallback window' if age_seconds > ttl_seconds else ''})."
+            ).strip(),
             snapshot_age_seconds=age_seconds,
-            next_action=f"Retry market fetch after cooldown ({self.cooldown_seconds}s) or refresh cache.",
+            next_action=str(cached.get("next_action") or f"Retry market fetch after cooldown ({self.cooldown_seconds}s) or refresh cache."),
             regime_score=int(cached.get("regime_score", 0)),
             drawdown_pct=float(cached.get("drawdown_pct", 0.0)),
             recent_return_pct=float(cached.get("recent_return_pct", 0.0)),
@@ -317,6 +351,8 @@ class MarketRegimeDetector:
             self._data = result.frame
             self.last_data_source = result.source
             self.last_data_staleness_seconds = result.staleness_seconds
+            self.last_fetch_status = result.status
+            self.last_degraded_reason = result.degraded_reason
             return self._data
         except MarketDataError as exc:
             raise MarketDataFetchError(str(exc), transient=exc.transient) from exc
@@ -443,20 +479,32 @@ class MarketRegimeDetector:
         )
 
     def get_status(self) -> MarketStatus:
-        try:
-            self.fetch_data()
-        except MarketDataFetchError as exc:
-            if exc.transient:
+        last_exc: MarketDataFetchError | None = None
+        attempts = max(self.transient_retry_attempts, 0) + 1
+        for attempt_index in range(attempts):
+            try:
+                self.fetch_data()
+                last_exc = None
+                break
+            except MarketDataFetchError as exc:
+                last_exc = exc
+                if not exc.transient or attempt_index >= attempts - 1:
+                    break
+                delay = max(self.transient_retry_backoff_seconds * (attempt_index + 1), 0.0)
+                time.sleep(delay)
+
+        if last_exc is not None:
+            if last_exc.transient:
                 try:
-                    return self._build_degraded_status(str(exc))
+                    return self._build_degraded_status(str(last_exc), allow_stale_recent=True)
                 except MarketDataFetchError as degraded_exc:
                     degraded_message = str(degraded_exc)
                     if "No usable market snapshot cache" in degraded_message:
-                        return self._build_emergency_status(str(exc))
-                    if "transient error 404" in str(exc) and "Cached snapshot is stale" in degraded_message:
-                        return self._build_emergency_status(str(exc))
+                        return self._build_emergency_status(str(last_exc))
+                    if "transient error 404" in str(last_exc) and "Cached snapshot is stale" in degraded_message:
+                        return self._build_emergency_status(str(last_exc))
                     raise
-            raise
+            raise last_exc
 
         dist_days = self.count_distribution_days(25)
         ftd_dates = self.find_follow_through_days(60)
@@ -518,6 +566,14 @@ class MarketRegimeDetector:
             follow_through_active=scorecard.follow_through_active,
             premarket_futures_summary=self._premarket_futures_summary(),
         )
+        if self.last_fetch_status == "degraded":
+            age_label = self._age_to_human(self.last_data_staleness_seconds)
+            status.status = "degraded"
+            status.degraded_reason = self.last_degraded_reason or (
+                f"Computed market regime from cached {self.symbol} history ({age_label} old)."
+            )
+            status.next_action = f"Retry market fetch after cooldown ({self.cooldown_seconds}s) or refresh cache."
+            status.notes = f"{status.notes} [DEGRADED: computed from cached history, age={age_label}]".strip()
         self._write_snapshot_cache(status)
         return status
 
