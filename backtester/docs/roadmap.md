@@ -83,6 +83,9 @@ Important files for future implementation work:
 - `/Users/hd/Developer/cortana-external/backtester/scripts/nighttime_flow.sh`
 - `/Users/hd/Developer/cortana-external/backtester/scripts/local_output_formatter.py`
 
+Related future design docs:
+- `/Users/hd/Developer/cortana-external/backtester/docs/intraday-breadth-override-prd.md`
+
 ## Weekly Observation Loop
 
 ### Objective

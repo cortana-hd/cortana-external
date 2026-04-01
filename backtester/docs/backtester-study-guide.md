@@ -9,6 +9,7 @@ For the operating plan and next implementation phases, use:
 - [Schwab OAuth Reauth Runbook](./schwab-oauth-reauth-runbook.md)
 - [Streamer failure modes runbook](./streamer-failure-modes-runbook.md)
 - [Scoring and prediction accuracy reference](./scoring-prediction-accuracy-reference.md)
+- [Intraday breadth override PRD](./intraday-breadth-override-prd.md)
 
 The goal is to understand the system in the order it actually thinks:
 

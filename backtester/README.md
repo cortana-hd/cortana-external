@@ -23,6 +23,7 @@ Other useful docs:
 - [Decision review loop](./docs/decision-review-loop.md)
 - [Scoring and calibration notes](./docs/scoring-calibration.md)
 - [Scoring and prediction accuracy reference](./docs/scoring-prediction-accuracy-reference.md)
+- [Intraday breadth override PRD](./docs/intraday-breadth-override-prd.md)
 - [Uncertainty/confidence PRD](./docs/uncertainty-confidence-prd.md)
 - [Uncertainty runtime wiring](./docs/uncertainty-confidence-runtime-wiring.md)
 - [Market-data service reference](./docs/market-data-service-reference.md)
