@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import tempfile
+
 import numpy as np
 import pandas as pd
 
@@ -7,7 +9,8 @@ from data.market_regime import MarketRegime, MarketRegimeDetector
 
 
 def _status_for_frame(frame: pd.DataFrame):
-    detector = MarketRegimeDetector()
+    cache_dir = tempfile.mkdtemp(prefix="market-regime-test-")
+    detector = MarketRegimeDetector(cache_path=f"{cache_dir}/snapshot.json")
 
     def _fake_fetch(days: int = 90) -> pd.DataFrame:
         detector._data = frame

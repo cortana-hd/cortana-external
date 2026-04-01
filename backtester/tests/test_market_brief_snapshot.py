@@ -154,6 +154,30 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
     assert snapshot["operator_summary"]["read_this_as"]["focus"].startswith("OXY, FANG, NVDA.")
 
 
+def test_format_operator_text_renders_human_summary():
+    payload = {
+        "operator_summary": {
+            "headline": "OPEN: WATCH | CORRECTION | size 0%",
+            "what_this_means": "Stay defensive.",
+            "read_this_as": {
+                "session": "This is a regular session snapshot.",
+                "regime": "Market regime is CORRECTION (15m old).",
+                "tape": "Tape is using fresh live quotes.",
+                "macro": "Macro overlay is watch (30m old).",
+                "breadth": "Intraday breadth is unavailable because live inputs are missing.",
+                "focus": "OXY, GEV, FANG. Focus names came from the leader-priority list.",
+            },
+        },
+        "warnings": ["one", "two", "three", "four"],
+    }
+
+    text = module.format_operator_text(payload)
+
+    assert "OPEN: WATCH | CORRECTION | size 0%" in text
+    assert "Session: This is a regular session snapshot." in text
+    assert "Warnings: one, two, three" in text
+
+
 def test_build_snapshot_uses_session_baseline_regime_premarket(monkeypatch):
     baseline = make_status(
         regime=MarketRegime.CORRECTION,

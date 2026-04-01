@@ -580,15 +580,35 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build a compact market-brief snapshot.")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON.")
+    parser.add_argument("--operator", action="store_true", help="Print a concise operator-facing summary instead of raw JSON.")
     parser.add_argument("--output", type=Path, help="Optional output path for the artifact.")
     parser.add_argument("--service-base-url", default=SERVICE_BASE_URL, help="TS market-data service base URL.")
     return parser.parse_args()
 
 
+def format_operator_text(payload: dict[str, Any]) -> str:
+    summary = payload.get("operator_summary", {}) if isinstance(payload.get("operator_summary"), dict) else {}
+    read_this_as = summary.get("read_this_as", {}) if isinstance(summary.get("read_this_as"), dict) else {}
+    lines = [
+        str(summary.get("headline", "Market snapshot unavailable")).strip(),
+        str(summary.get("what_this_means", "")).strip(),
+        f"Session: {read_this_as.get('session', 'Unavailable')}",
+        f"Regime: {read_this_as.get('regime', 'Unavailable')}",
+        f"Tape: {read_this_as.get('tape', 'Unavailable')}",
+        f"Macro: {read_this_as.get('macro', 'Unavailable')}",
+        f"Breadth: {read_this_as.get('breadth', 'Unavailable')}",
+        f"Focus: {read_this_as.get('focus', 'Unavailable')}",
+    ]
+    warnings = payload.get("warnings", [])
+    if isinstance(warnings, list) and warnings:
+        lines.append(f"Warnings: {', '.join(str(item) for item in warnings[:3])}")
+    return "\n".join(line for line in lines if line)
+
+
 def main() -> None:
     args = parse_args()
     payload = build_snapshot(service_base_url=args.service_base_url)
-    text = json.dumps(payload, indent=2 if args.pretty else None, sort_keys=True)
+    text = format_operator_text(payload) if args.operator else json.dumps(payload, indent=2 if args.pretty else None, sort_keys=True)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(text + "\n", encoding="utf-8")

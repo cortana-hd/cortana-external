@@ -183,6 +183,8 @@ class MarketRegimeDetector:
         return f"{seconds / 3600:.1f}h"
 
     def _write_snapshot_cache(self, status: MarketStatus) -> None:
+        if str(status.data_source).strip().lower() == "test":
+            return
         payload = {
             "schema_version": 2,
             "symbol": self.symbol,
@@ -218,7 +220,11 @@ class MarketRegimeDetector:
         if not self.cache_path.exists():
             return None
         try:
-            return json.loads(self.cache_path.read_text(encoding="utf-8"))
+            payload = json.loads(self.cache_path.read_text(encoding="utf-8"))
+            data_source = str((payload.get("market_status") or {}).get("data_source", "")).strip().lower()
+            if data_source == "test":
+                return None
+            return payload
         except Exception:
             return None
 

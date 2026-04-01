@@ -169,6 +169,7 @@ uv run python dipbuyer_alert.py --limit 8 --min-score 6
 uv run python nightly_discovery.py --limit 20
 
 # Compact snapshot for the main Cortana stock-market cron
+uv run python market_brief_snapshot.py --operator
 uv run python market_brief_snapshot.py --pretty
 ```
 

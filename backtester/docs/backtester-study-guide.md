@@ -63,6 +63,7 @@ Default routine:
 There is now a small export specifically for the main `cortana` repo's daily market brief:
 
 ```bash
+uv run python market_brief_snapshot.py --operator
 uv run python market_brief_snapshot.py --pretty
 ```
 
