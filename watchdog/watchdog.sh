@@ -26,6 +26,14 @@ HEARTBEAT_STATE_FILE="${HEARTBEAT_STATE_FILE:-$DEFAULT_REPO_HEARTBEAT_STATE_FILE
 if [[ ! -f "$HEARTBEAT_STATE_FILE" && -f "$LEGACY_HEARTBEAT_STATE_FILE" ]]; then
   HEARTBEAT_STATE_FILE="$LEGACY_HEARTBEAT_STATE_FILE"
 fi
+OPENCLAW_GATEWAY_PLIST="${OPENCLAW_GATEWAY_PLIST:-$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist}"
+
+if [[ -z "${GOG_KEYRING_PASSWORD:-}" && -f "$OPENCLAW_GATEWAY_PLIST" ]]; then
+  GOG_KEYRING_PASSWORD="$(plutil -extract EnvironmentVariables.GOG_KEYRING_PASSWORD raw -o - "$OPENCLAW_GATEWAY_PLIST" 2>/dev/null || true)"
+  if [[ -n "${GOG_KEYRING_PASSWORD:-}" ]]; then
+    export GOG_KEYRING_PASSWORD
+  fi
+fi
 
 # ── State Management ──
 load_state() {
