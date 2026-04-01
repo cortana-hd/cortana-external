@@ -65,7 +65,8 @@ def test_build_tape_summary_and_risk_tone():
 def test_build_focus_names_prefers_leaders_then_macro():
     focus = module.build_focus_names(["OXY", "QQQ", "FANG"], ["MSFT", "NVDA", "OXY"])
     assert focus["symbols"] == ["OXY", "FANG", "MSFT"]
-    assert focus["sources"] == ["leader_priority", "leader_priority", "polymarket"]
+    assert focus["sources"] == ["leader_priority", "polymarket"]
+    assert "Leader-priority names came first" in focus["reason"]
 
 
 def test_load_cached_tape_quotes_uses_previous_session_history(monkeypatch, tmp_path):
@@ -142,11 +143,15 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
     snapshot = module.build_snapshot("http://service")
 
     assert snapshot["posture"]["action"] == "NO_BUY"
+    assert snapshot["session"]["phase"] in {"PREMARKET", "OPEN", "AFTER_HOURS", "CLOSED"}
     assert snapshot["macro"]["summary_line"].startswith("Polymarket neutral")
     assert snapshot["tape"]["primary_source"] == "schwab"
     assert snapshot["focus"]["symbols"] == ["OXY", "FANG", "NVDA"]
     assert snapshot["regime"]["display"] == "CORRECTION"
     assert snapshot["intraday_breadth"]["override_state"] == "inactive"
+    assert snapshot["operator_summary"]["headline"].endswith("| size 0%")
+    assert "Tape is using fresh live quotes." == snapshot["operator_summary"]["read_this_as"]["tape"]
+    assert snapshot["operator_summary"]["read_this_as"]["focus"].startswith("OXY, FANG, NVDA.")
 
 
 def test_build_snapshot_uses_session_baseline_regime_premarket(monkeypatch):
@@ -210,8 +215,11 @@ def test_build_snapshot_uses_session_baseline_regime_premarket(monkeypatch):
     assert snapshot["regime"]["status"] == "ok"
     assert snapshot["regime"]["notes"] == "Stay defensive."
     assert snapshot["posture"]["action"] == "NO_BUY"
+    assert snapshot["session"]["phase"] == "PREMARKET"
     assert snapshot["tape"]["primary_source"] == "cache"
     assert "Previous session fallback" in snapshot["tape"]["summary_line"]
+    assert snapshot["operator_summary"]["read_this_as"]["tape"] == "Tape is using previous-session fallback data, not fresh live quotes."
+    assert snapshot["operator_summary"]["read_this_as"]["breadth"].startswith("Intraday breadth is inactive because")
     assert "market_regime_session_baseline:premarket" in snapshot["warnings"]
 
 
@@ -271,9 +279,21 @@ def test_build_snapshot_falls_back_conservatively_when_regime_fails(monkeypatch)
             "warnings": [],
         },
     )
-    monkeypatch.setattr(module, "load_last_known_regime_status", lambda cache_path=module.REGIME_CACHE_PATH: None)
+    monkeypatch.setattr(module, "load_last_known_regime_status", lambda *args, **kwargs: None)
     monkeypatch.setattr(module, "load_structured_context", lambda max_age_hours=12.0: None)
     monkeypatch.setattr(module, "load_leader_priority_symbols", lambda max_age_hours=72.0: [])
+    monkeypatch.setattr(
+        module,
+        "load_cached_tape_quotes",
+        lambda symbols=module.TAPE_SYMBOLS: {
+            "status": "error",
+            "summary_line": "Previous-session tape fallback unavailable.",
+            "risk_tone": "unknown",
+            "primary_source": "unavailable",
+            "symbols": [],
+            "warnings": ["tape_cached_fallback_unavailable"],
+        },
+    )
     monkeypatch.setattr(
         module,
         "requests",
@@ -282,7 +302,10 @@ def test_build_snapshot_falls_back_conservatively_when_regime_fails(monkeypatch)
         ),
     )
 
-    snapshot = module.build_snapshot("http://service")
+    snapshot = module.build_snapshot(
+        "http://service",
+        now=module.datetime(2026, 4, 1, 12, 0, tzinfo=module.ZoneInfo("America/New_York")),
+    )
 
     assert snapshot["status"] == "degraded"
     assert snapshot["posture"]["action"] == "NO_BUY"
@@ -305,7 +328,7 @@ def test_build_snapshot_uses_last_known_regime_snapshot_when_live_fetch_fails(mo
     monkeypatch.setattr(
         module,
         "load_last_known_regime_status",
-        lambda cache_path=module.REGIME_CACHE_PATH: make_status(
+        lambda *args, **kwargs: make_status(
             regime=MarketRegime.CORRECTION,
             notes="Regime score -8: stay defensive. [LAST KNOWN SNAPSHOT 18.0h old]",
             status="degraded",
@@ -325,7 +348,10 @@ def test_build_snapshot_uses_last_known_regime_snapshot_when_live_fetch_fails(mo
         ),
     )
 
-    snapshot = module.build_snapshot("http://service")
+    snapshot = module.build_snapshot(
+        "http://service",
+        now=module.datetime(2026, 4, 1, 12, 0, tzinfo=module.ZoneInfo("America/New_York")),
+    )
 
     assert snapshot["regime"]["distribution_days"] == 9
     assert snapshot["posture"]["action"] == "NO_BUY"

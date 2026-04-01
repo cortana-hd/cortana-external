@@ -305,7 +305,87 @@ def build_focus_names(leader_symbols: list[str], macro_focus: list[str], limit: 
                 sources.append("polymarket")
             if len(names) >= limit:
                 break
-    return {"symbols": names, "sources": sources}
+    unique_sources: list[str] = []
+    for source in sources:
+        if source not in unique_sources:
+            unique_sources.append(source)
+    if names:
+        if "leader_priority" in sources and "polymarket" in sources:
+            reason = "Leader-priority names came first, then macro watchlist names filled the remaining slots."
+        elif "leader_priority" in sources:
+            reason = "Focus names came from the leader-priority list."
+        else:
+            reason = "Focus names came from the Polymarket macro watchlist."
+    else:
+        reason = "No focus names qualified."
+    return {"symbols": names, "sources": unique_sources, "reason": reason}
+
+
+def _format_age_seconds(value: float | None) -> str:
+    if value is None:
+        return "unknown age"
+    if value < 3600:
+        return f"{value / 60.0:.0f}m old"
+    return f"{value / 3600.0:.1f}h old"
+
+
+def _format_age_hours(value: float | None) -> str:
+    if value is None:
+        return "unknown age"
+    if value < 1.0:
+        return f"{value * 60.0:.0f}m old"
+    return f"{value:.1f}h old"
+
+
+def build_operator_summary(
+    *,
+    session_phase: str,
+    posture: dict[str, str],
+    regime: dict[str, Any],
+    tape: dict[str, Any],
+    macro: dict[str, Any],
+    breadth: dict[str, Any],
+    focus: dict[str, Any],
+) -> dict[str, Any]:
+    tape_source = str(tape.get("primary_source") or "unknown")
+    breadth_state = str(breadth.get("override_state") or "unknown")
+    macro_age = _format_age_hours(macro.get("freshness_hours"))
+    regime_age = _format_age_seconds(regime.get("snapshot_age_seconds"))
+    focus_names = focus.get("symbols") or []
+    if focus_names:
+        focus_line = f"{', '.join(focus_names)}. {focus.get('reason', '')}".strip()
+    else:
+        focus_line = "None yet. No names qualified for focus."
+
+    if tape_source == "cache":
+        tape_read = "Tape is using previous-session fallback data, not fresh live quotes."
+    elif tape_source == "unavailable":
+        tape_read = "Tape is unavailable right now."
+    else:
+        tape_read = "Tape is using fresh live quotes."
+
+    if breadth_state == "inactive":
+        breadth_read = f"Intraday breadth is inactive because {breadth.get('override_reason', 'the market is not in a live session')}."
+    elif breadth_state == "unavailable":
+        breadth_read = f"Intraday breadth is unavailable because {breadth.get('override_reason', 'live breadth inputs are missing')}."
+    elif breadth_state == "selective-buy":
+        breadth_read = "Intraday breadth is strong enough to allow tightly selective buys."
+    else:
+        breadth_read = f"Intraday breadth state: {breadth_state}."
+
+    headline = f"{session_phase}: {posture['action']} | {regime['display']} | size {regime['position_sizing_pct']:.0f}%"
+    return {
+        "headline": headline,
+        "what_this_means": posture["reason"],
+        "read_this_as": {
+            "session": f"This is an {session_phase.lower().replace('_', ' ')} snapshot.",
+            "regime": f"Market regime is {regime['display']} ({regime_age}).",
+            "tape": tape_read,
+            "macro": f"Macro overlay is {macro.get('state', 'unknown')} ({macro_age}).",
+            "breadth": breadth_read,
+            "focus": focus_line,
+        },
+    }
 
 
 def normalize_regime(status: MarketStatus) -> dict[str, Any]:
@@ -463,12 +543,27 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
 
     leader_symbols = load_leader_priority_symbols(max_age_hours=72.0)
     focus = build_focus_names(leader_symbols, macro.get("focus_tickers", []))
+    regime_payload = normalize_regime(status)
+    operator_summary = build_operator_summary(
+        session_phase=session_phase,
+        posture=posture,
+        regime=regime_payload,
+        tape=tape,
+        macro=macro,
+        breadth=breadth,
+        focus=focus,
+    )
 
     return {
         "generated_at": generated_at,
+        "session": {
+            "phase": session_phase,
+            "is_regular_hours": session_phase == "OPEN",
+        },
         "status": "degraded" if warnings or regime_error or tape["status"] != "ok" or status.status != "ok" else "ok",
+        "operator_summary": operator_summary,
         "warnings": warnings,
-        "regime": normalize_regime(status),
+        "regime": regime_payload,
         "posture": posture,
         "macro": macro,
         "tape": tape,
