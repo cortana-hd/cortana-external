@@ -1604,6 +1604,98 @@ describe("market-data routes", () => {
     expect(refreshCalls).toBe(1);
   });
 
+  it("retries transient Schwab token refresh failures before serving quotes", async () => {
+    let refreshCalls = 0;
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_STREAMER_ENABLED: "0",
+        SCHWAB_TOKEN_PATH: path.join(fs.mkdtempSync(path.join(os.tmpdir(), "schwab-token-retry-")), "token.json"),
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          refreshCalls += 1;
+          if (refreshCalls === 1) {
+            return new Response(JSON.stringify({ error: "temporarily_unavailable" }), {
+              status: 503,
+              headers: { "content-type": "application/json" },
+            });
+          }
+          return new Response(JSON.stringify({ access_token: "access-token", expires_in: 1800 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/marketdata/v1/quotes")) {
+          return new Response(
+            JSON.stringify({
+              AAPL: {
+                quote: {
+                  symbol: "AAPL",
+                  lastPrice: 200.12,
+                  tradeTimeInLong: 1_710_000_000_000,
+                },
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/market-data/quote/AAPL");
+    const body = (await response.json()) as { source: string; data: { price?: number } };
+
+    expect(response.status).toBe(200);
+    expect(body.source).toBe("schwab");
+    expect(body.data.price).toBe(200.12);
+    expect(refreshCalls).toBe(2);
+
+    const readyResponse = await app.request("/market-data/ready");
+    const readyBody = (await readyResponse.json()) as { data: { ready: boolean; operatorState: string } };
+    expect(readyResponse.status).toBe(200);
+    expect(readyBody.data.ready).toBe(true);
+    expect(readyBody.data.operatorState).toBe("healthy");
+  });
+
+  it("does not retry Schwab refresh token rejections", async () => {
+    let refreshCalls = 0;
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_STREAMER_ENABLED: "0",
+        SCHWAB_TOKEN_PATH: path.join(fs.mkdtempSync(path.join(os.tmpdir(), "schwab-token-reject-once-")), "token.json"),
+      },
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          refreshCalls += 1;
+          return new Response(JSON.stringify({ error: "invalid_grant" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const historyResponse = await app.request("/market-data/history/AAPL?period=1mo");
+    expect(historyResponse.status).toBe(503);
+    expect(refreshCalls).toBe(1);
+
+    const readyResponse = await app.request("/market-data/ready");
+    const readyBody = (await readyResponse.json()) as { data: { ready: boolean; operatorState: string } };
+    expect(readyResponse.status).toBe(503);
+    expect(readyBody.data.ready).toBe(false);
+    expect(readyBody.data.operatorState).toBe("human_action_required");
+  });
+
   it("returns alpaca comparison metadata without changing the primary quote source", async () => {
     process.env.ALPACA_KEY = "test-key";
     process.env.ALPACA_SECRET_KEY = "test-secret";
