@@ -38,6 +38,7 @@ interface SchwabAuthManagerConfig {
 }
 
 export class SchwabAuthManager {
+  private static readonly TOKEN_REFRESH_RETRY_DELAYS_MS = [100, 250];
   private readonly config: AppConfig;
   private readonly tokenPath: string;
   private readonly logger: AppLogger;
@@ -122,46 +123,58 @@ export class SchwabAuthManager {
         refresh_token: refreshToken,
       });
       const auth = Buffer.from(`${this.config.SCHWAB_CLIENT_ID}:${this.config.SCHWAB_CLIENT_SECRET}`).toString("base64");
-      const response = await this.fetchResponse(this.config.SCHWAB_TOKEN_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${auth}`,
-          "content-type": "application/x-www-form-urlencoded",
-          accept: "application/json",
-        },
-        body,
-      });
-      let payload: Record<string, unknown>;
-      try {
-        payload = await readJsonResponse<Record<string, unknown>>(response);
-      } catch (error) {
-        this.providerMetrics.lastTokenRefreshFailureAt = new Date().toISOString();
-        if (error instanceof HttpError && (error.status === 401 || error.status === 403)) {
-          this.providerMetrics.schwabTokenStatus = "human_action_required";
-          this.providerMetrics.schwabTokenReason = "Schwab refresh token was rejected. Re-authorize the developer app and update the refresh token.";
-          throw new Error("Schwab refresh token rejected (401/403). Manual re-authentication is required.");
+      for (let attempt = 0; attempt <= SchwabAuthManager.TOKEN_REFRESH_RETRY_DELAYS_MS.length; attempt += 1) {
+        try {
+          const response = await this.fetchResponse(this.config.SCHWAB_TOKEN_URL, {
+            method: "POST",
+            headers: {
+              Authorization: `Basic ${auth}`,
+              "content-type": "application/x-www-form-urlencoded",
+              accept: "application/json",
+            },
+            body,
+          });
+          const payload = await readJsonResponse<Record<string, unknown>>(response);
+          const accessToken = String(payload.access_token ?? "").trim();
+          const expiresIn = Number(payload.expires_in ?? 1800);
+          const nextRefreshToken = String(payload.refresh_token ?? refreshToken).trim();
+          if (!accessToken) {
+            throw new Error("Schwab token refresh returned no access token");
+          }
+          this.writeCachedToken({
+            accessToken,
+            expiresAt: Date.now() + Math.max(expiresIn - 60, 60) * 1000,
+            refreshToken: nextRefreshToken,
+            refreshTokenIssuedAt: cached?.refreshTokenIssuedAt ?? new Date().toISOString(),
+            lastAuthorizationCodeAt: cached?.lastAuthorizationCodeAt ?? null,
+          });
+          this.providerMetrics.lastTokenRefreshAt = new Date().toISOString();
+          this.providerMetrics.schwabTokenStatus = "ready";
+          this.providerMetrics.schwabTokenReason = null;
+          this.recordSchwabRestSuccess();
+          return accessToken;
+        } catch (error) {
+          if (error instanceof HttpError && (error.status === 401 || error.status === 403)) {
+            this.providerMetrics.lastTokenRefreshFailureAt = new Date().toISOString();
+            this.providerMetrics.schwabTokenStatus = "human_action_required";
+            this.providerMetrics.schwabTokenReason = "Schwab refresh token was rejected. Re-authorize the developer app and update the refresh token.";
+            throw new Error("Schwab refresh token rejected (401/403). Manual re-authentication is required.");
+          }
+          const retryDelayMs = SchwabAuthManager.TOKEN_REFRESH_RETRY_DELAYS_MS[attempt];
+          if (retryDelayMs != null && this.isRetryableTokenRefreshError(error)) {
+            this.logger.error(
+              `Transient Schwab token refresh failure (attempt ${attempt + 1}/${SchwabAuthManager.TOKEN_REFRESH_RETRY_DELAYS_MS.length + 1}). Retrying in ${retryDelayMs}ms.`,
+              error,
+            );
+            await sleep(retryDelayMs);
+            continue;
+          }
+          this.providerMetrics.lastTokenRefreshFailureAt = new Date().toISOString();
+          this.recordSchwabRestFailure(error);
+          throw error;
         }
-        this.recordSchwabRestFailure(error);
-        throw error;
       }
-      const accessToken = String(payload.access_token ?? "").trim();
-      const expiresIn = Number(payload.expires_in ?? 1800);
-      const nextRefreshToken = String(payload.refresh_token ?? refreshToken).trim();
-      if (!accessToken) {
-        throw new Error("Schwab token refresh returned no access token");
-      }
-      this.writeCachedToken({
-        accessToken,
-        expiresAt: Date.now() + Math.max(expiresIn - 60, 60) * 1000,
-        refreshToken: nextRefreshToken,
-        refreshTokenIssuedAt: cached?.refreshTokenIssuedAt ?? new Date().toISOString(),
-        lastAuthorizationCodeAt: cached?.lastAuthorizationCodeAt ?? null,
-      });
-      this.providerMetrics.lastTokenRefreshAt = new Date().toISOString();
-      this.providerMetrics.schwabTokenStatus = "ready";
-      this.providerMetrics.schwabTokenReason = null;
-      this.recordSchwabRestSuccess();
-      return accessToken;
+      throw new Error("Schwab token refresh failed unexpectedly after retries.");
     })();
     try {
       return await this.tokenRefreshPromise;
@@ -234,4 +247,15 @@ export class SchwabAuthManager {
       this.logger.error("Unable to persist Schwab token cache", error);
     }
   }
+
+  private isRetryableTokenRefreshError(error: unknown): boolean {
+    if (error instanceof HttpError) {
+      return error.status === 408 || error.status === 429 || error.status >= 500;
+    }
+    return error instanceof Error;
+  }
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
