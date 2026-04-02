@@ -117,6 +117,45 @@ def test_stale_cache_within_bounded_window_is_used_for_transient_failures(tmp_pa
     assert "bounded fallback window" in result.degraded_reason
 
 
+def test_default_stale_cache_window_covers_multi_day_trading_scan_fallback(tmp_path):
+    provider = MarketDataProvider(
+        cache_dir=str(tmp_path),
+        cache_ttl_seconds=60,
+        max_retries=0,
+    )
+    cache_path = tmp_path / "ABBV_6mo.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "symbol": "ABBV",
+                "period": "6mo",
+                "source": "schwab",
+                "generated_at_utc": (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat(),
+                "rows": [
+                    {
+                        "date": idx.isoformat(),
+                        "Open": float(row["Open"]),
+                        "High": float(row["High"]),
+                        "Low": float(row["Low"]),
+                        "Close": float(row["Close"]),
+                        "Volume": float(row["Volume"]),
+                    }
+                    for idx, row in _frame().iterrows()
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    provider._fetch_service_history = lambda *args, **kwargs: (_ for _ in ()).throw(MarketDataError("provider cooldown", transient=True))  # type: ignore[method-assign]
+    result = provider.get_history("ABBV", period="6mo")
+
+    assert result.source == "cache"
+    assert result.status == "degraded"
+    assert result.staleness_seconds >= 48 * 3600 - 60
+
+
 def test_stale_cache_beyond_bounded_window_is_not_used(tmp_path):
     provider = MarketDataProvider(
         cache_dir=str(tmp_path),
@@ -195,20 +234,21 @@ def test_quote_happy_path(tmp_path):
 def test_cache_read_handles_mixed_timezone_rows(tmp_path):
     provider = MarketDataProvider(cache_dir=str(tmp_path), cache_ttl_seconds=999999, max_retries=0)
     cache_path = tmp_path / "SPY_90d.json"
+    generated_at = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
     cache_path.write_text(
-        """
-{
-  "schema_version": 1,
-  "symbol": "SPY",
-  "period": "90d",
-  "source": "schwab",
-  "generated_at_utc": "2026-03-22T00:00:00+00:00",
-  "rows": [
-    {"date": "2026-03-07T00:00:00-05:00", "Open": 1, "High": 2, "Low": 0.5, "Close": 1.5, "Volume": 10},
-    {"date": "2026-03-10T00:00:00-04:00", "Open": 2, "High": 3, "Low": 1.5, "Close": 2.5, "Volume": 11}
-  ]
-}
-""".strip(),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "symbol": "SPY",
+                "period": "90d",
+                "source": "schwab",
+                "generated_at_utc": generated_at,
+                "rows": [
+                    {"date": "2026-03-07T00:00:00-05:00", "Open": 1, "High": 2, "Low": 0.5, "Close": 1.5, "Volume": 10},
+                    {"date": "2026-03-10T00:00:00-04:00", "Open": 2, "High": 3, "Low": 1.5, "Close": 2.5, "Volume": 11},
+                ],
+            }
+        ),
         encoding="utf-8",
     )
 

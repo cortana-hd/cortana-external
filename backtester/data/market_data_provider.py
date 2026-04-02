@@ -57,7 +57,7 @@ class MarketDataProvider:
         backoff_base_seconds: float = 0.75,
         backoff_jitter_seconds: float = 0.35,
         cooldown_seconds: int = 45,
-        stale_fallback_max_age_hours: float = 24.0,
+        stale_fallback_max_age_hours: float = 72.0,
     ):
         self.providers = [p.strip().lower() for p in provider_order.split(",") if p.strip()]
         self.service_base_url = os.getenv("MARKET_DATA_SERVICE_URL", service_base_url).rstrip("/")
