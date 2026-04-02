@@ -141,7 +141,7 @@ class MarketRegimeDetector:
         cooldown_seconds: int = 45,
         transient_retry_attempts: int = 2,
         transient_retry_backoff_seconds: float = 1.5,
-        stale_fallback_max_age_hours: float = 24.0,
+        stale_fallback_max_age_hours: float = 168.0,
     ):
         self.symbol = symbol
         self._data: Optional[pd.DataFrame] = None

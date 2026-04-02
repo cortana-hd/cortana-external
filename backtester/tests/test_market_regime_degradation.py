@@ -74,9 +74,23 @@ def test_stale_cache_within_bounded_window_returns_degraded_status(tmp_path):
     assert "bounded fallback window" in status.degraded_reason
 
 
+def test_default_market_regime_fallback_window_covers_multi_day_snapshot(tmp_path):
+    cache_path = tmp_path / "market_snapshot.json"
+    _write_snapshot(cache_path, generated_at=datetime.now(timezone.utc) - timedelta(hours=48))
+
+    detector = MarketRegimeDetector(cache_path=str(cache_path), cache_ttl_seconds=60)
+    detector.data_provider.get_history = lambda *args, **kwargs: (_ for _ in ()).throw(MarketDataError("provider cooldown", transient=True))  # type: ignore[method-assign]
+
+    status = detector.get_status()
+
+    assert status.status == "degraded"
+    assert status.data_source == "cache"
+    assert status.snapshot_age_seconds >= 48 * 3600 - 60
+
+
 def test_too_stale_cache_still_raises_with_staleness_message(tmp_path):
     cache_path = tmp_path / "market_snapshot.json"
-    _write_snapshot(cache_path, generated_at=datetime.now(timezone.utc) - timedelta(hours=30))
+    _write_snapshot(cache_path, generated_at=datetime.now(timezone.utc) - timedelta(hours=200))
 
     detector = MarketRegimeDetector(cache_path=str(cache_path), cache_ttl_seconds=60)
     detector.data_provider.get_history = lambda *args, **kwargs: (_ for _ in ()).throw(MarketDataError("rate limit", transient=True))  # type: ignore[method-assign]

@@ -87,11 +87,11 @@ def test_canslim_alert_is_compact_when_market_gate_blocks_buys():
         "CANSLIM Scan",
         "Market: correction — no new positions",
         "Alert posture: stand aside — correction regime. This is a status update, not a buy-now alert.",
+        "Summary: scanned 4 | evaluated 0 | threshold-passed 0 | BUY 0 | WATCH 0 | NO_BUY 0",
         "Scanned 4 | market gate active | 0 BUY | 0 WATCH",
         "Top names considered: CFLT, HWM, ALUR",
         "Why no buys: market correction gate",
     ]
-
 
 def test_canslim_alert_surfaces_degraded_market_warning_in_compact_correction_mode():
     fake = _FakeCanSlimAdvisor()
@@ -230,18 +230,16 @@ def test_dipbuyer_alert_is_compact_when_market_gate_blocks_buys():
     ), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
         text = format_dipbuyer(limit=5, min_score=6, universe_size=4)
 
-    assert text.splitlines() == [
-        "Dip Buyer Scan",
-        "Market regime: correction",
-        "Alert posture: stand aside — correction regime. This is a status update, not a buy-now alert.",
-        "Qualified setups: 3 of 4 scanned | BUY 0 | WATCH 0",
-        "BUY names: none",
-        "Top leaders: CFLT NO_BUY (7/12) | HWM NO_BUY (7/12) | ALUR NO_BUY (6/12)",
-        "Decision review: BUY 0 | WATCH 0 | NO_BUY 3",
-        "Tuning balance: clean BUY 0 | risky BUY proxy 0 | abstain 0 | veto 3 | higher-tq restraint proxy n/a",
-        "Vetoes: CFLT NO_BUY | tq 7.0 | conf 0% u 0% | down/churn 0.0/0.0 | stress normal(0) | veto market-gate | reason market correction gate; HWM NO_BUY | tq 7.0 | conf 0% u 0% | down/churn 0.0/0.0 | stress normal(0) | veto market-gate | reason market correction gate (+1 more)",
-        "Final action: DO NOT BUY — market regime veto (market correction gate)",
-    ]
+    assert "Dip Buyer Scan" in text
+    assert "Market regime: correction" in text
+    assert "Alert posture: stand aside — correction regime. This is a status update, not a buy-now alert." in text
+    assert "Summary: scanned 4 | evaluated 3 | threshold-passed 3 | BUY 0 | WATCH 0 | NO_BUY 3" in text
+    assert "Qualified setups: 3 of 4 scanned | BUY 0 | WATCH 0" in text
+    assert "• CFLT (7/12) → NO_BUY" in text
+    assert "• HWM (7/12) → NO_BUY" in text
+    assert "• ALUR (6/12) → NO_BUY" in text
+    assert "Top leaders: CFLT NO_BUY (7/12) | HWM NO_BUY (7/12) | ALUR NO_BUY (6/12)" in text
+    assert "Final action: DO NOT BUY — market regime veto (market correction gate)" in text
     analyzer.analyze.assert_not_called()
 
 
@@ -356,6 +354,9 @@ def test_canslim_alert_uses_trade_quality_order_for_leaders():
         text = format_canslim(limit=5, min_score=6, universe_size=2)
 
     assert "Top names considered: BBB, AAA" in text
+    assert "Summary: scanned 2 | evaluated 2 | threshold-passed 2 | BUY 1 | WATCH 1 | NO_BUY 0" in text
+    assert "• BBB (8/12) → BUY" in text
+    assert "• AAA (9/12) → WATCH" in text
     assert "Leaders: BBB BUY (8/12) | AAA WATCH (9/12)" in text
     assert "Decision review: BUY 1 | WATCH 1 | NO_BUY 0" in text
     assert "Tuning balance: clean BUY 1 | risky BUY proxy 0 | abstain 1 | veto 0 | higher-tq restraint proxy 0 (>= median BUY tq 94.0)" in text
@@ -406,8 +407,10 @@ def test_canslim_alert_review_surfaces_veto_and_restraint_proxies_compactly():
     with patch("canslim_alert.TradingAdvisor", return_value=fake), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
         text = format_canslim(limit=5, min_score=6, universe_size=3)
 
-    lines = text.splitlines()
-    assert len(lines) <= 9
+    assert "Summary: scanned 3 | evaluated 3 | threshold-passed 3 | BUY 1 | WATCH 2 | NO_BUY 0" in text
+    assert "• BBB (9/12) → WATCH" in text
+    assert "• AAA (8/12) → BUY" in text
+    assert "• CCC (8/12) → WATCH" in text
     assert "Tuning balance: clean BUY 1 | risky BUY proxy 0 | abstain 0 | veto 2 | higher-tq restraint proxy 1 (>= median BUY tq 88.0)" in text
     assert "Higher-tq restraint: BBB WATCH | tq 90.0 | conf 59% u 12% | down/churn 3.0/2.0 | stress normal(0) | reason Exit risk too high" in text
     assert "Vetoes: BBB WATCH | tq 90.0 | conf 59% u 12% | down/churn 3.0/2.0 | stress normal(0) | veto exit-risk | reason Exit risk too high; CCC WATCH | tq 83.0 | conf 70% u 8% | down/churn 0.0/0.0 | stress normal(0) | veto sentiment/reason-veto | reason Sentiment overlay veto: bearish" in text

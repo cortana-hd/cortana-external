@@ -127,6 +127,37 @@ def _all_names(records: list[dict], limit: int = 10) -> str:
     return ", ".join(names[:limit]) + f" (+{len(names) - limit} more)"
 
 
+def _append_pipeline_contract_summary(
+    lines: list[str],
+    *,
+    scanned: int,
+    evaluated: int,
+    threshold_passed: int,
+    buy_count: int,
+    watch_count: int,
+    no_buy_count: int,
+) -> None:
+    lines.append(
+        "Summary: "
+        f"scanned {scanned} | "
+        f"evaluated {evaluated} | "
+        f"threshold-passed {threshold_passed} | "
+        f"BUY {buy_count} | WATCH {watch_count} | NO_BUY {no_buy_count}"
+    )
+
+
+def _append_pipeline_contract_signals(lines: list[str], records: list[dict]) -> None:
+    for record in records:
+        symbol = str(record.get("symbol", "")).strip().upper()
+        if not symbol:
+            continue
+        score = int(record.get("score", 0) or 0)
+        action = str(record.get("action", "NO_BUY")).strip().upper()
+        reason = str(record.get("reason", "No reason provided.")).strip() or "No reason provided."
+        lines.append(f"• {symbol} ({score}/12) → {action}")
+        lines.append(reason)
+
+
 def _persist_predictions(*, market: object, records: list[dict]) -> None:
     if os.getenv("PREDICTION_ACCURACY_ENABLED", "1") == "0":
         return
@@ -630,6 +661,15 @@ def format_alert(
         )
         if posture_line:
             lines.append(posture_line)
+        _append_pipeline_contract_summary(
+            lines,
+            scanned=len(symbols),
+            evaluated=evaluated,
+            threshold_passed=0,
+            buy_count=0,
+            watch_count=0,
+            no_buy_count=0,
+        )
         lines.append(f"Qualified setups: 0 of {len(symbols)} scanned | BUY 0 | WATCH 0")
         lines.append(f"Top leaders: {_top_names([{'symbol': s} for s in symbols], 3)}")
         lines.append(f"Final action: DO NOT BUY — market regime veto ({_dedupe_reason(market.notes or 'market correction gate')})")
@@ -657,6 +697,15 @@ def format_alert(
     )
     if posture_line:
         lines.append(posture_line)
+    _append_pipeline_contract_summary(
+        lines,
+        scanned=len(symbols),
+        evaluated=len(passed),
+        threshold_passed=len(passed),
+        buy_count=buy_count,
+        watch_count=watch_count,
+        no_buy_count=sum(1 for c in display_candidates if str(c.get("action", "")).upper() == "NO_BUY"),
+    )
     lines.append(f"Qualified setups: {len(passed)} of {len(symbols)} scanned | BUY {buy_count} | WATCH {watch_count}")
     if regime_value == "correction" and breadth_meta.get("active") and buy_count > 0:
         lines.append(f"BUY names: {_all_names(buy_candidates, 10)}")
@@ -681,6 +730,7 @@ def format_alert(
         suffix = f" {c['sentiment_tag']}" if c['sentiment_tag'] else ""
         preview.append(f"{c['symbol']} {c['action']} ({c['score']}/12){suffix}")
     leaders_line = " | ".join(preview) if preview else "none"
+    _append_pipeline_contract_signals(lines, display_candidates)
     lines.append("Top leaders: " + leaders_line)
     review_pool = display_candidates[: min(limit, max(review_detail_limit, 5))]
     review_lines = render_decision_review(review_pool, detail_limit=review_detail_limit)

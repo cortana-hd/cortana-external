@@ -152,6 +152,37 @@ def _leader_risk_line(records: list[dict], limit: int = 3) -> str:
     return f"Leader telemetry: {'; '.join(chunks)}" if chunks else ""
 
 
+def _append_pipeline_contract_summary(
+    lines: list[str],
+    *,
+    scanned: int,
+    evaluated: int,
+    threshold_passed: int,
+    buy_count: int,
+    watch_count: int,
+    no_buy_count: int,
+) -> None:
+    lines.append(
+        "Summary: "
+        f"scanned {scanned} | "
+        f"evaluated {evaluated} | "
+        f"threshold-passed {threshold_passed} | "
+        f"BUY {buy_count} | WATCH {watch_count} | NO_BUY {no_buy_count}"
+    )
+
+
+def _append_pipeline_contract_signals(lines: list[str], records: list[dict]) -> None:
+    for record in records:
+        symbol = str(record.get("symbol", "")).strip().upper()
+        if not symbol:
+            continue
+        score = int(record.get("score", 0) or 0)
+        action = str(record.get("action", "NO_BUY")).strip().upper()
+        reason = str(record.get("reason", "No reason provided.")).strip() or "No reason provided."
+        lines.append(f"• {symbol} ({score}/12) → {action}")
+        lines.append(reason)
+
+
 def _load_priority_symbols() -> list[str]:
     out: list[str] = []
     csv_symbols = os.getenv("TRADING_PRIORITY_SYMBOLS", "")
@@ -457,6 +488,15 @@ def format_alert(
         posture_line = describe_alert_posture(market_regime=regime_value, buy_count=0, watch_count=0)
         if posture_line:
             lines.append(posture_line)
+        _append_pipeline_contract_summary(
+            lines,
+            scanned=len(symbols),
+            evaluated=0,
+            threshold_passed=0,
+            buy_count=0,
+            watch_count=0,
+            no_buy_count=0,
+        )
         lines.append(f"Scanned {len(symbols)} | market gate active | 0 BUY | 0 WATCH")
         lines.append(f"Top names considered: {_top_names([{'symbol': s} for s in symbols], 3)}")
         lines.append(f"Why no buys: {_dedupe_reason(market.notes or 'market correction gate')}")
@@ -537,6 +577,15 @@ def format_alert(
 
     if not passed:
         _persist_predictions(market=market, records=rejected[:limit])
+        _append_pipeline_contract_summary(
+            lines,
+            scanned=len(symbols),
+            evaluated=evaluated,
+            threshold_passed=0,
+            buy_count=0,
+            watch_count=0,
+            no_buy_count=0,
+        )
         lines.append(f"Scanned {len(symbols)} | 0 passed threshold | 0 BUY | 0 WATCH")
         lines.append(f"Top names considered: {_top_names([{'symbol': s} for s in symbols], 3)}")
         lines.append("Why no buys: no names cleared the CANSLIM threshold")
@@ -555,6 +604,15 @@ def format_alert(
     posture_line = describe_alert_posture(market_regime=regime_value, buy_count=buy_count, watch_count=watch_count)
     if posture_line:
         lines.append(posture_line)
+    _append_pipeline_contract_summary(
+        lines,
+        scanned=len(symbols),
+        evaluated=evaluated,
+        threshold_passed=len(passed),
+        buy_count=buy_count,
+        watch_count=watch_count,
+        no_buy_count=no_buy_count,
+    )
     lines.append(f"Scanned {len(symbols)} | {len(passed)} passed threshold | {buy_count} BUY | {watch_count} WATCH")
     lines.append(f"Top names considered: {_top_names(candidates, 3)}")
 
@@ -562,6 +620,7 @@ def format_alert(
         why = _dedupe_reason(market.notes or "market correction gate")
         lines.append(f"Why no buys: {why}")
     elif candidates:
+        _append_pipeline_contract_signals(lines, candidates)
         preview = []
         for c in candidates[: min(limit, 3)]:
             preview.append(f"{c['symbol']} {c['action']} ({c['score']}/12)")

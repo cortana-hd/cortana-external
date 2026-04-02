@@ -97,7 +97,10 @@ def test_format_alert_output_structure_and_tags_buy_watch_no_buy():
 
     assert "Dip Buyer Scan" in text
     assert "Market regime: correction" in text
+    assert "Summary: scanned 3 | evaluated 2 | threshold-passed 2 | BUY 0 | WATCH 2 | NO_BUY 0" in text
     assert "Qualified setups: 2 of 3 scanned | BUY 0 | WATCH 2" in text
+    assert "• MSFT (9/12) → WATCH" in text
+    assert "• AAPL (7/12) → WATCH" in text
     assert "Watch names (regime-blocked buys): MSFT, AAPL" in text
     assert "Top leaders: MSFT WATCH (9/12) 🐦 Neutral | AAPL WATCH (7/12) 🐦 Neutral" in text
     assert "Final action: WATCH only — correction regime blocks new dip buys" in text
@@ -216,12 +219,12 @@ def test_format_alert_reports_degraded_market_status_with_next_action():
         text = format_alert(limit=8, min_score=6)
 
     assert "Dip Buyer Scan" in text
+    assert "Summary: scanned 1 | evaluated 1 | threshold-passed 1 | BUY 0 | WATCH 1 | NO_BUY 0" in text
     assert "Qualified setups: 1 of 1 scanned | BUY 0 | WATCH 1" in text
     assert "Watch names (regime-blocked buys): MSFT" in text
     assert "Final action: WATCH only — correction regime blocks new dip buys (Cached market fallback active)" in text
     assert "Warning: degraded market regime input — Providers unavailable. Using cached market snapshot (12m old) (snapshot age 12m)" in text
     assert "Recovery: Retry market fetch after cooldown (45s) or refresh cache" in text
-
 
 def test_format_alert_allows_bounded_selective_buys_when_intraday_breadth_is_strong(monkeypatch):
     fake = _FakeAdvisor()
@@ -253,7 +256,11 @@ def test_format_alert_allows_bounded_selective_buys_when_intraday_breadth_is_str
 
     assert "Intraday override: selective-buy active — broad intraday rally with strong participation despite the defensive daily regime" in text
     assert "Alert posture: selective buys allowed" in text
+    assert "Summary: scanned 3 | evaluated 3 | threshold-passed 3 | BUY 2 | WATCH 1 | NO_BUY 0" in text
     assert "Qualified setups: 3 of 3 scanned | BUY 2 | WATCH 1" in text
+    assert "• MSFT (10/12) → BUY" in text
+    assert "• NVDA (9/12) → BUY" in text
+    assert "• AMD (8/12) → WATCH" in text
     assert "BUY names: MSFT, NVDA" in text
     assert "Watch names (remaining correction-blocked buys): AMD" in text
     assert "intraday breadth override kept 2 as BUY and downgraded 1 to WATCH" in text
@@ -364,8 +371,10 @@ def test_format_alert_review_surfaces_credit_veto_without_expanding_output_too_f
     with patch("dipbuyer_alert.TradingAdvisor", return_value=fake):
         text = format_alert(limit=8, min_score=6)
 
-    lines = text.splitlines()
-    assert len(lines) <= 12
+    assert "Summary: scanned 3 | evaluated 3 | threshold-passed 3 | BUY 1 | WATCH 1 | NO_BUY 1" in text
+    assert "• MSFT (9/12) → BUY" in text
+    assert "• AAPL (8/12) → NO_BUY" in text
+    assert "• TSLA (7/12) → WATCH" in text
     assert "Tuning balance: clean BUY 1 | risky BUY proxy 0 | abstain 1 | veto 1 | higher-tq restraint proxy 1 (>= median BUY tq 89.0)" in text
     assert "Higher-tq restraint: AAPL NO_BUY | tq 92.0 | conf 66% u 13% | down/churn 0.0/0.0 | stress normal(0) | reason Credit veto active (HY spread too high)." in text
     assert "Vetoes: AAPL NO_BUY | tq 92.0 | conf 66% u 13% | down/churn 0.0/0.0 | stress normal(0) | veto credit/reason-veto | reason Credit veto active (HY spread too high)." in text
