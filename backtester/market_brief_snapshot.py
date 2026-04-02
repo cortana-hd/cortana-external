@@ -337,6 +337,26 @@ def _format_age_hours(value: float | None) -> str:
     return f"{value:.1f}h old"
 
 
+def humanize_market_issue(reason: str | None) -> str | None:
+    text = str(reason or "").strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if "cooldown" in lowered:
+        return "Schwab market data is in a brief cooldown"
+    if "token" in lowered and "refresh" in lowered:
+        return "Schwab token refresh is failing"
+    if "401" in lowered or "403" in lowered or "auth" in lowered:
+        return "Schwab authentication needs attention"
+    if "failed to establish a new connection" in lowered or "connection refused" in lowered:
+        return "the local market-data service is unreachable"
+    if "timed out" in lowered or "timeout" in lowered:
+        return "the live market-data request timed out"
+    if "service unavailable" in lowered or "503" in lowered:
+        return "the live market-data service is temporarily unavailable"
+    return "fresh live market data is temporarily unavailable"
+
+
 def build_operator_summary(
     *,
     session_phase: str,
@@ -559,10 +579,12 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
         and str(status.data_source or "").strip().lower() in {"unknown", "unavailable"}
         and str(tape.get("primary_source") or "").strip().lower() == "cache"
     ):
+        issue = humanize_market_issue(getattr(status, "degraded_reason", None))
+        issue_clause = f" ({issue})" if issue else ""
         posture = {
             **posture,
             "reason": (
-                "Fresh live market regime is unavailable. Using previous-session market context and "
+                f"Fresh live market regime is unavailable{issue_clause}. Using previous-session market context and "
                 "staying defensive until live data returns."
             ),
         }

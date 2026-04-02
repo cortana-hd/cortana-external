@@ -62,6 +62,15 @@ def test_build_tape_summary_and_risk_tone():
     assert "Risk tone defensive" in summary
 
 
+def test_humanize_market_issue_prefers_plain_english():
+    assert module.humanize_market_issue("service: Schwab REST cooldown open until 2026-04-02T08:00:00Z") == (
+        "Schwab market data is in a brief cooldown"
+    )
+    assert module.humanize_market_issue("HTTP 503 Service Unavailable") == (
+        "the live market-data service is temporarily unavailable"
+    )
+
+
 def test_build_focus_names_prefers_leaders_then_macro():
     focus = module.build_focus_names(["OXY", "QQQ", "FANG"], ["MSFT", "NVDA", "OXY"])
     assert focus["symbols"] == ["OXY", "FANG", "MSFT"]
@@ -360,7 +369,11 @@ def test_build_snapshot_falls_back_conservatively_when_regime_fails(monkeypatch)
 
 
 def test_build_snapshot_softens_posture_when_tape_cache_survives_regime_emergency_fallback(monkeypatch):
-    monkeypatch.setattr(module.TradingAdvisor, "get_market_status", lambda self, refresh=True: (_ for _ in ()).throw(RuntimeError("cooldown")))
+    monkeypatch.setattr(
+        module.TradingAdvisor,
+        "get_market_status",
+        lambda self, refresh=True: (_ for _ in ()).throw(RuntimeError("service: Schwab REST cooldown open until 2026-04-01T13:59:29Z")),
+    )
     monkeypatch.setattr(
         module,
         "build_intraday_breadth_snapshot",
@@ -408,7 +421,8 @@ def test_build_snapshot_softens_posture_when_tape_cache_survives_regime_emergenc
     assert snapshot["posture"]["action"] == "NO_BUY"
     assert snapshot["tape"]["primary_source"] == "cache"
     assert snapshot["posture"]["reason"] == (
-        "Fresh live market regime is unavailable. Using previous-session market context and "
+        "Fresh live market regime is unavailable (Schwab market data is in a brief cooldown). "
+        "Using previous-session market context and "
         "staying defensive until live data returns."
     )
 
