@@ -97,6 +97,7 @@ ANALYSIS_PROFILE_DEFAULT = "default"
 ANALYSIS_PROFILE_BULK_SCAN = "bulk_scan"
 DEFAULT_OVERLAY_REGISTRY_PATH = Path(__file__).parent / "data" / "overlay_registry.json"
 DEFAULT_OVERLAY_PROMOTION_STATE_PATH = Path(__file__).parent / "data" / "cache" / "overlay-promotion-state.json"
+DEFAULT_TRADING_ANALYSIS_STALE_FALLBACK_HOURS = 168.0
 
 
 class TradingAdvisor:
@@ -110,7 +111,18 @@ class TradingAdvisor:
     def __init__(self):
         """Initialize the advisor components."""
         self.market_detector = MarketRegimeDetector()
-        self.market_data = MarketDataProvider()
+        stale_history_fallback_hours = float(
+            os.getenv(
+                "TRADING_ANALYSIS_STALE_FALLBACK_MAX_AGE_HOURS",
+                os.getenv(
+                    "MARKET_DATA_STALE_FALLBACK_MAX_AGE_HOURS",
+                    str(DEFAULT_TRADING_ANALYSIS_STALE_FALLBACK_HOURS),
+                ),
+            )
+        )
+        self.market_data = MarketDataProvider(
+            stale_fallback_max_age_hours=stale_history_fallback_hours
+        )
         self.screener = UniverseScreener(market_data=self.market_data)
         self.fundamentals = FundamentalsFetcher()
         self.risk_fetcher = RiskSignalFetcher()

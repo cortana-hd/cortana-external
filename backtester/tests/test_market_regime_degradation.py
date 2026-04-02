@@ -100,7 +100,7 @@ def test_too_stale_cache_still_raises_with_staleness_message(tmp_path):
 
     msg = str(exc_info.value).lower()
     assert "stale" in msg
-    assert "ttl=" in msg
+    assert "max_fallback=168.0h" in msg
 
 
 def test_missing_cache_uses_conservative_emergency_status(tmp_path):

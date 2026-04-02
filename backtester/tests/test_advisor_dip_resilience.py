@@ -2,6 +2,18 @@ from unittest.mock import MagicMock
 
 from advisor import TradingAdvisor
 
+def test_trading_advisor_uses_extended_stale_history_window_for_analysis(monkeypatch):
+    monkeypatch.delenv("TRADING_ANALYSIS_STALE_FALLBACK_MAX_AGE_HOURS", raising=False)
+    monkeypatch.delenv("MARKET_DATA_STALE_FALLBACK_MAX_AGE_HOURS", raising=False)
+    advisor = TradingAdvisor()
+
+    assert advisor.market_data.stale_fallback_max_age_hours == 168.0
+
+    monkeypatch.setenv("TRADING_ANALYSIS_STALE_FALLBACK_MAX_AGE_HOURS", "72")
+    advisor = TradingAdvisor()
+
+    assert advisor.market_data.stale_fallback_max_age_hours == 72.0
+
 def test_analyze_dip_stock_uses_resilient_helper_path(monkeypatch):
     advisor = TradingAdvisor()
     advisor.get_market_status = MagicMock(return_value=object())
