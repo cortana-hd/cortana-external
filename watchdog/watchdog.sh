@@ -6,7 +6,7 @@ set -euo pipefail
 
 export PATH="/opt/homebrew/bin:/opt/homebrew/opt/postgresql@17/bin:/usr/local/bin:/usr/bin:/bin"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/heartbeat_classifier.sh"
 
 BOT_TOKEN="$(jq -r '.channels.telegram.accounts.monitor.botToken // .channels.telegram.botToken // .channels.telegram.accounts.default.botToken // empty' /Users/hd/.openclaw/openclaw.json 2>/dev/null)"
@@ -16,6 +16,10 @@ ALERTS=""
 LOGS=""
 STATE_FILE="$SCRIPT_DIR/watchdog-state.json"
 FITNESS_BASE_URL="${FITNESS_BASE_URL:-http://localhost:3033}"
+MARKET_DATA_BASE_URL="${MARKET_DATA_BASE_URL:-$FITNESS_BASE_URL}"
+MARKET_DATA_LAUNCHD_LABEL="${MARKET_DATA_LAUNCHD_LABEL:-com.cortana.fitness-service}"
+MARKET_DATA_RESTART_WAIT_SECONDS="${MARKET_DATA_RESTART_WAIT_SECONDS:-8}"
+MARKET_DATA_QUOTE_SYMBOLS="${MARKET_DATA_QUOTE_SYMBOLS:-SPY,QQQ}"
 GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 GATEWAY_LABEL="${OPENCLAW_LAUNCHD_LABEL:-ai.openclaw.gateway}"
 CORTANA_SOURCE_REPO="${CORTANA_SOURCE_REPO:-/Users/hd/Developer/cortana}"
@@ -65,6 +69,12 @@ get_first_failure_time() {
   local check_name="$1"
   local state=$(load_state)
   echo "$state" | jq -r ".\"$check_name\".first_failure // 0" 2>/dev/null || echo "0"
+}
+
+get_check_status() {
+  local check_name="$1"
+  local state=$(load_state)
+  echo "$state" | jq -r ".\"$check_name\".status // \"unknown\"" 2>/dev/null || echo "unknown"
 }
 
 # Update state for a check
@@ -239,6 +249,43 @@ send_alert_notifications() {
   fi
 }
 
+attempt_launchd_restart() {
+  local label="$1"
+  local wait_seconds="${2:-8}"
+  local uid
+  uid=$(id -u)
+  local target="gui/${uid}/${label}"
+  if ! launchctl kickstart -k "$target" >/dev/null 2>&1; then
+    return 1
+  fi
+  sleep "$wait_seconds"
+  return 0
+}
+
+probe_json_endpoint() {
+  local url="$1"
+  local body_path="$2"
+  curl -sS --max-time 15 -o "$body_path" -w '%{http_code}' "$url" 2>/dev/null || echo "000"
+}
+
+humanize_market_data_issue() {
+  local raw="${1:-}"
+  case "$raw" in
+    *"provider_cooldown"*|*"Schwab REST cooldown open"*)
+      printf '%s' "Schwab market data is in a brief cooldown."
+      ;;
+    *"human_action_required"*|*"refresh token rejected"*|*"Re-authorize Schwab"*|*"authorize"*|*"token"*)
+      printf '%s' "Schwab credentials need operator attention."
+      ;;
+    *"/market-data/ready"*|*"000"*)
+      printf '%s' "The local market-data service is unreachable."
+      ;;
+    *)
+      printf '%s' "$raw"
+      ;;
+  esac
+}
+
 # ── A) Cron Health ──
 check_cron_quarantine() {
   local qdir="${HOME}/.openclaw/cron/quarantine"
@@ -389,7 +436,104 @@ check_gateway_health() {
   alert "OpenClaw gateway is DOWN and automatic restart failed (label=${GATEWAY_LABEL}, port=${GATEWAY_PORT})" "$check_name" "critical"
 }
 
-# ── D) Tool Smoke Tests ──
+# ── D) Market Data Health ──
+check_market_data_health() {
+  local readiness_check_name="market_data_service"
+  local provider_check_name="market_data_provider"
+  local quote_check_name="market_data_quotes"
+  local ready_body ops_body quote_body
+  ready_body="$(mktemp)"
+  ops_body="$(mktemp)"
+  quote_body="$(mktemp)"
+  trap 'rm -f "$ready_body" "$ops_body" "$quote_body"' RETURN
+
+  local ready_url="${MARKET_DATA_BASE_URL}/market-data/ready"
+  local ops_url="${MARKET_DATA_BASE_URL}/market-data/ops"
+  local quote_url="${MARKET_DATA_BASE_URL}/market-data/quote/batch?symbols=${MARKET_DATA_QUOTE_SYMBOLS}"
+
+  local ready_code
+  ready_code=$(probe_json_endpoint "$ready_url" "$ready_body")
+  if [[ "$ready_code" == "000" ]]; then
+    log "warning" "Market-data service unreachable via ${ready_url}; attempting launchctl kickstart"
+    if attempt_launchd_restart "$MARKET_DATA_LAUNCHD_LABEL" "$MARKET_DATA_RESTART_WAIT_SECONDS"; then
+      ready_code=$(probe_json_endpoint "$ready_url" "$ready_body")
+    fi
+    if [[ "$ready_code" == "200" || "$ready_code" == "503" ]]; then
+      ALERTS="${ALERTS}⚠️ Market-data service was unreachable and watchdog restarted it successfully\n"
+      log "warning" "Market-data service restarted successfully by watchdog"
+      update_check_state "$readiness_check_name" "recovered"
+    else
+      alert "Market-data service is unreachable and automatic restart failed (${ready_url})" "$readiness_check_name" "critical"
+      return
+    fi
+  fi
+
+  local operator_state operator_action
+  operator_state=$(jq -r '.data.operatorState // empty' "$ready_body" 2>/dev/null || true)
+  operator_action=$(jq -r '.data.operatorAction // empty' "$ready_body" 2>/dev/null || true)
+
+  if [[ "$ready_code" == "503" || "$operator_state" == "human_action_required" || "$operator_state" == "max_connections_blocked" ]]; then
+    local operator_issue
+    operator_issue=$(humanize_market_data_issue "${operator_action:-${operator_state}}")
+    local severity="warning"
+    if [[ "$operator_state" == "human_action_required" ]]; then
+      severity="critical"
+    fi
+    alert "Market-data service is not ready (${operator_state:-unknown}). ${operator_issue}" "$readiness_check_name" "$severity"
+    return
+  fi
+  recovery_alert "$readiness_check_name" "Market-data service recovered and is ready"
+
+  local ops_code
+  ops_code=$(probe_json_endpoint "$ops_url" "$ops_body")
+  if [[ "$ops_code" == "000" ]]; then
+    alert "Market-data ops endpoint is unreachable (${ops_url})" "market_data_ops" "warning"
+  elif [[ "$ops_code" != "200" ]]; then
+    alert "Market-data ops endpoint returned HTTP ${ops_code}" "market_data_ops" "warning"
+  else
+    recovery_alert "market_data_ops" "Market-data ops endpoint recovered"
+    local service_operator_state service_operator_action
+    service_operator_state=$(jq -r '.data.serviceOperatorState // empty' "$ops_body" 2>/dev/null || true)
+    service_operator_action=$(jq -r '.data.serviceOperatorAction // empty' "$ops_body" 2>/dev/null || true)
+    if [[ "$service_operator_state" == "provider_cooldown" ]]; then
+      alert "Schwab market data is in a brief cooldown. Live trading data may be temporarily degraded." "$provider_check_name" "warning"
+      log "info" "Skipping quote-smoke restart while provider cooldown is active"
+      return
+    fi
+    if [[ "$service_operator_state" == "human_action_required" ]]; then
+      alert "Schwab credentials need operator attention. ${service_operator_action:-Re-authorize Schwab and refresh the cached token.}" "$provider_check_name" "critical"
+      return
+    fi
+    recovery_alert "$provider_check_name" "Schwab market-data provider recovered and is accepting live requests"
+  fi
+
+  local quote_code
+  quote_code=$(probe_json_endpoint "$quote_url" "$quote_body")
+  if [[ "$quote_code" == "200" ]]; then
+    recovery_alert "$quote_check_name" "Market-data quote smoke test recovered for ${MARKET_DATA_QUOTE_SYMBOLS}"
+    log "info" "Market-data quote smoke: OK (${MARKET_DATA_QUOTE_SYMBOLS})"
+    return
+  fi
+
+  if [[ "$(get_check_status "$quote_check_name")" == "failing" ]]; then
+    log "warning" "Market-data quote smoke still failing (HTTP ${quote_code}); attempting launchctl kickstart"
+    if attempt_launchd_restart "$MARKET_DATA_LAUNCHD_LABEL" "$MARKET_DATA_RESTART_WAIT_SECONDS"; then
+      quote_code=$(probe_json_endpoint "$quote_url" "$quote_body")
+    fi
+    if [[ "$quote_code" == "200" ]]; then
+      ALERTS="${ALERTS}⚠️ Market-data quote smoke failed twice and watchdog restarted the service successfully\n"
+      log "warning" "Market-data quote smoke recovered after watchdog restart"
+      update_check_state "$quote_check_name" "recovered"
+      return
+    fi
+    alert "Market-data quote smoke test still failing after automatic restart (HTTP ${quote_code} for ${MARKET_DATA_QUOTE_SYMBOLS})" "$quote_check_name" "warning"
+    return
+  fi
+
+  alert "Market-data quote smoke test failed (HTTP ${quote_code} for ${MARKET_DATA_QUOTE_SYMBOLS})" "$quote_check_name" "warning"
+}
+
+# ── E) Tool Smoke Tests ──
 check_tools() {
   log "info" "Fitness endpoint base: ${FITNESS_BASE_URL}"
 
@@ -498,7 +642,7 @@ check_degraded_agents() {
   done < <(echo "$state" | jq -r 'keys[] | select(startswith("agent_degraded_"))' 2>/dev/null)
 }
 
-# ── D) Budget Guard ──
+# ── F) Budget Guard ──
 check_budget() {
   local output
   output=$(npx tsx "$TELEGRAM_USAGE_HANDLER_PATH" json 2>/dev/null) || { log "warning" "Budget check failed to run"; return; }
@@ -529,25 +673,30 @@ check_budget() {
   fi
 }
 
-# ── Run all checks ──
-echo "=== Watchdog run: $(date) ==="
+run_watchdog() {
+  echo "=== Watchdog run: $(date) ==="
 
-check_cron_quarantine
-check_cron_health
-check_heartbeat_health
-check_gateway_health
-check_tools
-check_degraded_agents
-check_budget
+  check_cron_quarantine
+  check_cron_health
+  check_heartbeat_health
+  check_gateway_health
+  check_market_data_health
+  check_tools
+  check_degraded_agents
+  check_budget
 
-# ── Send alerts if any ──
-if [[ -n "$ALERTS" ]]; then
-  MSG="🐕 *Watchdog Alert*
+  if [[ -n "$ALERTS" ]]; then
+    MSG="🐕 *Watchdog Alert*
 
 ${ALERTS}
 _$(date '+%H:%M %b %d')_"
-  send_alert_notifications "$(echo -e "$MSG")"
-  log "info" "Alerts sent to notification channels"
-fi
+    send_alert_notifications "$(echo -e "$MSG")"
+    log "info" "Alerts sent to notification channels"
+  fi
 
-echo "=== Watchdog complete ==="
+  echo "=== Watchdog complete ==="
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  run_watchdog
+fi

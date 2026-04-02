@@ -14,6 +14,7 @@ Current location: `~/Developer/cortana-external/watchdog` · Status: **active** 
 | **gog (Gmail)** | Log failure |
 | **Tonal API** | Health probe + retry; Tonal service self-heals via refresh-token flow |
 | **Whoop API** | Log failure |
+| **Schwab market-data lane** | Probe `/market-data/ready`, `/market-data/ops`, and `SPY,QQQ` quote smoke test; restart local service once only when unreachable; warn-only for provider cooldown; alert for auth/operator action |
 | **PostgreSQL** | Alert |
 | **API Budget** | Alert if <30% remaining before day 20 |
 
@@ -38,6 +39,7 @@ launchctl load ~/Library/LaunchAgents/com.cortana.watchdog.plist
 
 ```bash
 ~/Developer/cortana-external/watchdog/tests/heartbeat-classifier-test.sh
+~/Developer/cortana-external/watchdog/tests/market-data-check-test.sh
 ```
 
 ## Check logs
