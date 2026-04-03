@@ -2,6 +2,18 @@
 
 This is a plain-English learning doc for understanding the backtester from the ground up.
 
+## Chapters
+
+- [Chapter 1: Overview And Daily Use](#chapter-1-overview-and-daily-use)
+- [Chapter 2: Core Trading Flow](#chapter-2-core-trading-flow)
+- [Chapter 3: Putting It Together](#chapter-3-putting-it-together)
+- [Operator Aliases](#operator-aliases)
+- [Exact Workflows](#exact-workflows)
+- [Stock Market Brief Snapshot](#stock-market-brief-snapshot)
+- [Operator Surfaces: What To Read First](#operator-surfaces-what-to-read-first)
+- [How To Read The Wrapper Output](#how-to-read-the-wrapper-output)
+- [Full System Diagram](#full-system-diagram)
+
 For the operating plan and next implementation phases, use:
 - [Roadmap](../roadmap/roadmap.md)
 - [Session Handoff](./session-handoff.md)
@@ -20,7 +32,7 @@ The goal is to understand the system in the order it actually thinks:
 5. send alerts
 6. save history so the system can learn later
 
-## Overview
+## Chapter 1: Overview And Daily Use
 
 ### Big Picture
 
@@ -57,6 +69,46 @@ Default routine:
 # Next trading day
 ./scripts/daytime_flow.sh
 ```
+
+### Operator Aliases
+
+These are the main aliases that match the workflows in this guide.
+
+```bash
+alias cday='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/daytime_flow.sh'
+alias cnight='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/nighttime_flow.sh'
+alias cday_nostream='cd /Users/hd/Developer/cortana-external/backtester && SCHWAB_STREAMER_ENABLED=0 ./scripts/daytime_flow.sh'
+alias clive='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/live_watch.sh'
+alias clive4='cd /Users/hd/Developer/cortana-external/backtester && WATCH_SYMBOLS=SPY,QQQ,DIA,NVDA FOCUS_SYMBOL=SPY ./scripts/live_watch.sh'
+alias crefresh_watchlists='cd /Users/hd/Developer/cortana-external && ./tools/market-intel/run_market_intel.sh && ./tools/stock-discovery/trend_sweep.sh'
+alias cwatch='cd /Users/hd/Developer/cortana-external/backtester && ./scripts/watchlist_watch.sh'
+alias cwatch20='cd /Users/hd/Developer/cortana-external/backtester && WATCHLIST_LIMIT=20 ./scripts/watchlist_watch.sh'
+alias cxauth='cd /Users/hd/Developer/cortana-external && ./tools/stock-discovery/sync_bird_auth.sh'
+alias cbreadth='cd /Users/hd/Developer/cortana-external/backtester && uv run python market_brief_snapshot.py --operator'
+alias cbreadth_raw='cd /Users/hd/Developer/cortana-external/backtester && uv run python market_brief_snapshot.py --pretty'
+alias cdip='cd /Users/hd/Developer/cortana-external/backtester && uv run python dipbuyer_alert.py --limit 8 --min-score 6 --universe-size 120'
+alias cdip_breadth='cd /Users/hd/Developer/cortana-external/backtester && TRADING_INTRADAY_BREADTH_ENABLED=1 uv run python dipbuyer_alert.py --limit 8 --min-score 6 --universe-size 120'
+alias cdip_breadth_loose='cd /Users/hd/Developer/cortana-external/backtester && TRADING_INTRADAY_BREADTH_ENABLED=1 TRADING_INTRADAY_BREADTH_MAX_BUYS=3 TRADING_INTRADAY_BREADTH_SPY_MIN_PCT=1.0 TRADING_INTRADAY_BREADTH_QQQ_MIN_PCT=1.5 TRADING_INTRADAY_BREADTH_SP500_PCT_UP_MIN=0.65 TRADING_INTRADAY_BREADTH_GROWTH_PCT_UP_MIN=0.60 uv run python dipbuyer_alert.py --limit 8 --min-score 6 --universe-size 120'
+```
+
+Quick use map:
+
+- `cday`
+  - full daytime operator view
+- `cnight`
+  - full nightly operator view
+- `cbreadth`
+  - fastest market read
+- `cdip`
+  - direct Dip Buyer answer
+- `clive`
+  - quick live tape
+- `cwatch`
+  - quick watchlist pulse
+- `crefresh_watchlists`
+  - refresh Polymarket + X/Twitter watchlist inputs
+- `cxauth`
+  - fix X/Twitter auth when that path breaks
 
 ### How To Use The System Day To Day
 
@@ -948,7 +1000,7 @@ Local Schwab OAuth note:
 - this uses a local HTTPS listener because Schwab requires an `https://` callback
 - use [Schwab OAuth Reauth Runbook](../runbook/schwab-oauth-reauth-runbook.md) for full re-link and troubleshooting steps
 
-## Core Trading Flow
+## Chapter 2: Core Trading Flow
 
 ### Phase 1: Find Stocks
 
@@ -1684,7 +1736,7 @@ Why both fields matter:
 - `% move` tells you how strong the move has been
 - `(x appearances)` tells you whether the move is persistent or just a one-off pop
 
-## Putting It Together
+## Chapter 3: Putting It Together
 
 ### Full System Diagram
 
