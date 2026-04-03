@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from lifecycle.entry_plan import build_entry_plan_from_signal
+from lifecycle.execution_policy import build_execution_policy
+from lifecycle.exit_engine import evaluate_exit_decision
 from lifecycle.ledgers import LifecycleLedgerStore
 from lifecycle.trade_objects import ClosedPosition, LifecycleStateError, OpenPosition
 
@@ -131,3 +133,61 @@ def test_lifecycle_ledgers_reject_invalid_state_transitions(tmp_path):
     else:
         raise AssertionError("Closing a missing open position should fail")
 
+
+def test_execution_policy_blocks_gap_above_zone_and_carries_fill_realism():
+    policy = build_execution_policy(
+        strategy="canslim",
+        signal={
+            "symbol": "MSFT",
+            "action": "BUY",
+            "price": 105.0,
+        },
+        entry_plan={
+            "do_not_chase_above": 103.0,
+        },
+        overlays={
+            "execution": {
+                "estimated_slippage_bps": 42.0,
+                "execution_quality": "moderate",
+            },
+            "risk": {
+                "state": "balanced",
+            },
+        },
+        generated_at="2026-04-03T20:00:00+00:00",
+    )
+
+    assert policy.fill_allowed is False
+    assert policy.blocked_reason == "gap_above_zone"
+    assert policy.fill_realism_state == "blocked"
+    assert policy.expected_fill_fraction == 0.5
+
+
+def test_exit_engine_marks_stop_hits_and_signal_downgrades():
+    position = OpenPosition(
+        id="open-1",
+        position_key="pos-1",
+        schema_version="lifecycle.v1",
+        symbol="MSFT",
+        strategy="canslim",
+        entered_at="2026-04-01T20:00:00+00:00",
+        entry_price=100.0,
+        stop_price=95.0,
+        target_price_1=108.0,
+    )
+
+    stop_decision = evaluate_exit_decision(
+        position=position,
+        reviewed_at="2026-04-03T20:00:00+00:00",
+        current_price=94.5,
+        signal={"action": "BUY"},
+    )
+    downgrade_decision = evaluate_exit_decision(
+        position=position,
+        reviewed_at="2026-04-03T20:00:00+00:00",
+        current_price=101.0,
+        signal={"action": "NO_BUY"},
+    )
+
+    assert stop_decision.reason == "stop_hit"
+    assert downgrade_decision.reason == "signal_downgrade"

@@ -32,6 +32,7 @@ CRYPTO_REFRESH_SYMBOLS="${CRYPTO_REFRESH_SYMBOLS:-BTC,ETH}"
 REQUIRE_MARKET_DATA_SERVICE="${REQUIRE_MARKET_DATA_SERVICE:-1}"
 REQUIRE_SCHWAB_CONFIGURED="${REQUIRE_SCHWAB_CONFIGURED:-1}"
 AUTO_COMMIT_PR="${AUTO_COMMIT_PR:-0}"
+RUN_TRADE_LIFECYCLE="${RUN_TRADE_LIFECYCLE:-1}"
 
 mkdir -p "${LOCAL_RUN_DIR}"
 RUN_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -171,6 +172,23 @@ run_quick_check() {
     PYTHONWARNINGS=ignore uv run python advisor.py --quick-check "${QUICK_CHECK_SYMBOL}" \
       >"${LOCAL_RUN_DIR}/quick-check-raw.txt" 2>&1
   )
+}
+
+run_trade_lifecycle_cycle() {
+  (
+    cd "${BACKTESTER_DIR}"
+    uv run python trade_lifecycle_cycle.py \
+      --alert-json "${LOCAL_RUN_DIR}/canslim-alert.json" \
+      --alert-json "${LOCAL_RUN_DIR}/dipbuyer-alert.json" \
+      --json
+  ) >"${LOCAL_RUN_DIR}/trade-lifecycle-cycle.json"
+}
+
+run_trade_lifecycle_report() {
+  (
+    cd "${BACKTESTER_DIR}"
+    uv run python trade_lifecycle_report.py
+  ) | tee "${LOCAL_RUN_DIR}/trade-lifecycle.txt"
 }
 
 run_formatted_section() {
@@ -325,6 +343,18 @@ run_stage "dipbuyer_alert" run_formatted_section \
     --limit "${DIPBUYER_LIMIT}" \
     --min-score "${DIPBUYER_MIN_SCORE}" \
     --review-detail-limit "${REVIEW_DETAIL_LIMIT}"
+
+if [[ "${RUN_TRADE_LIFECYCLE}" == "1" ]]; then
+  echo
+  echo "== Trade lifecycle =="
+  run_stage "trade_lifecycle_cycle" run_trade_lifecycle_cycle
+  record_manifest_artifact "trade-lifecycle-cycle" "file" "${LOCAL_RUN_DIR}/trade-lifecycle-cycle.json"
+  run_stage "trade_lifecycle_report" run_trade_lifecycle_report
+  record_manifest_artifact "trade-lifecycle-view" "file" "${LOCAL_RUN_DIR}/trade-lifecycle.txt"
+else
+  record_skipped_stage "trade_lifecycle_cycle"
+  record_skipped_stage "trade_lifecycle_report"
+fi
 
 if [[ "${RUN_DEEP_DIVE}" == "1" ]]; then
   echo

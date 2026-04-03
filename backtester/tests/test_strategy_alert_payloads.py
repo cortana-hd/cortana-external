@@ -120,7 +120,10 @@ def test_canslim_build_alert_payload_emits_strategy_artifact(monkeypatch):
     assert payload["signals"][0]["symbol"] == "MSFT"
     assert payload["signals"][0]["data_source"] == "schwab"
     assert payload["signals"][0]["entry_plan"]["action_context"] == "BUY"
+    assert payload["signals"][0]["execution_policy"]["fill_allowed"] is True
+    assert payload["signals"][0]["execution_policy_ref"]
     assert payload["entry_plans"][0]["entry_style"] == "breakout_buy_zone"
+    assert payload["execution_policies"][0]["entry_order_type"] == "limit"
     assert payload["render_lines"][0] == "CANSLIM Scan"
 
 
@@ -152,7 +155,10 @@ def test_dipbuyer_build_alert_payload_emits_strategy_artifact(monkeypatch):
     assert payload["overlays"]["breadth"]["override_state"] == "inactive"
     assert payload["signals"][0]["symbol"] == "MSFT"
     assert payload["signals"][0]["entry_plan"]["action_context"] == "BUY"
+    assert payload["signals"][0]["execution_policy"]["fill_allowed"] is True
+    assert payload["signals"][0]["execution_policy_ref"]
     assert payload["entry_plans"][0]["entry_style"] == "reversal_reclaim"
+    assert payload["execution_policies"][0]["entry_order_type"] == "limit"
     assert payload["render_lines"][0] == "Dip Buyer Scan"
 
 

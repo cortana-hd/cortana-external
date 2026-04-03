@@ -36,6 +36,7 @@ from evaluation.prediction_accuracy import persist_prediction_snapshot
 from evaluation.decision_review import render_decision_review
 from evaluation.artifact_contracts import ARTIFACT_FAMILY_STRATEGY_ALERT, annotate_artifact
 from lifecycle.entry_plan import annotate_alert_payload_with_entry_plans
+from lifecycle.execution_policy import annotate_alert_payload_with_execution_policies
 
 
 CANSLIM_ALERT_PRODUCER = "backtester.canslim_alert"
@@ -630,6 +631,11 @@ def _finalize_alert_payload(
             "nested_timings": dict(nested_timings or {}),
         }
     payload = annotate_alert_payload_with_entry_plans(
+        strategy=strategy,
+        payload=payload,
+        generated_at=generated_at,
+    )
+    payload = annotate_alert_payload_with_execution_policies(
         strategy=strategy,
         payload=payload,
         generated_at=generated_at,

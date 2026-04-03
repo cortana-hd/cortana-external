@@ -92,9 +92,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Create an execution-policy module that tracks entry order type, gap handling, validity window, partial fills, cancel-if-not-filled, and execution timing assumption.
-- Sub-task 2: Integrate `backtester/data/liquidity_model.py` and related risk helpers into a reusable slippage / liquidity penalty layer.
-- Sub-task 3: Wire execution-policy references into entry plans and future settlement artifacts.
+- [x] Sub-task 1: Create an execution-policy module that tracks entry order type, gap handling, validity window, partial fills, cancel-if-not-filled, and execution timing assumption.
+- [x] Sub-task 2: Integrate `backtester/data/liquidity_model.py` and related risk helpers into a reusable slippage / liquidity penalty layer.
+- [x] Sub-task 3: Wire execution-policy references into entry plans and future settlement artifacts.
 
 #### Important Planning Notes
 
@@ -117,9 +117,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Implement exit taxonomy evaluation for stop hit, target hit, max hold, thesis invalidation, regime deterioration, signal downgrade, and manual override.
-- Sub-task 2: Create a position-review artifact that explains why a position closed and how it behaved in between.
-- Sub-task 3: Update daytime/nighttime flows to summarize lifecycle state and recent exits.
+- [x] Sub-task 1: Implement exit taxonomy evaluation for stop hit, target hit, max hold, thesis invalidation, regime deterioration, signal downgrade, and manual override.
+- [x] Sub-task 2: Create a position-review artifact that explains why a position closed and how it behaved in between.
+- [x] Sub-task 3: Update daytime/nighttime flows to summarize lifecycle state and recent exits.
 
 #### Testing
 

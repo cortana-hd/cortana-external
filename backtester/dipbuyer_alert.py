@@ -36,6 +36,7 @@ from evaluation.failure_taxonomy import classify_strategy_outcome
 from evaluation.prediction_accuracy import persist_prediction_snapshot
 from evaluation.decision_review import render_decision_review
 from lifecycle.entry_plan import annotate_alert_payload_with_entry_plans
+from lifecycle.execution_policy import annotate_alert_payload_with_execution_policies
 from strategies.dip_buyer import DIPBUYER_CONFIG
 
 
@@ -760,6 +761,11 @@ def _finalize_alert_payload(
         "render_lines": list(lines),
     }
     payload = annotate_alert_payload_with_entry_plans(
+        strategy=strategy,
+        payload=payload,
+        generated_at=generated_at,
+    )
+    payload = annotate_alert_payload_with_execution_policies(
         strategy=strategy,
         payload=payload,
         generated_at=generated_at,

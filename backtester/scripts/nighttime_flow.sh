@@ -25,6 +25,7 @@ REQUIRE_MARKET_DATA_SERVICE="${REQUIRE_MARKET_DATA_SERVICE:-1}"
 REQUIRE_SCHWAB_CONFIGURED="${REQUIRE_SCHWAB_CONFIGURED:-1}"
 AUTO_COMMIT_PR="${AUTO_COMMIT_PR:-0}"
 NIGHTLY_PROGRESS="${NIGHTLY_PROGRESS:-1}"
+RUN_TRADE_LIFECYCLE="${RUN_TRADE_LIFECYCLE:-1}"
 
 mkdir -p "${LOCAL_RUN_DIR}"
 RUN_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -148,6 +149,20 @@ run_prediction_accuracy_report() {
   ) | tee "${LOCAL_RUN_DIR}/prediction-accuracy.txt"
 }
 
+run_trade_lifecycle_cycle() {
+  (
+    cd "${BACKTESTER_DIR}"
+    uv run python trade_lifecycle_cycle.py --review-only --json
+  ) >"${LOCAL_RUN_DIR}/trade-lifecycle-cycle.json"
+}
+
+run_trade_lifecycle_report() {
+  (
+    cd "${BACKTESTER_DIR}"
+    uv run python trade_lifecycle_report.py
+  ) | tee "${LOCAL_RUN_DIR}/trade-lifecycle.txt"
+}
+
 ARGS=(--limit "${NIGHTLY_LIMIT}")
 
 if [[ "${SKIP_LIVE_PREFILTER_REFRESH}" == "1" ]]; then
@@ -230,6 +245,18 @@ if [[ "${RUN_PREDICTION_ACCURACY}" == "1" ]]; then
   record_manifest_artifact "prediction-accuracy-view" "file" "${LOCAL_RUN_DIR}/prediction-accuracy.txt"
 else
   record_skipped_stage "prediction_accuracy"
+fi
+
+if [[ "${RUN_TRADE_LIFECYCLE}" == "1" ]]; then
+  echo
+  echo "== Trade lifecycle =="
+  run_stage "trade_lifecycle_cycle" run_trade_lifecycle_cycle
+  record_manifest_artifact "trade-lifecycle-cycle" "file" "${LOCAL_RUN_DIR}/trade-lifecycle-cycle.json"
+  run_stage "trade_lifecycle_report" run_trade_lifecycle_report
+  record_manifest_artifact "trade-lifecycle-view" "file" "${LOCAL_RUN_DIR}/trade-lifecycle.txt"
+else
+  record_skipped_stage "trade_lifecycle_cycle"
+  record_skipped_stage "trade_lifecycle_report"
 fi
 
 if [[ "${AUTO_COMMIT_PR}" == "1" ]]; then

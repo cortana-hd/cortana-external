@@ -19,6 +19,10 @@ class LifecycleLedgerStore:
         self.root = (root or default_lifecycle_root()).expanduser().resolve()
         self.open_positions_path = self.root / "open_positions.json"
         self.closed_positions_path = self.root / "closed_positions.json"
+        self.position_reviews_path = self.root / "position_reviews.json"
+        self.execution_policies_path = self.root / "execution_policies.json"
+        self.portfolio_snapshot_path = self.root / "portfolio_snapshot.json"
+        self.cycle_summary_path = self.root / "cycle_summary.json"
 
     def load_open_positions(self) -> list[OpenPosition]:
         payload = self._load_payload(self.open_positions_path)
@@ -78,3 +82,9 @@ class LifecycleLedgerStore:
         tmp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         tmp_path.replace(path)
         return path
+
+    def write_artifact(self, relative_name: str, payload: dict) -> Path:
+        return self._write_payload(self.root / relative_name, payload)
+
+    def load_artifact(self, relative_name: str) -> dict:
+        return self._load_payload(self.root / relative_name)
