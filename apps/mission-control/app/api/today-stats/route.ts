@@ -53,7 +53,7 @@ export async function GET() {
       const rows = await db.$queryRawUnsafe<CountRow[]>(
         `SELECT COUNT(*)::bigint AS count
          FROM cortana_decision_traces
-         WHERE timestamp >= $1 AND timestamp < $2`,
+         WHERE created_at >= $1 AND created_at < $2`,
         start,
         end
       );
