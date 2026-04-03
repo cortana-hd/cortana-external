@@ -90,9 +90,9 @@ Week 5: V6
 
 #### Jira
 
-- Sub-task 1: Identify every consumer in `cortana` or adjacent tooling that reads backtester/operator payloads.
-- Sub-task 2: Add schema-version and compatibility checks so surface changes cannot silently corrupt alerts.
-- Sub-task 3: Add replay fixtures or sample payloads for cross-repo verification.
+- [x] Sub-task 1: Identify every consumer in `cortana` or adjacent tooling that reads backtester/operator payloads.
+- [x] Sub-task 2: Add schema-version and compatibility checks so surface changes cannot silently corrupt alerts.
+- [x] Sub-task 3: Add replay fixtures or sample payloads for cross-repo verification.
 
 #### Important Planning Notes
 
@@ -115,9 +115,9 @@ Week 5: V6
 
 #### Jira
 
-- Sub-task 1: Create a runtime inventory artifact covering services, launchd jobs, scripts, databases, and artifact families.
-- Sub-task 2: Add shared runtime-health snapshots that capture pre-open gate, service health, cron health, watchdog health, and delivery health.
-- Sub-task 3: Link health snapshots to incident markers and operator inspection paths.
+- [x] Sub-task 1: Create a runtime inventory artifact covering services, launchd jobs, scripts, databases, and artifact families.
+- [x] Sub-task 2: Add shared runtime-health snapshots that capture pre-open gate, service health, cron health, watchdog health, and delivery health.
+- [x] Sub-task 3: Link health snapshots to incident markers and operator inspection paths.
 
 #### Testing
 
@@ -219,3 +219,8 @@ Each implementation PR under this workstream should update this plan with:
 - cross-repo compatibility changes
 - new runtime-health, retention, backup, or runbook artifacts added
 - any Ops Highway activation changes or deferred items
+
+### Commit Log
+
+- Sprint 1: shared operator payload contract, shared renderers, and surface convergence landed across market brief, lifecycle review, and local formatter entry points.
+- Sprint 2: cross-repo compatibility checks, replay fixtures, runtime inventory artifact, and runtime-health snapshots landed with shared artifact families and CLI exporters.
