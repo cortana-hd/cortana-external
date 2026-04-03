@@ -5,9 +5,10 @@ This directory turns the roadmap into execution-ready planning artifacts.
 Use the documents in this order:
 
 1. [Roadmap](/Users/hd/Developer/cortana-external/backtester/planning/docs/roadmap.md)
-2. PRD for the workstream you are implementing
-3. Matching Tech Spec
-4. Matching Implementation Plan
+2. [Git Workflow Plan](/Users/hd/Developer/cortana-external/backtester/planning/docs/git-workflow.md)
+3. PRD for the workstream you are implementing
+4. Matching Tech Spec
+5. Matching Implementation Plan
 
 The workstreams are deliberately grouped so another LLM or engineer can execute them without reconstructing the full repo history.
 
