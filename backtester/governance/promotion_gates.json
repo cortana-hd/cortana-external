@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-04-03-v1",
+  "mode": "compare_only",
+  "promotion_gates": {
+    "minimum_samples": 30,
+    "minimum_walk_forward_windows": 3,
+    "minimum_regime_segments": 2,
+    "minimum_hit_rate": 0.52,
+    "minimum_mean_return_lift_pct": 0.0,
+    "maximum_worse_fill_drawdown_delta_pct": 1.5,
+    "require_benchmark_pass": true,
+    "require_leakage_pass": true,
+    "require_point_in_time_pass": true
+  }
+}

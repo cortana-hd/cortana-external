@@ -190,6 +190,19 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
             },
         },
     )
+    monkeypatch.setattr(
+        prediction_accuracy_report,
+        "_build_governance_summary",
+        lambda: {
+            "activation_hooks": {"mode": "compare_only", "enforced": False, "eligible_incumbent_count": 1},
+            "status_counts": {"challenger": 1, "incumbent": 1},
+            "active_incumbents": [{"experiment_key": "dip_buyer_v1"}],
+            "active_challengers": [{"experiment_key": "dip_buyer_v2"}],
+            "recent_authority_changes": [
+                {"experiment_key": "dip_buyer_v2", "decision_type": "promotion", "decision_result": "pass"}
+            ],
+        },
+    )
     monkeypatch.setattr(sys, "argv", ["prediction_accuracy_report.py"])
 
     prediction_accuracy_report.main()
@@ -223,6 +236,10 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
     assert "market_regime: preserved bad 4/6 (67%) | blocked winners 33% | avg return -1.40%" in out
     assert "Benchmark comparisons" in out
     assert "dip_buyer NO_BUY: n=8 mean=-1.25% hit=25% | vs all mean -0.55% hit +12% | vs action mean -0.25% hit +5%" in out
+    assert "Governance status" in out
+    assert "Mode: compare_only | enforced no | eligible incumbents 1" in out
+    assert "Incumbents: dip_buyer_v1" in out
+    assert "Challengers: dip_buyer_v2" in out
 
 
 def test_prediction_accuracy_report_json_emits_bundle(monkeypatch, capsys):
@@ -230,6 +247,7 @@ def test_prediction_accuracy_report_json_emits_bundle(monkeypatch, capsys):
     monkeypatch.setattr(prediction_accuracy_report, "build_prediction_accuracy_summary", lambda: {"artifact_family": "prediction_accuracy_summary"})
     monkeypatch.setattr(prediction_accuracy_report, "build_decision_review_artifact", lambda: {"artifact_family": "decision_review_summary"})
     monkeypatch.setattr(prediction_accuracy_report, "build_benchmark_comparison_artifact", lambda: {"artifact_family": "benchmark_comparison_summary"})
+    monkeypatch.setattr(prediction_accuracy_report, "_build_governance_summary", lambda: {"artifact_family": "governance_status_summary"})
     monkeypatch.setattr(sys, "argv", ["prediction_accuracy_report.py", "--json"])
 
     prediction_accuracy_report.main()
@@ -238,3 +256,4 @@ def test_prediction_accuracy_report_json_emits_bundle(monkeypatch, capsys):
     assert '"prediction_accuracy"' in payload
     assert '"decision_review"' in payload
     assert '"benchmark_comparisons"' in payload
+    assert '"governance"' in payload

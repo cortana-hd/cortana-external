@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-04-03-v1",
+  "benchmark_ladder": [
+    {
+      "benchmark_name": "all_predictions",
+      "source_key": "by_strategy_action",
+      "description": "Compare candidate behavior against the full prediction pool on the same window and assumptions."
+    },
+    {
+      "benchmark_name": "same_action",
+      "source_key": "by_strategy_action",
+      "description": "Compare candidate behavior against the same action bucket on the same window and assumptions."
+    },
+    {
+      "benchmark_name": "regime_matched",
+      "source_key": "by_regime",
+      "description": "Compare candidate behavior against regime-matched baselines on the same window and assumptions."
+    },
+    {
+      "benchmark_name": "confidence_matched",
+      "source_key": "by_confidence_bucket",
+      "description": "Compare candidate behavior against confidence-bucket-matched baselines on the same window and assumptions."
+    }
+  ]
+}

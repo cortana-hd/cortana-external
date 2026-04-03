@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-04-03-v1",
+  "demotion_rules": {
+    "minimum_recent_hit_rate": 0.45,
+    "maximum_recent_mean_return_pct": -0.25,
+    "maximum_leakage_failures": 0,
+    "maximum_consecutive_failed_reviews": 2,
+    "demote_on_governance_block": true
+  }
+}

@@ -49,9 +49,9 @@ Week 6: V6 + compare-only rollout
 
 #### Jira
 
-- Sub-task 1: Create governance registry helpers and stable artifact contracts for experiments, walk-forward results, benchmark results, and governance decisions.
-- Sub-task 2: Add registry configs for benchmark ladders, promotion gates, demotion rules, and explicit activation status.
-- Sub-task 3: Add explicit incumbent/challenger status transitions with audit fields.
+- [x] Sub-task 1: Create governance registry helpers and stable artifact contracts for experiments, walk-forward results, benchmark results, and governance decisions.
+- [x] Sub-task 2: Add registry configs for benchmark ladders, promotion gates, demotion rules, and explicit activation status.
+- [x] Sub-task 3: Add explicit incumbent/challenger status transitions with audit fields.
 
 #### Testing
 
@@ -69,9 +69,9 @@ Week 6: V6 + compare-only rollout
 
 #### Jira
 
-- Sub-task 1: Implement benchmark runners for the agreed null-model ladder.
-- Sub-task 2: Guarantee that benchmark and candidate evaluations share identical windows, fill assumptions, and point-in-time inputs.
-- Sub-task 3: Persist benchmark outputs in a machine-readable format consumable by promotion gates.
+- [x] Sub-task 1: Implement benchmark runners for the agreed null-model ladder.
+- [x] Sub-task 2: Guarantee that benchmark and candidate evaluations share identical windows, fill assumptions, and point-in-time inputs.
+- [x] Sub-task 3: Persist benchmark outputs in a machine-readable format consumable by promotion gates.
 
 #### Testing
 
@@ -91,9 +91,9 @@ Week 6: V6 + compare-only rollout
 
 #### Jira
 
-- Sub-task 1: Implement rolling train/validation/out-of-sample window execution.
-- Sub-task 2: Add parameter stability, regime-segment, hold-window, and worse-fill sensitivity summaries.
-- Sub-task 3: Emit a `walk_forward_summary` artifact family suitable for later gate evaluation.
+- [x] Sub-task 1: Implement rolling train/validation/out-of-sample window execution.
+- [x] Sub-task 2: Add parameter stability, regime-segment, hold-window, and worse-fill sensitivity summaries.
+- [x] Sub-task 3: Emit a `walk_forward_summary` artifact family suitable for later gate evaluation.
 
 #### Important Planning Notes
 
@@ -116,9 +116,9 @@ Week 6: V6 + compare-only rollout
 
 #### Jira
 
-- Sub-task 1: Implement audits for `known_at` ordering, source provenance integrity, and live-vs-cache mixing.
-- Sub-task 2: Add survivorship, universe-membership, and corporate-actions audit hooks where the current dataset permits it.
-- Sub-task 3: Emit explicit pass/fail summaries that later gates can consume deterministically.
+- [x] Sub-task 1: Implement audits for `known_at` ordering, source provenance integrity, and live-vs-cache mixing.
+- [x] Sub-task 2: Add survivorship, universe-membership, and corporate-actions audit hooks where the current dataset permits it.
+- [x] Sub-task 3: Emit explicit pass/fail summaries that later gates can consume deterministically.
 
 #### Testing
 
@@ -138,9 +138,9 @@ Week 6: V6 + compare-only rollout
 
 #### Jira
 
-- Sub-task 1: Implement gate evaluators for promotion and demotion using explicit thresholds and artifact inputs.
-- Sub-task 2: Add challenger lifecycle logic so candidates can move through shadow, challenger, incumbent, retired, or blocked states.
-- Sub-task 3: Ensure degraded-input evaluations, tiny-sample streaks, or one-regime wins cannot pass promotion silently.
+- [x] Sub-task 1: Implement gate evaluators for promotion and demotion using explicit thresholds and artifact inputs.
+- [x] Sub-task 2: Add challenger lifecycle logic so candidates can move through shadow, challenger, incumbent, retired, or blocked states.
+- [x] Sub-task 3: Ensure degraded-input evaluations, tiny-sample streaks, or one-regime wins cannot pass promotion silently.
 
 #### Testing
 
@@ -158,9 +158,9 @@ Week 6: V6 + compare-only rollout
 
 #### Jira
 
-- Sub-task 1: Add operator-facing governance summaries that explain current trust tiers and recent authority changes.
-- Sub-task 2: Add status-based activation hooks so compare-only mode can later evolve into enforcement.
-- Sub-task 3: Ensure demoted or retired logic no longer appears as incumbent in downstream artifacts.
+- [x] Sub-task 1: Add operator-facing governance summaries that explain current trust tiers and recent authority changes.
+- [x] Sub-task 2: Add status-based activation hooks so compare-only mode can later evolve into enforcement.
+- [x] Sub-task 3: Ensure demoted or retired logic no longer appears as incumbent in downstream artifacts.
 
 #### Testing
 

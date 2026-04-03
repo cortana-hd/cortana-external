@@ -9,6 +9,13 @@ import json
 from evaluation.benchmark_models import build_benchmark_comparison_artifact
 from evaluation.decision_review_metrics import build_decision_review_artifact
 from evaluation.prediction_accuracy import build_prediction_accuracy_summary, settle_prediction_snapshots
+from governance.challengers import (
+    build_governance_operator_lines,
+    build_governance_status_artifact,
+    load_governance_decisions,
+    save_governance_status_artifact,
+)
+from governance.registry import load_experiment_registry
 
 
 def main() -> None:
@@ -20,10 +27,12 @@ def main() -> None:
     summary = build_prediction_accuracy_summary()
     decision_review = build_decision_review_artifact()
     benchmark_summary = build_benchmark_comparison_artifact()
+    governance_summary = _build_governance_summary()
     bundle = {
         "prediction_accuracy": summary,
         "decision_review": decision_review,
         "benchmark_comparisons": benchmark_summary,
+        "governance": governance_summary,
     }
 
     if args.json:
@@ -193,6 +202,11 @@ def main() -> None:
                 )
             print(line)
 
+    if governance_summary:
+        print("")
+        for line in build_governance_operator_lines(governance_summary):
+            print(line)
+
 
 def _format_summary_row(row: dict, *, key_fields: tuple[str, ...]) -> str:
     parts = [" ".join(str(row.get(field) or "unknown") for field in key_fields)]
@@ -246,6 +260,29 @@ def _format_optional_signed_lift(value: object, *, ratio: bool = False) -> str:
     if ratio:
         return f"{float(value):+.0%}"
     return f"{float(value):+.2f}%"
+
+
+def _build_governance_summary() -> dict:
+    try:
+        registry = load_experiment_registry()
+    except Exception:
+        return {}
+    decisions = load_governance_decisions()
+    if not registry.get("experiments") and not decisions:
+        return {}
+    compare_only = True
+    for entry in registry.get("experiments") or []:
+        activation = entry.get("activation") or {}
+        if bool(activation.get("enforced", False)):
+            compare_only = False
+            break
+    artifact = build_governance_status_artifact(
+        registry_payload=registry,
+        decisions=decisions,
+        compare_only=compare_only,
+    )
+    save_governance_status_artifact(artifact)
+    return artifact
 
 
 if __name__ == "__main__":
