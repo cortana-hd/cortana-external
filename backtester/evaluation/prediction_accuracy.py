@@ -16,6 +16,7 @@ from evaluation.prediction_contract import (
     build_prediction_contract_records,
     serialize_prediction_contract_records,
 )
+from outcomes import SETTLEMENT_ARTIFACT_SCHEMA_VERSION, build_forward_settlement_snapshot
 
 DEFAULT_HORIZONS = (1, 5, 20)
 
@@ -94,6 +95,7 @@ def settle_prediction_snapshots(
             )
             settled_records.append({**record, **settlement})
         out_payload = {
+            "schema_version": SETTLEMENT_ARTIFACT_SCHEMA_VERSION,
             "strategy": payload.get("strategy"),
             "market_regime": payload.get("market_regime"),
             "generated_at": payload.get("generated_at"),
@@ -162,53 +164,54 @@ def _settle_record(
     try:
         history = provider.get_history(symbol, period="6mo").frame.copy()
     except MarketDataError as error:
-        return {"settlement_error": str(error), "forward_returns_pct": {}}
-
-    if history.empty:
-        return {"settlement_error": "empty history", "forward_returns_pct": {}}
-
-    history.index = pd.to_datetime(history.index, utc=True)
-    anchor = history.loc[history.index >= generated_at]
-    if anchor.empty:
+        horizon_keys = [f"{horizon}d" for horizon in horizons]
         return {
-            "settlement_error": "no anchor bar after prediction",
+            "settlement_schema_version": SETTLEMENT_ARTIFACT_SCHEMA_VERSION,
+            "settlement_status": "insufficient_data",
+            "settlement_maturity_state": "incomplete",
+            "settlement_error": str(error),
+            "anchor_timestamp": None,
+            "anchor_close": None,
             "forward_returns_pct": {},
+            "max_adverse_excursion_pct": {},
+            "max_favorable_excursion_pct": {},
             "max_drawdown_pct": {},
             "max_runup_pct": {},
-            "pending_horizons": [f"{horizon}d" for horizon in horizons],
+            "matured_horizons": [],
+            "pending_horizons": [],
+            "incomplete_horizons": horizon_keys,
+            "pending_coverage_pct": 0.0,
+            "matured_coverage_pct": 0.0,
+            "incomplete_coverage_pct": 1.0,
         }
 
-    anchor_close = float(anchor.iloc[0]["Close"])
-    forward_returns = {}
-    max_drawdown = {}
-    max_runup = {}
-    pending_horizons: list[str] = []
-    for horizon in horizons:
-        horizon_cutoff = generated_at + timedelta(days=horizon)
-        horizon_key = f"{horizon}d"
-        if now < horizon_cutoff:
-            pending_horizons.append(horizon_key)
-            continue
-        future_rows = history.loc[history.index >= horizon_cutoff]
-        if future_rows.empty:
-            continue
-        future_close = float(future_rows.iloc[0]["Close"])
-        window_rows = history.loc[(history.index >= generated_at) & (history.index <= future_rows.index[0])]
-        if anchor_close:
-            forward_returns[horizon_key] = round(((future_close - anchor_close) / anchor_close) * 100.0, 3)
-            if not window_rows.empty:
-                lows = pd.to_numeric(window_rows["Close"], errors="coerce").dropna()
-                highs = pd.to_numeric(window_rows["Close"], errors="coerce").dropna()
-                if not lows.empty:
-                    max_drawdown[horizon_key] = round(((float(lows.min()) - anchor_close) / anchor_close) * 100.0, 3)
-                if not highs.empty:
-                    max_runup[horizon_key] = round(((float(highs.max()) - anchor_close) / anchor_close) * 100.0, 3)
-    return {
-        "forward_returns_pct": forward_returns,
-        "max_drawdown_pct": max_drawdown,
-        "max_runup_pct": max_runup,
-        "pending_horizons": pending_horizons,
-    }
+    if history.empty:
+        horizon_keys = [f"{horizon}d" for horizon in horizons]
+        return {
+            "settlement_schema_version": SETTLEMENT_ARTIFACT_SCHEMA_VERSION,
+            "settlement_status": "insufficient_data",
+            "settlement_maturity_state": "incomplete",
+            "settlement_error": "empty history",
+            "anchor_timestamp": None,
+            "anchor_close": None,
+            "forward_returns_pct": {},
+            "max_adverse_excursion_pct": {},
+            "max_favorable_excursion_pct": {},
+            "max_drawdown_pct": {},
+            "max_runup_pct": {},
+            "matured_horizons": [],
+            "pending_horizons": [],
+            "incomplete_horizons": horizon_keys,
+            "pending_coverage_pct": 0.0,
+            "matured_coverage_pct": 0.0,
+            "incomplete_coverage_pct": 1.0,
+        }
+    return build_forward_settlement_snapshot(
+        history=history,
+        generated_at=generated_at,
+        horizons=horizons,
+        now=now,
+    )
 
 
 def _to_float(value: object) -> float | None:

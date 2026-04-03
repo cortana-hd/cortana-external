@@ -9,6 +9,8 @@ from typing import Any, Dict, Iterable, Sequence
 
 import pandas as pd
 
+SETTLEMENT_ARTIFACT_SCHEMA_VERSION = 1
+
 
 @dataclass(frozen=True)
 class OutcomeLabel:
@@ -306,6 +308,136 @@ def extract_forward_return(record: Any, horizon_key: str) -> float | None:
         return None
     value = forward_returns.get(horizon_key)
     return _safe_float(value)
+
+
+def build_forward_settlement_snapshot(
+    *,
+    history: pd.DataFrame,
+    generated_at: datetime,
+    horizons: Sequence[int],
+    now: datetime,
+) -> Dict[str, Any]:
+    history = history.copy()
+    history.index = pd.to_datetime(history.index, utc=True)
+    anchor = history.loc[history.index >= generated_at]
+    if anchor.empty:
+        pending_horizons = [f"{int(horizon)}d" for horizon in horizons]
+        return {
+            "settlement_schema_version": SETTLEMENT_ARTIFACT_SCHEMA_VERSION,
+            "settlement_status": "pending",
+            "settlement_maturity_state": "pending",
+            "settlement_error": "no anchor bar after prediction",
+            "anchor_timestamp": None,
+            "anchor_close": None,
+            "forward_returns_pct": {},
+            "max_adverse_excursion_pct": {},
+            "max_favorable_excursion_pct": {},
+            "max_drawdown_pct": {},
+            "max_runup_pct": {},
+            "matured_horizons": [],
+            "pending_horizons": pending_horizons,
+            "incomplete_horizons": [],
+            "pending_coverage_pct": 1.0,
+            "matured_coverage_pct": 0.0,
+            "incomplete_coverage_pct": 0.0,
+        }
+
+    anchor_row = anchor.iloc[0]
+    anchor_timestamp = anchor.index[0]
+    anchor_close = _safe_float(anchor_row.get("Close"))
+    if anchor_close is None or anchor_close == 0:
+        return {
+            "settlement_schema_version": SETTLEMENT_ARTIFACT_SCHEMA_VERSION,
+            "settlement_status": "insufficient_data",
+            "settlement_maturity_state": "incomplete",
+            "settlement_error": "anchor close unavailable",
+            "anchor_timestamp": anchor_timestamp.isoformat(),
+            "anchor_close": None,
+            "forward_returns_pct": {},
+            "max_adverse_excursion_pct": {},
+            "max_favorable_excursion_pct": {},
+            "max_drawdown_pct": {},
+            "max_runup_pct": {},
+            "matured_horizons": [],
+            "pending_horizons": [],
+            "incomplete_horizons": [f"{int(horizon)}d" for horizon in horizons],
+            "pending_coverage_pct": 0.0,
+            "matured_coverage_pct": 0.0,
+            "incomplete_coverage_pct": 1.0,
+        }
+
+    forward_returns: Dict[str, float] = {}
+    max_adverse_excursion: Dict[str, float] = {}
+    max_favorable_excursion: Dict[str, float] = {}
+    matured_horizons: list[str] = []
+    pending_horizons: list[str] = []
+    incomplete_horizons: list[str] = []
+
+    for horizon in horizons:
+        horizon_cutoff = generated_at + timedelta(days=int(horizon))
+        horizon_key = f"{int(horizon)}d"
+        if now < horizon_cutoff:
+            pending_horizons.append(horizon_key)
+            continue
+
+        future_rows = history.loc[history.index >= horizon_cutoff]
+        if future_rows.empty:
+            incomplete_horizons.append(horizon_key)
+            continue
+
+        future_row = future_rows.iloc[0]
+        future_close = _safe_float(future_row.get("Close"))
+        if future_close is None:
+            incomplete_horizons.append(horizon_key)
+            continue
+
+        window_rows = history.loc[(history.index >= anchor_timestamp) & (history.index <= future_rows.index[0])]
+        lows = pd.to_numeric(window_rows["Close"], errors="coerce").dropna() if not window_rows.empty else pd.Series(dtype=float)
+        highs = pd.to_numeric(window_rows["Close"], errors="coerce").dropna() if not window_rows.empty else pd.Series(dtype=float)
+
+        forward_returns[horizon_key] = round(((future_close - anchor_close) / anchor_close) * 100.0, 3)
+        if not lows.empty:
+            max_adverse_excursion[horizon_key] = round(((float(lows.min()) - anchor_close) / anchor_close) * 100.0, 3)
+        if not highs.empty:
+            max_favorable_excursion[horizon_key] = round(((float(highs.max()) - anchor_close) / anchor_close) * 100.0, 3)
+        matured_horizons.append(horizon_key)
+
+    total_horizons = max(len(list(horizons)), 1)
+    matured_coverage_pct = round(len(matured_horizons) / total_horizons, 4)
+    pending_coverage_pct = round(len(pending_horizons) / total_horizons, 4)
+    incomplete_coverage_pct = round(len(incomplete_horizons) / total_horizons, 4)
+
+    if matured_horizons and not pending_horizons and not incomplete_horizons:
+        settlement_status = "settled"
+        maturity_state = "matured"
+    elif matured_horizons and (pending_horizons or incomplete_horizons):
+        settlement_status = "partially_settled"
+        maturity_state = "partial"
+    elif pending_horizons and not matured_horizons:
+        settlement_status = "pending"
+        maturity_state = "pending"
+    else:
+        settlement_status = "insufficient_data"
+        maturity_state = "incomplete"
+
+    return {
+        "settlement_schema_version": SETTLEMENT_ARTIFACT_SCHEMA_VERSION,
+        "settlement_status": settlement_status,
+        "settlement_maturity_state": maturity_state,
+        "anchor_timestamp": anchor_timestamp.isoformat(),
+        "anchor_close": round(anchor_close, 6),
+        "forward_returns_pct": forward_returns,
+        "max_adverse_excursion_pct": max_adverse_excursion,
+        "max_favorable_excursion_pct": max_favorable_excursion,
+        "max_drawdown_pct": dict(max_adverse_excursion),
+        "max_runup_pct": dict(max_favorable_excursion),
+        "matured_horizons": matured_horizons,
+        "pending_horizons": pending_horizons,
+        "incomplete_horizons": incomplete_horizons,
+        "pending_coverage_pct": pending_coverage_pct,
+        "matured_coverage_pct": matured_coverage_pct,
+        "incomplete_coverage_pct": incomplete_coverage_pct,
+    }
 
 
 def _extract_value(record: Any, key: str) -> Any:

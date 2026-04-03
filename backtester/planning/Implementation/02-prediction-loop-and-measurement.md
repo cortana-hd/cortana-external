@@ -68,7 +68,7 @@ Week 5: V6 + replay/regression cleanup
 
 #### Jira
 
-- Sub-task 1: Extend `backtester/outcomes.py` and related settlement helpers to compute horizon returns, max favorable excursion, max adverse excursion, pending coverage, and settlement maturity state.
+- [x] Sub-task 1: Extend `backtester/outcomes.py` and related settlement helpers to compute horizon returns, max favorable excursion, max adverse excursion, pending coverage, and settlement maturity state.
 - Sub-task 2: Add action-aware grading helpers that distinguish signal validation, entry validation, execution validation, and trade validation.
 - Sub-task 3: Persist or emit settlement artifacts in a stable versioned shape for later reports.
 

@@ -73,6 +73,21 @@ def test_prediction_accuracy_round_trip(tmp_path):
     assert record["vetoes"] == []
 
     settle_prediction_snapshots(root=tmp_path, provider=_StubProvider(), now=generated_at + timedelta(days=30))
+    settled_payload = json.loads(
+        next((tmp_path / "settled").glob("*.json")).read_text(encoding="utf-8")
+    )
+    settled_record = settled_payload["records"][0]
+    assert settled_payload["schema_version"] == 1
+    assert settled_record["settlement_schema_version"] == 1
+    assert settled_record["settlement_status"] == "settled"
+    assert settled_record["settlement_maturity_state"] == "matured"
+    assert settled_record["matured_horizons"] == ["1d", "5d", "20d"]
+    assert settled_record["pending_horizons"] == []
+    assert settled_record["incomplete_horizons"] == []
+    assert settled_record["matured_coverage_pct"] == 1.0
+    assert settled_record["pending_coverage_pct"] == 0.0
+    assert settled_record["max_favorable_excursion_pct"]["20d"] == 20.0
+    assert settled_record["max_adverse_excursion_pct"]["20d"] == 0.0
     summary = build_prediction_accuracy_summary(root=tmp_path)
 
     assert summary["snapshot_count"] == 1
@@ -106,6 +121,26 @@ class _NegativeStubProvider:
                     datetime(2026, 3, 1, tzinfo=timezone.utc),
                     datetime(2026, 3, 3, tzinfo=timezone.utc),
                     datetime(2026, 3, 25, tzinfo=timezone.utc),
+                ]
+            ),
+        )
+        return type("History", (), {"frame": frame})()
+
+
+class _ShortHistoryStubProvider:
+    def get_history(self, symbol: str, period: str = "6mo"):
+        frame = pd.DataFrame(
+            {
+                "Open": [10.0, 11.0],
+                "High": [10.0, 11.0],
+                "Low": [10.0, 11.0],
+                "Close": [10.0, 11.0],
+                "Volume": [100, 100],
+            },
+            index=pd.to_datetime(
+                [
+                    datetime(2026, 3, 1, tzinfo=timezone.utc),
+                    datetime(2026, 3, 3, tzinfo=timezone.utc),
                 ]
             ),
         )
@@ -233,3 +268,44 @@ def test_prediction_snapshot_contract_preserves_explicit_fields(tmp_path):
     assert record["entry_plan_ref"] == "dip_buyer.reversal_watch_v1"
     assert record["execution_policy_ref"] == "execution.good.tight"
     assert record["vetoes"] == ["market_regime", "abstain:confidence"]
+
+
+def test_prediction_settlement_tracks_pending_and_incomplete_horizons(tmp_path):
+    generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    path = persist_prediction_snapshot(
+        strategy="dip_buyer",
+        market_regime="correction",
+        records=[
+            {
+                "symbol": "AAPL",
+                "action": "WATCH",
+                "score": 8,
+                "effective_confidence": 61,
+                "confidence": 61,
+                "risk": "medium",
+                "market_regime": "correction",
+                "breadth_state": "inactive",
+                "entry_plan_ref": "dip_buyer.reversal_watch_v1",
+                "execution_policy_ref": None,
+                "vetoes": [],
+                "reason": "test",
+            }
+        ],
+        root=tmp_path,
+        generated_at=generated_at,
+        producer="backtester.test_prediction_accuracy",
+    )
+    assert path is not None
+
+    settle_prediction_snapshots(root=tmp_path, provider=_ShortHistoryStubProvider(), now=generated_at + timedelta(days=30))
+    settled_payload = json.loads(
+        next((tmp_path / "settled").glob("*.json")).read_text(encoding="utf-8")
+    )
+    record = settled_payload["records"][0]
+    assert record["settlement_status"] == "partially_settled"
+    assert record["settlement_maturity_state"] == "partial"
+    assert record["matured_horizons"] == ["1d"]
+    assert record["pending_horizons"] == []
+    assert record["incomplete_horizons"] == ["5d", "20d"]
+    assert record["matured_coverage_pct"] == 0.3333
+    assert record["incomplete_coverage_pct"] == 0.6667
