@@ -354,6 +354,12 @@ probe_json_endpoint() {
   curl -sS --max-time 15 -o "$body_path" -w '%{http_code}' "$url" 2>/dev/null || echo "000"
 }
 
+market_data_body_indicates_cooldown() {
+  local body_path="$1"
+  [[ -f "$body_path" ]] || return 1
+  grep -Eqi 'provider_cooldown|Schwab REST cooldown open|cooldown expires|brief cooldown' "$body_path"
+}
+
 humanize_market_data_issue() {
   local raw="${1:-}"
   case "$raw" in
@@ -730,7 +736,7 @@ check_mission_control_health() {
   local health_url="${MISSION_CONTROL_BASE_URL%/}${MISSION_CONTROL_HEALTH_PATH}"
   local body
   body="$(mktemp)"
-  trap 'rm -f "$body"' RETURN
+  trap 'rm -f "${body:-}"' RETURN
 
   local code
   code=$(probe_json_endpoint "$health_url" "$body")
@@ -765,7 +771,7 @@ check_market_data_health() {
   ready_body="$(mktemp)"
   ops_body="$(mktemp)"
   quote_body="$(mktemp)"
-  trap 'rm -f "$ready_body" "$ops_body" "$quote_body"' RETURN
+  trap 'rm -f "${ready_body:-}" "${ops_body:-}" "${quote_body:-}"' RETURN
 
   local ready_url="${MARKET_DATA_BASE_URL}/market-data/ready"
   local ops_url="${MARKET_DATA_BASE_URL}/market-data/ops"
@@ -824,15 +830,21 @@ check_market_data_health() {
       alert "Schwab credentials need operator attention. ${service_operator_action:-Re-authorize Schwab and refresh the cached token.}" "$provider_check_name" "critical"
       return
     fi
-    if market_data_advisory_should_recover "$provider_check_name" "$advisory_threshold_seconds"; then
-      recovery_alert "$provider_check_name" "Schwab market-data provider recovered and is accepting live requests"
-    else
-      clear_check_recovery_silent "$provider_check_name"
-    fi
   fi
 
   local quote_code
   quote_code=$(probe_json_endpoint "$quote_url" "$quote_body")
+  if [[ "$quote_code" == "503" ]] && market_data_body_indicates_cooldown "$quote_body"; then
+    alert_if_failure_persists "$provider_check_name" "$advisory_threshold_seconds" "Schwab market data is in a brief cooldown. Live trading data may be temporarily degraded." "warning" >/dev/null || true
+    clear_check_recovery_silent "$quote_check_name"
+    log "info" "Skipping quote-smoke restart because quote response indicates provider cooldown"
+    return
+  fi
+  if market_data_advisory_should_recover "$provider_check_name" "$advisory_threshold_seconds"; then
+    recovery_alert "$provider_check_name" "Schwab market-data provider recovered and is accepting live requests"
+  else
+    clear_check_recovery_silent "$provider_check_name"
+  fi
   if [[ "$quote_code" == "200" ]]; then
     if market_data_advisory_should_recover "$quote_check_name" "$advisory_threshold_seconds"; then
       recovery_alert "$quote_check_name" "Market-data quote smoke test recovered for ${MARKET_DATA_QUOTE_SYMBOLS}"

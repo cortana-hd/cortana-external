@@ -177,6 +177,24 @@ if [[ "$scenario" == "quote_flap" ]]; then
   fi
 fi
 
+if [[ "$scenario" == "quote_cooldown" ]]; then
+  if [[ "$url" == *"/market-data/ready" ]]; then
+    printf '%s\n' '{"data":{"ready":true,"operatorState":"healthy","operatorAction":"No operator action required."}}' >"$out"
+    printf '200'
+    exit 0
+  fi
+  if [[ "$url" == *"/market-data/ops" ]]; then
+    printf '%s\n' '{"data":{"serviceOperatorState":"healthy","serviceOperatorAction":"No operator action required."}}' >"$out"
+    printf '200'
+    exit 0
+  fi
+  if [[ "$url" == *"/market-data/quote/batch"* ]]; then
+    printf '%s\n' '{"source":"service","status":"error","degradedReason":"2 batch item(s) failed","data":{"items":[{"symbol":"SPY","degradedReason":"Schwab REST cooldown open until 2026-04-03T20:16:32.529Z"},{"symbol":"QQQ","degradedReason":"Schwab REST cooldown open until 2026-04-03T20:16:32.529Z"}]}}' >"$out"
+    printf '503'
+    exit 0
+  fi
+fi
+
 printf '000'
 EOF
 chmod +x "$BIN_DIR/curl"
@@ -215,5 +233,11 @@ assert_file_empty "quote smoke first failure stays silent" "$TMP_DIR/quote_flap/
 run_scenario quote_flap
 assert_file_contains "quote smoke sustained failure alerts after restart attempt" "Market-data quote smoke test still failing after automatic restart" "$TMP_DIR/quote_flap/output.txt"
 assert_file_contains "quote smoke sustained failure triggers restart attempt" "kickstart -k gui/" "$TMP_DIR/quote_flap/launchctl.log"
+
+run_scenario quote_cooldown
+assert_file_empty "quote cooldown first failure stays silent" "$TMP_DIR/quote_cooldown/output.txt"
+run_scenario quote_cooldown
+assert_file_contains "quote cooldown reuses provider advisory" "Schwab market data is in a brief cooldown" "$TMP_DIR/quote_cooldown/output.txt"
+assert_file_empty "quote cooldown does not restart service" "$TMP_DIR/quote_cooldown/launchctl.log"
 
 echo "All market-data watchdog tests passed."
