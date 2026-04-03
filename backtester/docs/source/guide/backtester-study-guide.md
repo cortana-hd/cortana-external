@@ -58,6 +58,144 @@ Default routine:
 ./scripts/daytime_flow.sh
 ```
 
+### How To Use The System Day To Day
+
+Do not think of this as one giant command.
+
+Think of it like a small operator loop:
+
+1. read the market
+2. read the strategy posture
+3. monitor only the names that matter
+4. let the system measure itself later
+
+Simple flow:
+
+```mermaid
+flowchart LR
+    A["cbreadth<br/>What is the market doing?"] --> B["cday<br/>What should I pay attention to now?"]
+    B --> C["clive / cwatch<br/>Monitor live names and watchlists"]
+    C --> D["cnight<br/>What changed after the close?"]
+    D --> E["Prediction accuracy + lifecycle review<br/>Did the system age well?"]
+```
+
+What each command is for:
+
+- `cbreadth`
+  - quickest market read
+  - use it for: "Is this a buy environment, a watch environment, or a stand-aside environment?"
+- `cday`
+  - main daytime operator command
+  - use it for: "What should I focus on right now?"
+- `cnight`
+  - main overnight operator command
+  - use it for: "What changed, what settled, and what do I review tomorrow?"
+- `cdip`
+  - direct Dip Buyer read
+  - use it for: "What is Dip Buyer saying without the full wrapper?"
+- `clive`
+  - fast live tape
+  - use it for: "What are the key names doing right now?"
+- `cwatch`
+  - watchlist pulse
+  - use it for: "What is the current saved watchlist doing?"
+
+Beginner examples:
+
+- if `cbreadth` says:
+  - `NO_BUY | CORRECTION`
+  - then do not go searching for bullish meaning somewhere else
+- if `cday` says:
+  - `Alert posture: stand aside`
+  - then it is a status update, not a buy-now alert
+- if `cdip` shows:
+  - `BUY 0 | WATCH 0`
+  - that means the scan ran and found nothing good enough
+- if `cnight` shows:
+  - weak prediction accuracy or weak trade review
+  - that means the learning loop is telling you to trust the system less, not more
+
+### Simple Daily Workflow
+
+This is the easiest way to use the system without overthinking it.
+
+Morning:
+
+- run `cbreadth`
+- then run `cday`
+
+Read it like this:
+
+- first: market regime
+- second: alert posture
+- third: candidate names
+- fourth: warnings
+
+During the session:
+
+- rerun `cbreadth` if the tape changes
+- run `cdip` if you want the direct Dip Buyer view
+- use `clive` or `cwatch` for quick monitoring
+
+After the close:
+
+- run `cnight`
+
+Use `cnight` to answer:
+
+- what the system discovered
+- what settled
+- whether BUY / WATCH / NO_BUY calls are aging well
+- whether the paper trade and governance layers changed
+
+Simple mental model:
+
+```mermaid
+flowchart TD
+    A["Market regime"] --> B["Can we take risk?"]
+    C["Breadth and tape"] --> B
+    B --> D["CANSLIM / Dip Buyer"]
+    D --> E["Prediction is logged"]
+    E --> F["Later settlement"]
+    F --> G["Accuracy, lifecycle, and governance"]
+```
+
+Plain English:
+
+- first decide if the market is healthy enough
+- then see if a strategy likes any names
+- then let the system save that decision
+- later let the system grade whether that decision was actually good
+
+### What To Trust First
+
+When multiple surfaces are talking at once, trust them in this order:
+
+1. market regime
+2. alert posture
+3. warnings / degraded status
+4. candidate names
+5. prediction accuracy and lifecycle review
+
+Why this order matters:
+
+- the regime tells you whether risk is allowed at all
+- the posture tells you whether this is a buy signal or only a review signal
+- the warnings tell you whether the live data path is degraded
+- only after that should you care about the actual stock names
+
+Example:
+
+- `Regime: CORRECTION`
+- `Alert posture: stand aside`
+- `BUY 0`
+
+This means:
+
+- the system is working
+- it is not telling you to buy
+- and the correct action is patience, not override
+
 ### Stock Market Brief Snapshot
 
 There is now a small export specifically for the main `cortana` repo's daily market brief:
