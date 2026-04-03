@@ -6,9 +6,16 @@ import { useRouter } from "next/navigation";
 type AutoRefreshProps = {
   intervalMs?: number;
   sourceUrl?: string;
+  refreshEvents?: string[];
 };
 
-export function AutoRefresh({ intervalMs = 2500, sourceUrl = "/api/live" }: AutoRefreshProps) {
+const DEFAULT_REFRESH_EVENTS = ["ready", "tick"];
+
+export function AutoRefresh({
+  intervalMs = 10_000,
+  sourceUrl = "/api/live",
+  refreshEvents = DEFAULT_REFRESH_EVENTS,
+}: AutoRefreshProps) {
   const router = useRouter();
 
   useEffect(() => {
@@ -22,8 +29,13 @@ export function AutoRefresh({ intervalMs = 2500, sourceUrl = "/api/live" }: Auto
       }
     };
 
+    const disconnect = () => {
+      source?.close();
+      source = null;
+    };
+
     const startFallback = () => {
-      if (fallbackInterval !== null) return;
+      if (fallbackInterval !== null || document.visibilityState !== "visible") return;
       fallbackInterval = window.setInterval(refresh, intervalMs);
     };
 
@@ -35,16 +47,20 @@ export function AutoRefresh({ intervalMs = 2500, sourceUrl = "/api/live" }: Auto
     };
 
     const connect = () => {
-      if (stopped) return;
+      if (stopped || source || document.visibilityState !== "visible") return;
       try {
         source = new EventSource(sourceUrl);
-        source.addEventListener("ready", refresh);
-        source.addEventListener("tick", refresh);
+        for (const eventName of refreshEvents) {
+          source.addEventListener(eventName, refresh);
+        }
         source.onerror = () => {
-          source?.close();
-          source = null;
+          disconnect();
           startFallback();
-          window.setTimeout(connect, 1500);
+          window.setTimeout(() => {
+            if (!stopped && document.visibilityState === "visible") {
+              connect();
+            }
+          }, 1500);
         };
       } catch {
         startFallback();
@@ -54,19 +70,29 @@ export function AutoRefresh({ intervalMs = 2500, sourceUrl = "/api/live" }: Auto
     connect();
 
     const onFocus = () => refresh();
-    const onVisible = () => refresh();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        stopFallback();
+        connect();
+        refresh();
+        return;
+      }
+
+      disconnect();
+      stopFallback();
+    };
 
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       stopped = true;
-      source?.close();
+      disconnect();
       stopFallback();
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [intervalMs, router, sourceUrl]);
+  }, [intervalMs, refreshEvents, router, sourceUrl]);
 
   return null;
 }

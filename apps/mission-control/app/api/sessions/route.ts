@@ -1,19 +1,11 @@
-import { execSync, type ExecSyncOptionsWithStringEncoding } from "node:child_process";
 import { NextResponse } from "next/server";
+import { OpenClawExecError, runOpenclaw } from "@/lib/openclaw-cli";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
-const EXEC_OPTIONS: ExecSyncOptionsWithStringEncoding = {
-  encoding: "utf8",
-  timeout: 15000,
-  stdio: ["ignore", "pipe", "pipe"],
-};
-
 const DEFAULT_MINUTES = 1440;
-
-type ExecError = Error & { stdout?: Buffer | string; stderr?: Buffer | string; status?: number };
 
 type RawSession = Record<string, unknown>;
 
@@ -30,8 +22,6 @@ type NormalizedSession = {
   abortedLastRun: boolean | null;
   estimatedCost: number;
 };
-
-const runOpenclaw = (command: string) => execSync(command, EXEC_OPTIONS).trim();
 
 const parseJson = (raw: string) => {
   try {
@@ -158,7 +148,7 @@ const normalizeSession = (session: RawSession): NormalizedSession => {
   };
 };
 
-const getExecDetails = (error: ExecError) => {
+const getExecDetails = (error: OpenClawExecError) => {
   const detail = error.stderr ?? error.stdout;
   if (!detail) return undefined;
   if (typeof detail === "string") return detail.trim();
@@ -167,7 +157,7 @@ const getExecDetails = (error: ExecError) => {
 
 const errorResponse = (error: unknown, fallback: string, status = 500) => {
   const message = error instanceof Error ? error.message : fallback;
-  const details = error instanceof Error ? getExecDetails(error as ExecError) : undefined;
+  const details = error instanceof Error ? getExecDetails(error as OpenClawExecError) : undefined;
   return NextResponse.json({ error: message, details }, { status });
 };
 
@@ -183,7 +173,7 @@ export async function GET(request: Request) {
   const minutes = parseMinutes(searchParams.get("minutes"));
 
   try {
-    const raw = runOpenclaw(`openclaw sessions --json --all-agents --active ${minutes}`);
+    const raw = await runOpenclaw(["sessions", "--json", "--all-agents", "--active", String(minutes)]);
     const parsed = parseJson(raw);
     if (!parsed) {
       return NextResponse.json(

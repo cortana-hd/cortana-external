@@ -1,10 +1,4 @@
-import { execSync, type ExecSyncOptionsWithStringEncoding } from "node:child_process";
-
-const EXEC_OPTIONS: ExecSyncOptionsWithStringEncoding = {
-  encoding: "utf8",
-  timeout: 15000,
-  stdio: ["ignore", "pipe", "pipe"],
-};
+import { runOpenclaw } from "@/lib/openclaw-cli";
 
 const DEFAULT_MINUTES = 1440;
 
@@ -51,8 +45,6 @@ const RATE_TABLE: Record<string, { input: number; output: number }> = {
   codex: { input: 2, output: 8 },
   "gpt-5.1": { input: 1, output: 4 },
 };
-
-const runOpenclaw = (command: string) => execSync(command, EXEC_OPTIONS).trim();
 
 const parseJson = (raw: string) => {
   try {
@@ -257,7 +249,7 @@ export function buildUsageAnalytics(payload: unknown, minutes: number): UsageAna
 
 export async function getUsageAnalytics(minutesInput: string | null): Promise<UsageAnalytics> {
   const minutes = parseMinutes(minutesInput);
-  const raw = runOpenclaw(`openclaw sessions --json --all-agents --active ${minutes}`);
+  const raw = await runOpenclaw(["sessions", "--json", "--all-agents", "--active", String(minutes)]);
   const parsed = parseJson(raw);
 
   if (!parsed) {

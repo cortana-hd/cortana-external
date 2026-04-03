@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const childProcessMocks = vi.hoisted(() => ({
-  execSync: vi.fn(),
+const openClawMocks = vi.hoisted(() => ({
+  runOpenclaw: vi.fn(),
 }));
 
-vi.mock("node:child_process", () => ({
-  execSync: childProcessMocks.execSync,
-  default: { execSync: childProcessMocks.execSync },
+vi.mock("@/lib/openclaw-cli", () => ({
+  runOpenclaw: openClawMocks.runOpenclaw,
 }));
 
 import { GET } from "@/app/api/sessions/route";
@@ -19,7 +18,7 @@ describe("GET /api/sessions", () => {
   });
 
   it("returns normalized sessions with default minutes", async () => {
-    childProcessMocks.execSync.mockReturnValueOnce(
+    openClawMocks.runOpenclaw.mockResolvedValueOnce(
       JSON.stringify({
         sessions: [
           {
@@ -41,10 +40,7 @@ describe("GET /api/sessions", () => {
     const response = await GET(makeRequest());
     const payload = await response.json();
 
-    expect(childProcessMocks.execSync).toHaveBeenCalledWith(
-      "openclaw sessions --json --all-agents --active 1440",
-      expect.objectContaining({ encoding: "utf8" })
-    );
+    expect(openClawMocks.runOpenclaw).toHaveBeenCalledWith(["sessions", "--json", "--all-agents", "--active", "1440"]);
     expect(response.status).toBe(200);
     expect(payload.sessions).toHaveLength(1);
     expect(payload.sessions[0]).toMatchObject({
@@ -63,21 +59,18 @@ describe("GET /api/sessions", () => {
   });
 
   it("uses minutes param when provided", async () => {
-    childProcessMocks.execSync.mockReturnValueOnce(JSON.stringify({ sessions: [] }));
+    openClawMocks.runOpenclaw.mockResolvedValueOnce(JSON.stringify({ sessions: [] }));
 
     const response = await GET(makeRequest("?minutes=60"));
     const payload = await response.json();
 
-    expect(childProcessMocks.execSync).toHaveBeenCalledWith(
-      "openclaw sessions --json --all-agents --active 60",
-      expect.objectContaining({ encoding: "utf8" })
-    );
+    expect(openClawMocks.runOpenclaw).toHaveBeenCalledWith(["sessions", "--json", "--all-agents", "--active", "60"]);
     expect(response.status).toBe(200);
     expect(payload.sessions).toEqual([]);
   });
 
   it("returns proper JSON shape", async () => {
-    childProcessMocks.execSync.mockReturnValueOnce(JSON.stringify({ sessions: [{ key: "a" }] }));
+    openClawMocks.runOpenclaw.mockResolvedValueOnce(JSON.stringify({ sessions: [{ key: "a" }] }));
 
     const response = await GET(makeRequest());
     const payload = await response.json();

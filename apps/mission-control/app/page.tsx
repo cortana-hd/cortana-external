@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/status-badge";
 import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
-import { AutoRefresh } from "@/components/auto-refresh";
 import { HeartbeatPulse } from "@/components/heartbeat-pulse";
 import { ThinkingIndicator } from "@/components/thinking-indicator";
 import { ActivityFeed } from "@/components/activity-feed";
@@ -126,7 +125,6 @@ export default async function Home() {
 
   return (
     <div className="space-y-6">
-      <AutoRefresh />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">

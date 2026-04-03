@@ -1,4 +1,3 @@
-import { AutoRefresh } from "@/components/auto-refresh";
 import { CouncilFilters } from "@/components/council-filters";
 import { CouncilSessionCard } from "@/components/council-session-card";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +42,6 @@ export default async function CouncilPage({
 
   return (
     <div className="space-y-6">
-      <AutoRefresh sourceUrl="/api/council/stream" intervalMs={2000} />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Governance</p>

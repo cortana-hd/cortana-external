@@ -1,31 +1,22 @@
-import { execSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { getAgentModelsPath } from "@/lib/runtime-paths";
 
-type OpenClawModel = {
-  key: string;
-  name: string;
-  available: boolean;
+const formatModelDisplayName = (key: string) => {
+  const suffix = key.split("/").pop() ?? key;
+  if (!suffix) return key;
+
+  return suffix
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => {
+      if (/^gpt-\d/i.test(part)) return part.toUpperCase();
+      if (part.toLowerCase() === "gpt") return "GPT";
+      if (/^\d+(\.\d+)*$/.test(part)) return part;
+      if (part.toLowerCase() === "codex") return "Codex";
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(" ");
 };
-
-// Cache for the OpenClaw models list (refreshed per build/restart, not per request)
-let modelsCache: OpenClawModel[] | null = null;
-
-function getOpenClawModels(): OpenClawModel[] {
-  if (modelsCache) return modelsCache;
-
-  try {
-    const raw = execSync("openclaw models list --json", {
-      encoding: "utf8",
-      timeout: 5000,
-    });
-    const parsed = JSON.parse(raw) as { models?: OpenClawModel[] };
-    modelsCache = parsed.models || [];
-    return modelsCache;
-  } catch {
-    return [];
-  }
-}
 
 export function getAgentModelMap(): Record<string, string> {
   try {
@@ -50,9 +41,5 @@ export function getAgentModelDisplay(
   const key = map[agentName] || dbModel || null;
   if (!key) return { key: null, displayName: null };
 
-  const models = getOpenClawModels();
-  const match = models.find((m) => m.key === key);
-  const displayName = match?.name || key;
-
-  return { key, displayName };
+  return { key, displayName: formatModelDisplayName(key) };
 }
