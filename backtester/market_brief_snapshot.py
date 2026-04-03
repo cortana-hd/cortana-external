@@ -21,6 +21,7 @@ from data.intraday_breadth import build_intraday_breadth_snapshot
 from data.leader_baskets import load_leader_priority_symbols
 from data.market_regime import MarketRegime, MarketStatus
 from data.polymarket_context import latest_report_json_path, load_structured_context
+from evaluation.artifact_contracts import ARTIFACT_FAMILY_MARKET_BRIEF, annotate_artifact
 
 TAPE_SYMBOLS = ("SPY", "QQQ", "IWM", "DIA", "GLD", "TLT")
 SERVICE_BASE_URL = os.getenv("MARKET_DATA_SERVICE_URL", "http://127.0.0.1:3033").rstrip("/")
@@ -28,6 +29,7 @@ EXCLUDED_FOCUS_SYMBOLS = set(TAPE_SYMBOLS) | {"ARKK", "XLU", "XLV", "XLE", "JETS
 REGIME_CACHE_PATH = Path(os.getenv("MARKET_REGIME_CACHE_PATH", ".cache/market_regime_snapshot_SPY.json")).expanduser()
 MARKET_DATA_CACHE_DIR = Path(os.getenv("MARKET_DATA_CACHE_DIR", ".cache/market_data")).expanduser()
 MARKET_DATA_LAUNCHD_LABEL = os.getenv("MARKET_DATA_LAUNCHD_LABEL", "com.cortana.fitness-service")
+MARKET_BRIEF_PRODUCER = "backtester.market_brief_snapshot"
 
 
 def classify_posture(status: MarketStatus, breadth_snapshot: dict[str, Any] | None = None) -> dict[str, str]:
@@ -694,13 +696,14 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
         focus=focus,
     )
 
-    return {
+    artifact_status = "degraded" if warnings or regime_error or tape["status"] != "ok" or status.status != "ok" else "ok"
+    payload = {
         "generated_at": generated_at,
         "session": {
             "phase": session_phase,
             "is_regular_hours": session_phase == "OPEN",
         },
-        "status": "degraded" if warnings or regime_error or tape["status"] != "ok" or status.status != "ok" else "ok",
+        "status": artifact_status,
         "operator_summary": operator_summary,
         "warnings": warnings,
         "regime": regime_payload,
@@ -715,6 +718,16 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
             "tape_primary_source": tape.get("primary_source"),
         },
     }
+    return annotate_artifact(
+        payload,
+        artifact_family=ARTIFACT_FAMILY_MARKET_BRIEF,
+        producer=MARKET_BRIEF_PRODUCER,
+        generated_at=generated_at,
+        known_at=generated_at,
+        status=artifact_status,
+        outcome_class="market_snapshot",
+        freshness=payload["freshness"],
+    )
 
 
 def parse_args() -> argparse.Namespace:

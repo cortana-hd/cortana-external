@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import market_brief_snapshot as module
 from data.market_regime import MarketRegime, MarketStatus
+from evaluation.artifact_contracts import ARTIFACT_FAMILY_MARKET_BRIEF, ARTIFACT_SCHEMA_VERSION
 
 
 def make_status(**overrides):
@@ -154,6 +155,12 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
 
     snapshot = module.build_snapshot("http://service")
 
+    assert snapshot["artifact_family"] == ARTIFACT_FAMILY_MARKET_BRIEF
+    assert snapshot["schema_version"] == ARTIFACT_SCHEMA_VERSION
+    assert snapshot["producer"] == module.MARKET_BRIEF_PRODUCER
+    assert snapshot["outcome_class"] == "market_snapshot"
+    assert snapshot["degraded_status"] == "healthy"
+    assert snapshot["known_at"] == snapshot["generated_at"]
     assert snapshot["posture"]["action"] == "NO_BUY"
     assert snapshot["session"]["phase"] in {"PREMARKET", "OPEN", "AFTER_HOURS", "CLOSED"}
     assert snapshot["macro"]["summary_line"].startswith("Polymarket neutral")
@@ -164,6 +171,7 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
     assert snapshot["operator_summary"]["headline"].endswith("| size 0%")
     assert "Tape is using fresh live quotes." == snapshot["operator_summary"]["read_this_as"]["tape"]
     assert snapshot["operator_summary"]["read_this_as"]["focus"].startswith("OXY, FANG, NVDA.")
+    assert snapshot["freshness"]["tape_primary_source"] == "schwab"
 
 
 def test_format_operator_text_renders_human_summary():
@@ -188,6 +196,46 @@ def test_format_operator_text_renders_human_summary():
     assert "OPEN: WATCH | CORRECTION | size 0%" in text
     assert "Session: This is a regular session snapshot." in text
     assert "Warnings: one, two, three" in text
+
+
+def test_main_emits_json_payload(monkeypatch, capsys):
+    payload = {
+        "artifact_family": ARTIFACT_FAMILY_MARKET_BRIEF,
+        "schema_version": ARTIFACT_SCHEMA_VERSION,
+        "producer": module.MARKET_BRIEF_PRODUCER,
+        "status": "ok",
+        "outcome_class": "market_snapshot",
+        "degraded_status": "healthy",
+        "generated_at": "2026-04-03T12:00:00+00:00",
+        "known_at": "2026-04-03T12:00:00+00:00",
+        "freshness": {"regime_snapshot_age_seconds": 0.0, "polymarket_age_hours": 1.0, "tape_primary_source": "schwab"},
+        "operator_summary": {"headline": "OPEN: WATCH | CORRECTION | size 0%", "what_this_means": "Stay selective.", "read_this_as": {}},
+        "session": {"phase": "OPEN", "is_regular_hours": True},
+        "warnings": [],
+        "regime": {"display": "CORRECTION"},
+        "posture": {"action": "WATCH"},
+        "macro": {"state": "watch"},
+        "tape": {"primary_source": "schwab"},
+        "intraday_breadth": {"override_state": "inactive"},
+        "focus": {"symbols": ["OXY"]},
+    }
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: type(
+            "Args",
+            (),
+            {"pretty": False, "operator": False, "output": None, "service_base_url": "http://service"},
+        )(),
+    )
+    monkeypatch.setattr(module, "build_snapshot", lambda service_base_url="http://service": payload)
+
+    module.main()
+
+    rendered = json.loads(capsys.readouterr().out)
+    assert rendered["artifact_family"] == ARTIFACT_FAMILY_MARKET_BRIEF
+    assert rendered["producer"] == module.MARKET_BRIEF_PRODUCER
+    assert rendered["status"] == "ok"
 
 
 def test_build_operator_summary_uses_emergency_fallback_regime_wording():
@@ -366,7 +414,9 @@ def test_build_snapshot_falls_back_conservatively_when_regime_fails(monkeypatch)
         now=module.datetime(2026, 4, 1, 12, 0, tzinfo=module.ZoneInfo("America/New_York")),
     )
 
+    assert snapshot["artifact_family"] == ARTIFACT_FAMILY_MARKET_BRIEF
     assert snapshot["status"] == "degraded"
+    assert snapshot["degraded_status"] == "degraded"
     assert snapshot["posture"]["action"] == "NO_BUY"
     assert "market_regime_unavailable" in snapshot["warnings"][0]
     assert snapshot["tape"]["risk_tone"] == "unknown"

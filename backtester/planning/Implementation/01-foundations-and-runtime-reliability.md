@@ -46,6 +46,18 @@ Week 4: V7 + replay/contract hardening
 
 *Dependencies: None*
 
+#### Delivery Update
+
+- Initial slice shipped:
+  - shared artifact-contract helpers added under `backtester/evaluation`
+  - baseline artifact families defined for market brief, strategy alerts, and run manifests
+  - market brief payload now emits baseline machine metadata before formatter logic runs
+  - targeted tests added for serializer validation and market-brief metadata wiring
+- Remaining follow-up in V1:
+  - wire the same shared contract into strategy-alert producers
+  - add run-manifest producer wiring once V3 starts
+  - widen emitter coverage across additional machine-readable producers
+
 #### Jira
 
 - Sub-task 1: Add a shared schema/constants module under `backtester/evaluation` for artifact metadata fields such as `schema_version`, `producer`, `status`, `outcome_class`, `freshness`, `degraded_status`, and `known_at` where relevant.
