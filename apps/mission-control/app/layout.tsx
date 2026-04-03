@@ -1,17 +1,6 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Mission Control | Cortana",
@@ -24,9 +13,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} min-h-screen overflow-x-hidden bg-muted/50 antialiased`}
-      >
+      <body className="min-h-screen overflow-x-hidden bg-muted/50 antialiased">
         <div className="flex min-h-screen">
           <Sidebar />
           <main className="min-w-0 w-full flex-1 px-4 pt-24 pb-6 sm:px-6 sm:pb-8 md:pt-8">
