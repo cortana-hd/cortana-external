@@ -48,9 +48,9 @@ Week 5: V6
 
 #### Jira
 
-- Sub-task 1: Create a canonical operator payload contract that references decision state, lifecycle state, governance status, health, degraded status, and artifact lineage.
-- Sub-task 2: Define which fields are mandatory for all surfaces vs optional for richer surfaces.
-- Sub-task 3: Add contract validation and sample fixture payloads for future renderers and cross-repo consumers.
+- [x] Sub-task 1: Create a canonical operator payload contract that references decision state, lifecycle state, governance status, health, degraded status, and artifact lineage.
+- [x] Sub-task 2: Define which fields are mandatory for all surfaces vs optional for richer surfaces.
+- [x] Sub-task 3: Add contract validation and sample fixture payloads for future renderers and cross-repo consumers.
 
 #### Testing
 
@@ -68,9 +68,9 @@ Week 5: V6
 
 #### Jira
 
-- Sub-task 1: Refactor `market_brief_snapshot.py`, local output formatters, and flow summaries to consume the shared operator payload.
-- Sub-task 2: Standardize wording for healthy-empty, market-gated, degraded-safe, degraded-risky, and failed outcomes.
-- Sub-task 3: Add regression fixtures proving the same run tells the same story across surfaces.
+- [x] Sub-task 1: Refactor `market_brief_snapshot.py`, local output formatters, and flow summaries to consume the shared operator payload.
+- [x] Sub-task 2: Standardize wording for healthy-empty, market-gated, degraded-safe, degraded-risky, and failed outcomes.
+- [x] Sub-task 3: Add regression fixtures proving the same run tells the same story across surfaces.
 
 #### Testing
 

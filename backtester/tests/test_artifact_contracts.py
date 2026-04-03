@@ -91,3 +91,37 @@ def test_validate_artifact_payload_accepts_readiness_check_family():
 
     assert payload["artifact_family"] == contracts.ARTIFACT_FAMILY_READINESS_CHECK
     assert payload["degraded_status"] == "healthy"
+
+
+def test_validate_artifact_payload_accepts_operator_payload_family():
+    payload = contracts.annotate_artifact(
+        {
+            "payload_key": "market_brief:2026-04-03T12:00:00Z",
+            "surface_type": "brief",
+            "summary": {
+                "headline": "OPEN: NO_BUY | CORRECTION | size 0%",
+                "what_this_means": "Stay defensive.",
+            },
+            "decision_contract_ref": {
+                "artifact_family": "decision_state",
+                "producer": "backtester.market_brief_snapshot",
+                "generated_at": "2026-04-03T12:00:00+00:00",
+            },
+            "source_refs": {
+                "market_brief": {
+                    "artifact_family": "market_brief",
+                    "producer": "backtester.market_brief_snapshot",
+                    "generated_at": "2026-04-03T12:00:00+00:00",
+                }
+            },
+            "health": {"status": "ok"},
+            "warnings": [],
+        },
+        artifact_family=contracts.ARTIFACT_FAMILY_OPERATOR_PAYLOAD,
+        producer="backtester.market_brief_snapshot",
+        generated_at="2026-04-03T12:00:00+00:00",
+        status="ok",
+    )
+
+    assert payload["artifact_family"] == contracts.ARTIFACT_FAMILY_OPERATOR_PAYLOAD
+    assert payload["degraded_status"] == "healthy"

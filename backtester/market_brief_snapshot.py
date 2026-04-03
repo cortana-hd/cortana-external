@@ -28,6 +28,8 @@ from data.market_regime import MarketRegime, MarketStatus
 from data.polymarket_context import latest_report_json_path, load_structured_context
 from evaluation.artifact_contracts import ARTIFACT_FAMILY_MARKET_BRIEF, annotate_artifact
 from evaluation.failure_taxonomy import classify_market_brief_outcome
+from operator_surfaces.decision_contract import build_market_brief_operator_payload
+from operator_surfaces.renderers import describe_operator_outcome, render_operator_payload
 
 TAPE_SYMBOLS = ("SPY", "QQQ", "IWM", "DIA", "GLD", "TLT")
 SERVICE_BASE_URL = os.getenv("MARKET_DATA_SERVICE_URL", "http://127.0.0.1:3033").rstrip("/")
@@ -565,17 +567,10 @@ def build_operator_summary(
 
 
 def describe_operator_status(payload: dict[str, Any]) -> str:
-    outcome_class = str(payload.get("outcome_class") or "").strip().lower()
-    degraded_status = str(payload.get("degraded_status") or "").strip().lower()
-    if outcome_class == "market_gate_blocked":
-        return "Status: valid defensive snapshot; market regime is blocking new risk."
-    if degraded_status == "degraded_safe":
-        return "Status: degraded-safe snapshot; bounded fallback inputs are active."
-    if degraded_status == "degraded_risky":
-        return "Status: degraded-risky snapshot; live market inputs are missing or incomplete."
-    if outcome_class == "healthy_candidates_found":
-        return "Status: healthy snapshot; machine inputs are aligned."
-    return "Status: snapshot state unavailable."
+    operator_payload = payload.get("operator_payload")
+    if isinstance(operator_payload, dict):
+        return describe_operator_outcome(operator_payload)
+    return describe_operator_outcome(payload)
 
 
 def normalize_regime(status: MarketStatus) -> dict[str, Any]:
@@ -821,7 +816,7 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
             "tape_primary_source": tape.get("primary_source"),
         },
     }
-    return annotate_artifact(
+    annotated = annotate_artifact(
         payload,
         artifact_family=ARTIFACT_FAMILY_MARKET_BRIEF,
         producer=MARKET_BRIEF_PRODUCER,
@@ -832,6 +827,8 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
         outcome_class=taxonomy.outcome_class,
         freshness=payload["freshness"],
     )
+    annotated["operator_payload"] = build_market_brief_operator_payload(annotated)
+    return annotated
 
 
 def parse_args() -> argparse.Namespace:
@@ -844,6 +841,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def format_operator_text(payload: dict[str, Any]) -> str:
+    operator_payload = payload.get("operator_payload") if isinstance(payload.get("operator_payload"), dict) else None
+    if operator_payload:
+        return render_operator_payload(operator_payload)
     summary = payload.get("operator_summary", {}) if isinstance(payload.get("operator_summary"), dict) else {}
     read_this_as = summary.get("read_this_as", {}) if isinstance(summary.get("read_this_as"), dict) else {}
     lines = [

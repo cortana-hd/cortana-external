@@ -135,6 +135,7 @@ def test_report_renders_lifecycle_summary(tmp_path):
 
     assert report["summary"]["open_count"] == 1
     assert report["portfolio_snapshot"]["pending_entry_count"] == 1
-    assert "Trade lifecycle" in rendered
+    assert report["operator_payload"]["artifact_family"] == "operator_payload"
+    assert "LIFECYCLE_REVIEW: WATCH | open 1 | closed 0" in rendered
     assert "Open 1" in rendered
     assert "NVDA" in rendered

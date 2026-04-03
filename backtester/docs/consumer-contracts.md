@@ -9,6 +9,7 @@ Parse typed machine fields first. Do not scrape operator prose.
 Current stable families:
 
 - `market_brief`
+- `operator_payload`
 - `strategy_alert`
 - `run_manifest`
 - `readiness_check`
@@ -69,6 +70,26 @@ Safe typed fields:
 Display-only / unstable fields:
 
 - `operator_summary`
+- freeform warning strings in `warnings`
+
+### `operator_payload`
+
+Safe typed fields:
+
+- `payload_key`
+- `surface_type`
+- `status`
+- `degraded_status`
+- `outcome_class`
+- `summary.headline`
+- `summary.what_this_means`
+- `decision_contract_ref`
+- `source_refs`
+- `health.status`
+
+Display-only / unstable fields:
+
+- `summary.read_this_as`
 - freeform warning strings in `warnings`
 
 ### `strategy_alert`

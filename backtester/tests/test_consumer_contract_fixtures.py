@@ -5,6 +5,7 @@ from pathlib import Path
 
 from evaluation.artifact_contracts import (
     ARTIFACT_FAMILY_MARKET_BRIEF,
+    ARTIFACT_FAMILY_OPERATOR_PAYLOAD,
     ARTIFACT_FAMILY_READINESS_CHECK,
     ARTIFACT_FAMILY_RUN_MANIFEST,
     ARTIFACT_FAMILY_STRATEGY_ALERT,
@@ -31,6 +32,12 @@ EXPECTED_CASES = {
         "status": "error",
         "outcome_class": "degraded_risky",
         "degraded_status": "degraded_risky",
+    },
+    "operator-payload-market-gate-blocked.json": {
+        "artifact_family": ARTIFACT_FAMILY_OPERATOR_PAYLOAD,
+        "status": "ok",
+        "outcome_class": "market_gate_blocked",
+        "degraded_status": "healthy",
     },
     "strategy-alert-canslim-healthy-candidates-found.json": {
         "artifact_family": ARTIFACT_FAMILY_STRATEGY_ALERT,
@@ -125,6 +132,14 @@ def test_market_brief_fixtures_cover_healthy_safe_and_risky_consumer_states():
     assert safe["degraded_status"] == "degraded_safe"
     assert risky["degraded_status"] == "degraded_risky"
     assert risky["tape"]["primary_source"] == "unavailable"
+
+
+def test_operator_payload_fixture_exposes_typed_surface_contract():
+    payload = _load_fixture(FIXTURE_DIR / "operator-payload-market-gate-blocked.json")
+
+    assert payload["artifact_family"] == ARTIFACT_FAMILY_OPERATOR_PAYLOAD
+    assert payload["surface_type"] == "brief"
+    assert payload["decision_contract_ref"]["artifact_family"] == "decision_state"
 
 
 def test_run_manifest_fixtures_cover_completed_and_failed_runs():

@@ -1,0 +1,59 @@
+{
+  "artifact_family": "operator_payload",
+  "schema_version": 1,
+  "producer": "backtester.market_brief_snapshot",
+  "status": "ok",
+  "generated_at": "2026-04-03T13:30:00Z",
+  "known_at": "2026-04-03T13:30:00Z",
+  "degraded_status": "healthy",
+  "outcome_class": "market_gate_blocked",
+  "payload_key": "market_brief:2026-04-03T13:30:00Z",
+  "surface_type": "brief",
+  "summary": {
+    "headline": "OPEN: NO_BUY | CORRECTION | size 0%",
+    "what_this_means": "Regime score -7: 7 distribution days and -5.4% drawdown. Stay defensive.",
+    "read_this_as": {
+      "session": "This is a regular session snapshot.",
+      "regime": "Market regime is CORRECTION (15m old).",
+      "tape": "Tape is using fresh live quotes.",
+      "macro": "Macro overlay is watch (0.5h old).",
+      "focus": "OXY, GEV, FANG. Focus names came from the leader-priority list."
+    }
+  },
+  "decision_contract_ref": {
+    "artifact_family": "decision_state",
+    "producer": "backtester.market_brief_snapshot",
+    "generated_at": "2026-04-03T13:30:00Z"
+  },
+  "source_refs": {
+    "market_brief": {
+      "artifact_family": "market_brief",
+      "producer": "backtester.market_brief_snapshot",
+      "generated_at": "2026-04-03T13:30:00Z"
+    },
+    "adaptive_weights": {
+      "artifact_family": "adaptive_weight_snapshot",
+      "producer": "backtester.market_brief_snapshot",
+      "generated_at": "2026-04-03T13:30:00Z"
+    }
+  },
+  "health": {
+    "status": "ok",
+    "degraded_status": "healthy",
+    "outcome_class": "market_gate_blocked",
+    "freshness": {
+      "regime_snapshot_age_seconds": 900.0,
+      "tape_primary_source": "schwab"
+    },
+    "warnings": []
+  },
+  "posture_action": "NO_BUY",
+  "focus_symbols": [
+    "OXY",
+    "GEV",
+    "FANG"
+  ],
+  "lifecycle_state": {},
+  "governance_state": {},
+  "warnings": []
+}

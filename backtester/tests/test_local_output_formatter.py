@@ -207,6 +207,51 @@ def test_format_market_data_ops_explains_disconnected_stream_is_ok():
     assert "connected no (REST fallback is still okay)" in text
 
 
+def test_format_operator_payload_renders_shared_contract():
+    raw = json.dumps(
+        {
+            "artifact_family": "operator_payload",
+            "schema_version": 1,
+            "producer": "backtester.market_brief_snapshot",
+            "status": "ok",
+            "generated_at": "2026-04-03T13:30:00Z",
+            "known_at": "2026-04-03T13:30:00Z",
+            "degraded_status": "healthy",
+            "outcome_class": "market_gate_blocked",
+            "payload_key": "market_brief:2026-04-03T13:30:00Z",
+            "surface_type": "brief",
+            "summary": {
+                "headline": "OPEN: NO_BUY | CORRECTION | size 0%",
+                "what_this_means": "Stay defensive.",
+                "read_this_as": {
+                    "session": "This is a regular session snapshot.",
+                    "focus": "OXY, GEV, FANG."
+                }
+            },
+            "decision_contract_ref": {
+                "artifact_family": "decision_state",
+                "producer": "backtester.market_brief_snapshot",
+                "generated_at": "2026-04-03T13:30:00Z"
+            },
+            "source_refs": {
+                "market_brief": {
+                    "artifact_family": "market_brief",
+                    "producer": "backtester.market_brief_snapshot",
+                    "generated_at": "2026-04-03T13:30:00Z"
+                }
+            },
+            "health": {"status": "ok"},
+            "warnings": []
+        }
+    )
+
+    text = MODULE.format_operator_payload(raw)
+
+    assert "OPEN: NO_BUY | CORRECTION | size 0%" in text
+    assert "Status: valid defensive snapshot; market regime is blocking new risk." in text
+    assert "Focus: OXY, GEV, FANG." in text
+
+
 def test_format_alert_expands_abstains_and_vetoes_line_by_line():
     raw = """Dip Buyer Scan
 Market: correction

@@ -9,6 +9,8 @@ from pathlib import Path
 import re
 import sys
 
+from operator_surfaces.renderers import render_operator_payload
+
 
 NOISE_PATTERNS = (
     "Pandas4Warning:",
@@ -459,9 +461,20 @@ def format_market_data_ops(text: str) -> str:
     return "\n".join(out)
 
 
+def format_operator_payload(text: str) -> str:
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return "Operator payload\n\n- Operator payload is missing or unreadable."
+    try:
+        return render_operator_payload(payload)
+    except Exception:
+        return "Operator payload\n\n- Operator payload is missing or invalid."
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Format local backtester wrapper output")
-    parser.add_argument("--mode", choices=("alert", "quick-check", "leader-baskets", "market-data-ops"), required=True)
+    parser.add_argument("--mode", choices=("alert", "quick-check", "leader-baskets", "market-data-ops", "operator-payload"), required=True)
     parser.add_argument("--leader-basket-path")
     return parser.parse_args()
 
@@ -477,6 +490,9 @@ def main() -> None:
         return
     if args.mode == "market-data-ops":
         print(format_market_data_ops(raw))
+        return
+    if args.mode == "operator-payload":
+        print(format_operator_payload(raw))
         return
     print(format_quick_check(raw))
 

@@ -198,6 +198,9 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
     assert snapshot["adaptive_weights"]["artifact_family"] == "adaptive_weight_snapshot"
     assert snapshot["research_runtime"]["artifact_family"] == "research_runtime_snapshot"
     assert snapshot["shadow_review"]["artifact_family"] == "decision_brain_shadow_review"
+    assert snapshot["operator_payload"]["artifact_family"] == "operator_payload"
+    assert snapshot["operator_payload"]["surface_type"] == "brief"
+    assert snapshot["operator_payload"]["decision_contract_ref"]["artifact_family"] == "decision_state"
     assert snapshot["operator_summary"]["headline"].endswith("| size 0%")
     assert "Tape is using fresh live quotes." == snapshot["operator_summary"]["read_this_as"]["tape"]
     assert snapshot["operator_summary"]["read_this_as"]["narrative"].startswith("Narrative overlay is nudging confidence toward")
@@ -237,6 +240,47 @@ def test_format_operator_text_renders_human_summary():
     assert "Research: Research plane has no hot-path artifacts yet; decisions are not blocked." in text
     assert "Shadow: Shadow review: live posture WATCH; shadow posture WATCH; session OPEN." in text
     assert "Warnings: one, two, three" in text
+
+
+def test_format_operator_text_prefers_shared_operator_payload():
+    payload = {
+        "operator_payload": {
+            "artifact_family": "operator_payload",
+            "schema_version": 1,
+            "producer": module.MARKET_BRIEF_PRODUCER,
+            "status": "ok",
+            "generated_at": "2026-04-03T12:00:00+00:00",
+            "known_at": "2026-04-03T12:00:00+00:00",
+            "degraded_status": "healthy",
+            "outcome_class": "healthy_candidates_found",
+            "payload_key": "market_brief:1",
+            "surface_type": "brief",
+            "summary": {
+                "headline": "OPEN: BUY | CONFIRMED UPTREND | size 100%",
+                "what_this_means": "Trend is supportive enough to buy selective strength.",
+                "read_this_as": {"session": "This is a regular session snapshot."},
+            },
+            "decision_contract_ref": {
+                "artifact_family": "decision_state",
+                "producer": module.MARKET_BRIEF_PRODUCER,
+                "generated_at": "2026-04-03T12:00:00+00:00",
+            },
+            "source_refs": {
+                "market_brief": {
+                    "artifact_family": "market_brief",
+                    "producer": module.MARKET_BRIEF_PRODUCER,
+                    "generated_at": "2026-04-03T12:00:00+00:00",
+                }
+            },
+            "health": {"status": "ok"},
+            "warnings": [],
+        }
+    }
+
+    text = module.format_operator_text(payload)
+
+    assert "OPEN: BUY | CONFIRMED UPTREND | size 100%" in text
+    assert "Status: healthy snapshot; machine inputs are aligned." in text
 
 
 def test_describe_operator_status_distinguishes_safe_and_risky_degradation():

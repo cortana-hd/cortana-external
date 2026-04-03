@@ -10,6 +10,7 @@ ARTIFACT_FAMILY_MARKET_BRIEF = "market_brief"
 ARTIFACT_FAMILY_STRATEGY_ALERT = "strategy_alert"
 ARTIFACT_FAMILY_RUN_MANIFEST = "run_manifest"
 ARTIFACT_FAMILY_READINESS_CHECK = "readiness_check"
+ARTIFACT_FAMILY_OPERATOR_PAYLOAD = "operator_payload"
 
 ARTIFACT_STATUS_OK = "ok"
 ARTIFACT_STATUS_DEGRADED = "degraded"
@@ -72,6 +73,16 @@ ARTIFACT_FAMILY_MINIMUM_FIELDS: dict[str, tuple[str, ...]] = {
         "ready_for_open",
         "checked_at",
         "checks",
+        "warnings",
+    ),
+    ARTIFACT_FAMILY_OPERATOR_PAYLOAD: REQUIRED_ARTIFACT_METADATA_FIELDS
+    + (
+        "payload_key",
+        "surface_type",
+        "summary",
+        "decision_contract_ref",
+        "source_refs",
+        "health",
         "warnings",
     ),
 }

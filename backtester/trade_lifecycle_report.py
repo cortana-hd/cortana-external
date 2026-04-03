@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from lifecycle.ledgers import LifecycleLedgerStore
+from operator_surfaces.decision_contract import build_lifecycle_operator_payload
+from operator_surfaces.renderers import render_operator_payload
 
 
 def build_report(*, root: Path | None = None) -> dict[str, Any]:
@@ -21,7 +23,7 @@ def build_report(*, root: Path | None = None) -> dict[str, Any]:
     reviews = list(reviews_payload.get("reviews", []) or [])
     portfolio_snapshot = dict(portfolio_payload.get("snapshot", {}) or {})
     summary = dict(cycle.get("summary", {}) or {})
-    return {
+    report = {
         "artifact_family": "trade_lifecycle_report",
         "summary": {
             "opened_count": int(summary.get("opened_count", 0) or 0),
@@ -35,22 +37,24 @@ def build_report(*, root: Path | None = None) -> dict[str, Any]:
         "closed_positions": [position.to_dict() for position in closed_positions[-5:]],
         "reviews": reviews[-5:],
     }
+    report["operator_payload"] = build_lifecycle_operator_payload(
+        report,
+        generated_at=str(cycle.get("generated_at") or cycle.get("completed_at") or portfolio_payload.get("generated_at") or "unknown"),
+    )
+    return report
 
 
 def render_report(report: dict[str, Any]) -> str:
+    operator_payload = report.get("operator_payload")
     summary = dict(report.get("summary", {}) or {})
-    lines = [
-        "Trade lifecycle",
-        "",
-        "Takeaway",
-        (
-            f"- Open {summary.get('open_count', 0)} | "
-            f"Opened this run {summary.get('opened_count', 0)} | "
-            f"Closed this run {summary.get('closed_count', 0)} | "
-            f"Closed total {summary.get('closed_total_count', 0)} | "
-            f"Blocked this run {summary.get('portfolio_blocked_count', 0)}"
-        ),
-    ]
+    lines = [render_operator_payload(operator_payload), "", "Takeaway"] if isinstance(operator_payload, dict) else ["Trade lifecycle", "", "Takeaway"]
+    lines.append(
+        f"- Open {summary.get('open_count', 0)} | "
+        f"Opened this run {summary.get('opened_count', 0)} | "
+        f"Closed this run {summary.get('closed_count', 0)} | "
+        f"Closed total {summary.get('closed_total_count', 0)} | "
+        f"Blocked this run {summary.get('portfolio_blocked_count', 0)}"
+    )
 
     portfolio_snapshot = dict(report.get("portfolio_snapshot", {}) or {})
     if portfolio_snapshot:
