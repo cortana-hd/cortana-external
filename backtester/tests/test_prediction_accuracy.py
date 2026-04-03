@@ -38,7 +38,22 @@ def test_prediction_accuracy_round_trip(tmp_path):
     path = persist_prediction_snapshot(
         strategy="dip_buyer",
         market_regime="correction",
-        records=[{"symbol": "AAPL", "action": "WATCH", "score": 8, "effective_confidence": 61, "uncertainty_pct": 18, "trade_quality_score": 72, "reason": "test"}],
+        records=[{
+            "symbol": "AAPL",
+            "action": "WATCH",
+            "score": 8,
+            "effective_confidence": 61,
+            "confidence": 61,
+            "risk": "medium",
+            "market_regime": "correction",
+            "breadth_state": "inactive",
+            "entry_plan_ref": "dip_buyer.reversal_watch_v1",
+            "execution_policy_ref": None,
+            "vetoes": [],
+            "uncertainty_pct": 18,
+            "trade_quality_score": 72,
+            "reason": "test",
+        }],
         root=tmp_path,
         generated_at=generated_at,
         producer="backtester.test_prediction_accuracy",
@@ -52,8 +67,8 @@ def test_prediction_accuracy_round_trip(tmp_path):
     assert record["strategy"] == "dip_buyer"
     assert record["market_regime"] == "correction"
     assert record["predicted_at"] == generated_at.isoformat()
-    assert record["risk"] == "unknown"
-    assert record["entry_plan_ref"] is None
+    assert record["risk"] == "medium"
+    assert record["entry_plan_ref"] == "dip_buyer.reversal_watch_v1"
     assert record["execution_policy_ref"] is None
     assert record["vetoes"] == []
 
@@ -102,7 +117,20 @@ def test_prediction_accuracy_uses_action_aware_avoidance_rate_for_no_buy(tmp_pat
     persist_prediction_snapshot(
         strategy="canslim",
         market_regime="correction",
-        records=[{"symbol": "MSFT", "action": "NO_BUY", "score": 6, "effective_confidence": 29, "reason": "test"}],
+        records=[{
+            "symbol": "MSFT",
+            "action": "NO_BUY",
+            "score": 6,
+            "effective_confidence": 29,
+            "confidence": 29,
+            "risk": "high",
+            "market_regime": "correction",
+            "breadth_state": None,
+            "entry_plan_ref": None,
+            "execution_policy_ref": None,
+            "vetoes": ["market_regime"],
+            "reason": "test",
+        }],
         root=tmp_path,
         generated_at=generated_at,
     )
@@ -123,15 +151,53 @@ def test_prediction_snapshot_contract_requires_reason(tmp_path):
         persist_prediction_snapshot(
             strategy="canslim",
             market_regime="correction",
-            records=[{"symbol": "MSFT", "action": "BUY", "score": 8}],
+            records=[{
+                "symbol": "MSFT",
+                "action": "BUY",
+                "score": 8,
+                "effective_confidence": 70,
+                "confidence": 70,
+                "risk": "medium",
+                "market_regime": "confirmed_uptrend",
+                "breadth_state": None,
+                "entry_plan_ref": "canslim.breakout_entry_v1",
+                "execution_policy_ref": None,
+                "vetoes": [],
+            }],
             root=tmp_path,
             generated_at=generated_at,
             producer="backtester.test_prediction_accuracy",
         )
     except ValueError as error:
-        assert "requires a reason" in str(error)
+        assert "requires explicit producer fields" in str(error)
+        assert "reason" in str(error)
     else:
         raise AssertionError("persist_prediction_snapshot should reject records without a reason")
+
+
+def test_prediction_snapshot_contract_requires_explicit_surface_fields(tmp_path):
+    generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    try:
+        persist_prediction_snapshot(
+            strategy="canslim",
+            market_regime="correction",
+            records=[{
+                "symbol": "MSFT",
+                "action": "BUY",
+                "score": 8,
+                "effective_confidence": 70,
+                "reason": "Strong setup",
+            }],
+            root=tmp_path,
+            generated_at=generated_at,
+            producer="backtester.test_prediction_accuracy",
+        )
+    except ValueError as error:
+        assert "requires explicit producer fields" in str(error)
+        assert "risk" in str(error)
+        assert "market_regime" in str(error)
+    else:
+        raise AssertionError("persist_prediction_snapshot should reject records missing explicit contract fields")
 
 
 def test_prediction_snapshot_contract_preserves_explicit_fields(tmp_path):
@@ -145,6 +211,8 @@ def test_prediction_snapshot_contract_preserves_explicit_fields(tmp_path):
                 "action": "WATCH",
                 "score": 9,
                 "effective_confidence": 68,
+                "confidence": 68,
+                "market_regime": "correction",
                 "risk": "medium",
                 "breadth_state": "inactive",
                 "entry_plan_ref": "dip_buyer.reversal_watch_v1",

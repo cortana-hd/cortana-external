@@ -7,6 +7,18 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
 
 PREDICTION_CONTRACT_SCHEMA_VERSION = 1
+_EXPLICIT_SURFACE_FIELDS: tuple[str, ...] = (
+    "symbol",
+    "action",
+    "reason",
+    "market_regime",
+    "risk",
+    "breadth_state",
+    "entry_plan_ref",
+    "execution_policy_ref",
+    "vetoes",
+)
+_CONFIDENCE_SURFACE_FIELDS: tuple[str, ...] = ("confidence", "effective_confidence")
 
 _VETO_FLAG_MAP: tuple[tuple[str, str], ...] = (
     ("credit_veto", "credit"),
@@ -49,6 +61,7 @@ def build_prediction_contract_records(
     generated_at: datetime,
     producer: str | None = None,
 ) -> list[PredictionContractRecord]:
+    validated = [validate_prediction_contract_record_input(record) for record in records]
     return [
         build_prediction_contract_record(
             strategy=strategy,
@@ -57,7 +70,7 @@ def build_prediction_contract_records(
             generated_at=generated_at,
             producer=producer,
         )
-        for record in records
+        for record in validated
     ]
 
 
@@ -126,6 +139,39 @@ def build_prediction_contract_record(
 
 def serialize_prediction_contract_records(records: Iterable[PredictionContractRecord]) -> list[dict[str, Any]]:
     return [asdict(record) for record in records]
+
+
+def validate_prediction_contract_record_input(record: Mapping[str, Any]) -> Mapping[str, Any]:
+    if not isinstance(record, Mapping):
+        raise ValueError("prediction contract requires mapping-like records")
+
+    symbol = str(record.get("symbol") or "").strip().upper() or "unknown"
+    missing: list[str] = []
+
+    for field in _EXPLICIT_SURFACE_FIELDS:
+        if field not in record:
+            missing.append(field)
+
+    if not any(field in record for field in _CONFIDENCE_SURFACE_FIELDS):
+        missing.append("confidence")
+
+    if missing:
+        raise ValueError(
+            f"prediction contract requires explicit producer fields for {symbol}: {', '.join(missing)}"
+        )
+
+    for field in ("symbol", "action", "reason", "market_regime", "risk"):
+        value = record.get(field)
+        if not str(value or "").strip():
+            raise ValueError(
+                f"prediction contract requires a non-empty {field} for {symbol}"
+            )
+
+    vetoes = record.get("vetoes")
+    if not isinstance(vetoes, list):
+        raise ValueError(f"prediction contract requires vetoes to be a list for {symbol}")
+
+    return record
 
 
 def _normalize_risk(value: object) -> str:
