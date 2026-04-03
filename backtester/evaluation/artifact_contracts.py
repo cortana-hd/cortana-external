@@ -15,7 +15,8 @@ ARTIFACT_STATUS_DEGRADED = "degraded"
 ARTIFACT_STATUS_ERROR = "error"
 
 DEGRADED_STATUS_HEALTHY = "healthy"
-DEGRADED_STATUS_DEGRADED = "degraded"
+DEGRADED_STATUS_SAFE = "degraded_safe"
+DEGRADED_STATUS_RISKY = "degraded_risky"
 
 REQUIRED_ARTIFACT_METADATA_FIELDS = (
     "artifact_family",
@@ -66,7 +67,8 @@ VALID_ARTIFACT_STATUSES = {
 
 VALID_DEGRADED_STATUSES = {
     DEGRADED_STATUS_HEALTHY,
-    DEGRADED_STATUS_DEGRADED,
+    DEGRADED_STATUS_SAFE,
+    DEGRADED_STATUS_RISKY,
 }
 
 
@@ -101,7 +103,7 @@ def build_artifact_metadata(
         "degraded_status": (
             str(degraded_status).strip().lower()
             if degraded_status is not None
-            else (DEGRADED_STATUS_HEALTHY if normalized_status == ARTIFACT_STATUS_OK else DEGRADED_STATUS_DEGRADED)
+            else (DEGRADED_STATUS_HEALTHY if normalized_status == ARTIFACT_STATUS_OK else DEGRADED_STATUS_SAFE)
         ),
     }
     if metadata["degraded_status"] not in VALID_DEGRADED_STATUSES:

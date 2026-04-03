@@ -31,6 +31,7 @@ from evaluation.alert_posture import (
     load_buy_decision_calibration_summary,
 )
 from evaluation.artifact_contracts import ARTIFACT_FAMILY_STRATEGY_ALERT, annotate_artifact
+from evaluation.failure_taxonomy import classify_strategy_outcome
 from evaluation.prediction_accuracy import persist_prediction_snapshot
 from evaluation.decision_review import render_decision_review
 from strategies.dip_buyer import DIPBUYER_CONFIG
@@ -610,6 +611,8 @@ def _finalize_alert_payload(
     risk_snapshot: dict[str, Any],
     profile_name: str,
     profile: dict[str, Any],
+    gate_active: bool,
+    analysis_error_count: int,
     lines: list[str],
     review_detail_limit: int,
     limit: int,
@@ -617,7 +620,14 @@ def _finalize_alert_payload(
     universe_size: int,
 ) -> dict[str, Any]:
     market_payload = _serialize_market_state(market)
-    artifact_status = "degraded" if market_payload["status"] != "ok" else "ok"
+    taxonomy = classify_strategy_outcome(
+        market_status=market_payload["status"],
+        gate_active=gate_active,
+        evaluated=int(summary.get("evaluated", 0) or 0),
+        threshold_passed=int(summary.get("threshold_passed", 0) or 0),
+        analysis_error_count=int(analysis_error_count or 0),
+        risky_degraded=market_payload["data_source"] in {"unknown", "unavailable"},
+    )
     payload = {
         "strategy": strategy,
         "summary": dict(summary),
@@ -627,6 +637,7 @@ def _finalize_alert_payload(
             "source_counts": dict(source_counts),
             "max_input_staleness_seconds": float(max_input_staleness_seconds or 0.0),
             "risk_snapshot": dict(risk_snapshot or {}),
+            "analysis_error_count": int(analysis_error_count or 0),
         },
         "selection": _serialize_selection(selection, priority_count),
         "overlays": {
@@ -653,8 +664,9 @@ def _finalize_alert_payload(
         producer=DIPBUYER_ALERT_PRODUCER,
         generated_at=generated_at,
         known_at=generated_at,
-        status=artifact_status,
-        outcome_class="strategy_scan",
+        status=taxonomy.status,
+        degraded_status=taxonomy.degraded_status,
+        outcome_class=taxonomy.outcome_class,
         freshness={"max_input_staleness_seconds": float(max_input_staleness_seconds or 0.0)},
     )
 
@@ -716,12 +728,14 @@ def build_alert_payload(
     rejected_no_buy = []
     sentiment_checked = 0
     contrarian_count = 0
+    analysis_error_count = 0
     source_counts = Counter()
     max_input_staleness = 0.0
 
     for symbol in symbols:
         analysis = _run_quiet(advisor.analyze_dip_stock, symbol)
         if analysis.get("error"):
+            analysis_error_count += 1
             continue
 
         evaluated += 1
@@ -835,6 +849,8 @@ def build_alert_payload(
             risk_snapshot=snapshot if isinstance(snapshot, dict) else {},
             profile_name=profile_name,
             profile=profile,
+            gate_active=regime_value == "correction",
+            analysis_error_count=analysis_error_count,
             lines=lines,
             review_detail_limit=review_detail_limit,
             limit=limit,
@@ -951,6 +967,8 @@ def build_alert_payload(
         risk_snapshot=snapshot if isinstance(snapshot, dict) else {},
         profile_name=profile_name,
         profile=profile,
+        gate_active=regime_value == "correction" and buy_count == 0,
+        analysis_error_count=analysis_error_count,
         lines=lines,
         review_detail_limit=review_detail_limit,
         limit=limit,

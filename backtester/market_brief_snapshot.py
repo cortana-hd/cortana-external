@@ -22,6 +22,7 @@ from data.leader_baskets import load_leader_priority_symbols
 from data.market_regime import MarketRegime, MarketStatus
 from data.polymarket_context import latest_report_json_path, load_structured_context
 from evaluation.artifact_contracts import ARTIFACT_FAMILY_MARKET_BRIEF, annotate_artifact
+from evaluation.failure_taxonomy import classify_market_brief_outcome
 
 TAPE_SYMBOLS = ("SPY", "QQQ", "IWM", "DIA", "GLD", "TLT")
 SERVICE_BASE_URL = os.getenv("MARKET_DATA_SERVICE_URL", "http://127.0.0.1:3033").rstrip("/")
@@ -696,14 +697,20 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
         focus=focus,
     )
 
-    artifact_status = "degraded" if warnings or regime_error or tape["status"] != "ok" or status.status != "ok" else "ok"
+    taxonomy = classify_market_brief_outcome(
+        posture_action=posture.get("action", ""),
+        regime_status=status.status,
+        regime_data_source=status.data_source,
+        tape_status=tape.get("status", "ok"),
+        tape_primary_source=tape.get("primary_source", "unknown"),
+    )
     payload = {
         "generated_at": generated_at,
         "session": {
             "phase": session_phase,
             "is_regular_hours": session_phase == "OPEN",
         },
-        "status": artifact_status,
+        "status": taxonomy.status,
         "operator_summary": operator_summary,
         "warnings": warnings,
         "regime": regime_payload,
@@ -724,8 +731,9 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
         producer=MARKET_BRIEF_PRODUCER,
         generated_at=generated_at,
         known_at=generated_at,
-        status=artifact_status,
-        outcome_class="market_snapshot",
+        status=taxonomy.status,
+        degraded_status=taxonomy.degraded_status,
+        outcome_class=taxonomy.outcome_class,
         freshness=payload["freshness"],
     )
 

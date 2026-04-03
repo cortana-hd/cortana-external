@@ -29,7 +29,7 @@ def test_annotate_artifact_adds_required_metadata():
     assert payload["schema_version"] == contracts.ARTIFACT_SCHEMA_VERSION
     assert payload["producer"] == "backtester.market_brief_snapshot"
     assert payload["status"] == "degraded"
-    assert payload["degraded_status"] == "degraded"
+    assert payload["degraded_status"] == "degraded_safe"
     assert payload["outcome_class"] == "market_snapshot"
     assert payload["known_at"] == "2026-04-03T12:00:00+00:00"
 
@@ -59,3 +59,15 @@ def test_build_artifact_metadata_defaults_healthy_for_ok_status():
 
     assert metadata["degraded_status"] == "healthy"
     assert metadata["known_at"] == "2026-04-03T12:00:00+00:00"
+
+
+def test_build_artifact_metadata_accepts_risky_degraded_status():
+    metadata = contracts.build_artifact_metadata(
+        artifact_family=contracts.ARTIFACT_FAMILY_MARKET_BRIEF,
+        producer="backtester.market_brief_snapshot",
+        generated_at="2026-04-03T12:00:00+00:00",
+        status="error",
+        degraded_status="degraded_risky",
+    )
+
+    assert metadata["degraded_status"] == "degraded_risky"

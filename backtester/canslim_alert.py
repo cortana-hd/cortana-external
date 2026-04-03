@@ -30,6 +30,7 @@ from evaluation.alert_posture import (
     describe_calibration_note,
     load_buy_decision_calibration_summary,
 )
+from evaluation.failure_taxonomy import classify_strategy_outcome
 from evaluation.prediction_accuracy import persist_prediction_snapshot
 from evaluation.decision_review import render_decision_review
 from evaluation.artifact_contracts import ARTIFACT_FAMILY_STRATEGY_ALERT, annotate_artifact
@@ -502,6 +503,8 @@ def _finalize_alert_payload(
     risk_overlay: dict[str, Any],
     execution_overlay: dict[str, Any],
     calibration_note: str,
+    gate_active: bool,
+    analysis_error_count: int,
     lines: list[str],
     review_detail_limit: int,
     limit: int,
@@ -511,7 +514,14 @@ def _finalize_alert_payload(
     nested_timings: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     market_payload = _serialize_market_state(market)
-    artifact_status = "degraded" if market_payload["status"] != "ok" else "ok"
+    taxonomy = classify_strategy_outcome(
+        market_status=market_payload["status"],
+        gate_active=gate_active,
+        evaluated=int(summary.get("evaluated", 0) or 0),
+        threshold_passed=int(summary.get("threshold_passed", 0) or 0),
+        analysis_error_count=int(analysis_error_count or 0),
+        risky_degraded=market_payload["data_source"] in {"unknown", "unavailable"},
+    )
     payload = {
         "strategy": strategy,
         "summary": dict(summary),
@@ -520,6 +530,7 @@ def _finalize_alert_payload(
         "inputs": {
             "source_counts": dict(source_counts),
             "max_input_staleness_seconds": float(max_input_staleness_seconds or 0.0),
+            "analysis_error_count": int(analysis_error_count or 0),
         },
         "selection": _serialize_selection(selection, priority_count),
         "overlays": {
@@ -546,8 +557,9 @@ def _finalize_alert_payload(
         producer=CANSLIM_ALERT_PRODUCER,
         generated_at=generated_at,
         known_at=generated_at,
-        status=artifact_status,
-        outcome_class="strategy_scan",
+        status=taxonomy.status,
+        degraded_status=taxonomy.degraded_status,
+        outcome_class=taxonomy.outcome_class,
         freshness={"max_input_staleness_seconds": float(max_input_staleness_seconds or 0.0)},
     )
 
@@ -657,6 +669,8 @@ def build_alert_payload(
             risk_overlay=risk_overlay,
             execution_overlay=execution_overlay,
             calibration_note=calibration_note,
+            gate_active=True,
+            analysis_error_count=0,
             lines=lines,
             review_detail_limit=review_detail_limit,
             limit=limit,
@@ -669,6 +683,7 @@ def build_alert_payload(
     evaluated = 0
     passed = []
     rejected = []
+    analysis_error_count = 0
     source_counts = Counter()
     max_input_staleness = 0.0
 
@@ -676,6 +691,7 @@ def build_alert_payload(
     for symbol in symbols:
         analysis = _analyze_for_alert(advisor, symbol)
         if analysis.get("error"):
+            analysis_error_count += 1
             continue
 
         if timing_enabled:
@@ -772,6 +788,8 @@ def build_alert_payload(
             risk_overlay=risk_overlay,
             execution_overlay=execution_overlay,
             calibration_note=calibration_note,
+            gate_active=False,
+            analysis_error_count=analysis_error_count,
             lines=lines,
             review_detail_limit=review_detail_limit,
             limit=limit,
@@ -841,6 +859,8 @@ def build_alert_payload(
         risk_overlay=risk_overlay,
         execution_overlay=execution_overlay,
         calibration_note=calibration_note,
+        gate_active=False,
+        analysis_error_count=analysis_error_count,
         lines=lines,
         review_detail_limit=review_detail_limit,
         limit=limit,

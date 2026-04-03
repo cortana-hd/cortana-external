@@ -99,6 +99,8 @@ def test_canslim_build_alert_payload_emits_strategy_artifact(monkeypatch):
     assert payload["schema_version"] == ARTIFACT_SCHEMA_VERSION
     assert payload["producer"] == canslim_alert.CANSLIM_ALERT_PRODUCER
     assert payload["strategy"] == "canslim"
+    assert payload["outcome_class"] == "healthy_candidates_found"
+    assert payload["degraded_status"] == "healthy"
     assert payload["summary"]["scanned"] == 2
     assert payload["summary"]["threshold_passed"] == 1
     assert payload["inputs"]["source_counts"] == {"schwab": 1, "cache": 1}
@@ -128,6 +130,8 @@ def test_dipbuyer_build_alert_payload_emits_strategy_artifact(monkeypatch):
     assert payload["schema_version"] == ARTIFACT_SCHEMA_VERSION
     assert payload["producer"] == dipbuyer_alert.DIPBUYER_ALERT_PRODUCER
     assert payload["strategy"] == "dip_buyer"
+    assert payload["outcome_class"] == "healthy_candidates_found"
+    assert payload["degraded_status"] == "healthy"
     assert payload["summary"]["buy_count"] == 1
     assert payload["inputs"]["source_counts"] == {"schwab": 1}
     assert payload["overlays"]["breadth"]["override_state"] == "inactive"
@@ -189,3 +193,66 @@ def test_dipbuyer_main_emits_json_payload(monkeypatch, capsys):
     rendered = json.loads(capsys.readouterr().out)
     assert rendered["producer"] == dipbuyer_alert.DIPBUYER_ALERT_PRODUCER
     assert rendered["strategy"] == "dip_buyer"
+
+
+def test_canslim_build_alert_payload_marks_analysis_failed(monkeypatch):
+    class _ErrorAdvisor(_FakeCanSlimAdvisor):
+        def __init__(self):
+            super().__init__()
+            self._analysis = {
+                "MSFT": {"error": "provider timeout"},
+                "AAPL": {"error": "provider timeout"},
+            }
+
+    monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "0")
+    monkeypatch.setenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "0")
+    monkeypatch.setattr("canslim_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
+    monkeypatch.setattr("canslim_alert.build_alert_context_lines", lambda watchlist: [])
+    with patch("canslim_alert.TradingAdvisor", return_value=_ErrorAdvisor()):
+        payload = canslim_alert.build_alert_payload(limit=5, min_score=6, universe_size=2, review_detail_limit=2)
+
+    assert payload["status"] == "error"
+    assert payload["degraded_status"] == "degraded_risky"
+    assert payload["outcome_class"] == "analysis_failed"
+    assert payload["inputs"]["analysis_error_count"] == 2
+
+
+def test_dipbuyer_build_alert_payload_marks_market_gate_blocked(monkeypatch):
+    class _CorrectionAdvisor(_FakeDipBuyerAdvisor):
+        def __init__(self):
+            super().__init__()
+            self._market = SimpleNamespace(
+                regime=MarketRegime.CORRECTION,
+                position_sizing=0.0,
+                notes="market correction gate",
+                status="ok",
+                data_source="schwab",
+                snapshot_age_seconds=0.0,
+            )
+            self._analysis = {
+                "MSFT": {
+                    "total_score": 9,
+                    "data_source": "schwab",
+                    "data_staleness_seconds": 22.0,
+                    "recommendation": {"action": "BUY", "reason": "Strong rebound"},
+                }
+            }
+
+    monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "0")
+    monkeypatch.setenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "0")
+    monkeypatch.setattr("dipbuyer_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
+    monkeypatch.setattr("dipbuyer_alert.build_alert_context_lines", lambda watchlist: [])
+    monkeypatch.setattr(
+        "dipbuyer_alert.build_intraday_breadth_snapshot",
+        lambda: {"status": "inactive", "override_state": "inactive", "override_reason": "outside regular market session", "warnings": []},
+    )
+    analyzer = MagicMock()
+    analyzer.analyze.return_value = {"sentiment": "NEUTRAL"}
+    with patch("dipbuyer_alert.TradingAdvisor", return_value=_CorrectionAdvisor()), patch(
+        "dipbuyer_alert.XSentimentAnalyzer", return_value=analyzer
+    ):
+        payload = dipbuyer_alert.build_alert_payload(limit=5, min_score=6, universe_size=1, review_detail_limit=2)
+
+    assert payload["status"] == "ok"
+    assert payload["outcome_class"] == "market_gate_blocked"
+    assert payload["degraded_status"] == "healthy"

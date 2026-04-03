@@ -158,7 +158,7 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
     assert snapshot["artifact_family"] == ARTIFACT_FAMILY_MARKET_BRIEF
     assert snapshot["schema_version"] == ARTIFACT_SCHEMA_VERSION
     assert snapshot["producer"] == module.MARKET_BRIEF_PRODUCER
-    assert snapshot["outcome_class"] == "market_snapshot"
+    assert snapshot["outcome_class"] == "market_gate_blocked"
     assert snapshot["degraded_status"] == "healthy"
     assert snapshot["known_at"] == snapshot["generated_at"]
     assert snapshot["posture"]["action"] == "NO_BUY"
@@ -321,6 +321,8 @@ def test_build_snapshot_uses_session_baseline_regime_premarket(monkeypatch):
     assert snapshot["regime"]["status"] == "ok"
     assert snapshot["regime"]["notes"] == "Stay defensive."
     assert snapshot["posture"]["action"] == "NO_BUY"
+    assert snapshot["outcome_class"] == "degraded_safe"
+    assert snapshot["degraded_status"] == "degraded_safe"
     assert snapshot["session"]["phase"] == "PREMARKET"
     assert snapshot["tape"]["primary_source"] == "cache"
     assert "Previous session fallback" in snapshot["tape"]["summary_line"]
@@ -416,7 +418,8 @@ def test_build_snapshot_falls_back_conservatively_when_regime_fails(monkeypatch)
 
     assert snapshot["artifact_family"] == ARTIFACT_FAMILY_MARKET_BRIEF
     assert snapshot["status"] == "degraded"
-    assert snapshot["degraded_status"] == "degraded"
+    assert snapshot["outcome_class"] == "degraded_risky"
+    assert snapshot["degraded_status"] == "degraded_risky"
     assert snapshot["posture"]["action"] == "NO_BUY"
     assert "market_regime_unavailable" in snapshot["warnings"][0]
     assert snapshot["tape"]["risk_tone"] == "unknown"

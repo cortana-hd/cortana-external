@@ -78,6 +78,18 @@ Week 4: V7 + replay/contract hardening
 
 *Dependencies: V1*
 
+#### Delivery Update
+
+- Vertical complete:
+  - shared failure-taxonomy module added under `backtester/evaluation`
+  - market brief now emits normalized `outcome_class` and `degraded_status` values instead of a generic snapshot placeholder
+  - CANSLIM and Dip Buyer now classify `market_gate_blocked`, `healthy_no_candidates`, `healthy_candidates_found`, `degraded_safe`, `degraded_risky`, and `analysis_failed` in machine payloads
+  - alert payloads now track `analysis_error_count` so failed-analysis runs stay distinct from legitimate empty results
+  - targeted tests added for taxonomy helpers, market-brief degraded-safe/risky classification, and strategy-alert gated/healthy/degraded/failed states
+- Deferred to later verticals:
+  - formatter wording cleanup for machine-truth branches lands in V4
+  - `artifact_failed` and `notify_failed` land with wrappers/manifests and downstream consumers in later verticals
+
 #### Jira
 
 - Sub-task 1: Add a failure-taxonomy module to normalize `healthy_candidates_found`, `healthy_no_candidates`, `market_gate_blocked`, `degraded_safe`, `degraded_risky`, `analysis_failed`, `artifact_failed`, and `notify_failed`.
