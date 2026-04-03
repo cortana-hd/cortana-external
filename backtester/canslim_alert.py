@@ -569,6 +569,14 @@ def render_alert_payload(payload: dict[str, Any]) -> str:
     return "\n".join(str(line) for line in payload.get("render_lines", []) if str(line))
 
 
+def _analysis_failed_line(scanned: int, analysis_error_count: int) -> str:
+    failed_count = max(int(analysis_error_count or 0), int(scanned or 0))
+    return (
+        f"Why no buys: analysis failed for {failed_count} scanned names, "
+        "so no valid CANSLIM setups were produced"
+    )
+
+
 def build_alert_payload(
     limit: int = 8,
     min_score: int = 6,
@@ -766,7 +774,10 @@ def build_alert_payload(
         )
         lines.append(f"Scanned {len(symbols)} | 0 passed threshold | 0 BUY | 0 WATCH")
         lines.append(f"Top names considered: {_top_names([{'symbol': s} for s in symbols], 3)}")
-        lines.append("Why no buys: no names cleared the CANSLIM threshold")
+        if analysis_error_count > 0 and evaluated == 0:
+            lines.append(_analysis_failed_line(len(symbols), analysis_error_count))
+        else:
+            lines.append("Why no buys: no names cleared the CANSLIM threshold")
         if timing_enabled:
             lines.append(_format_timing_line(phase_timings, nested_timings))
         return _finalize_alert_payload(

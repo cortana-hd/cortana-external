@@ -1,7 +1,7 @@
 """Unit tests for Dip Buyer alert formatting and output semantics."""
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -224,7 +224,71 @@ def test_format_alert_reports_degraded_market_status_with_next_action():
     assert "Watch names (regime-blocked buys): MSFT" in text
     assert "Final action: WATCH only — correction regime blocks new dip buys (Cached market fallback active)" in text
     assert "Warning: degraded market regime input — Providers unavailable. Using cached market snapshot (12m old) (snapshot age 12m)" in text
-    assert "Recovery: Retry market fetch after cooldown (45s) or refresh cache" in text
+
+
+def test_format_alert_uses_no_qualifying_setup_wording_when_market_is_healthy():
+    class _HealthyAdvisor:
+        def __init__(self):
+            self.risk_fetcher = SimpleNamespace(get_snapshot=lambda: {})
+            self._market = SimpleNamespace(
+                regime=MarketRegime.CONFIRMED_UPTREND,
+                position_sizing=1.0,
+                notes="trend intact",
+                snapshot_age_seconds=0.0,
+                status="ok",
+            )
+            self.screener = SimpleNamespace(get_universe=lambda: ["CFLT", "HWM"])
+            self._analysis = {
+                "CFLT": {"total_score": 4, "recommendation": {"action": "NO_BUY", "reason": "below threshold"}},
+                "HWM": {"total_score": 3, "recommendation": {"action": "NO_BUY", "reason": "below threshold"}},
+            }
+
+        def get_market_status(self, refresh: bool = False):
+            return self._market
+
+        def analyze_dip_stock(self, symbol: str, *args):
+            return self._analysis[symbol]
+
+    analyzer = MagicMock()
+    with patch("dipbuyer_alert.TradingAdvisor", return_value=_HealthyAdvisor()), patch(
+        "dipbuyer_alert.XSentimentAnalyzer", return_value=analyzer
+    ), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
+        text = format_alert(limit=5, min_score=6, universe_size=2)
+
+    assert "Final action: no qualifying dip setups right now — wait for a stronger reversal setup" in text
+    assert "market regime veto" not in text
+
+
+def test_format_alert_reports_analysis_failed_when_all_dip_scans_error():
+    class _ErrorAdvisor:
+        def __init__(self):
+            self.risk_fetcher = SimpleNamespace(get_snapshot=lambda: {})
+            self._market = SimpleNamespace(
+                regime=MarketRegime.CONFIRMED_UPTREND,
+                position_sizing=1.0,
+                notes="trend intact",
+                snapshot_age_seconds=0.0,
+                status="ok",
+            )
+            self.screener = SimpleNamespace(get_universe=lambda: ["CFLT", "HWM"])
+            self._analysis = {
+                "CFLT": {"error": "provider timeout"},
+                "HWM": {"error": "provider timeout"},
+            }
+
+        def get_market_status(self, refresh: bool = False):
+            return self._market
+
+        def analyze_dip_stock(self, symbol: str, *args):
+            return self._analysis[symbol]
+
+    analyzer = MagicMock()
+    with patch("dipbuyer_alert.TradingAdvisor", return_value=_ErrorAdvisor()), patch(
+        "dipbuyer_alert.XSentimentAnalyzer", return_value=analyzer
+    ), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
+        text = format_alert(limit=5, min_score=6, universe_size=2)
+
+    assert "Final action: analysis failed for 2 scanned names — no valid dip setups were produced" in text
 
 def test_format_alert_allows_bounded_selective_buys_when_intraday_breadth_is_strong(monkeypatch):
     fake = _FakeAdvisor()

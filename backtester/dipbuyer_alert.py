@@ -676,6 +676,18 @@ def render_alert_payload(payload: dict[str, Any]) -> str:
     return "\n".join(str(line) for line in payload.get("render_lines", []) if str(line))
 
 
+def _analysis_failed_final_action(scanned: int, analysis_error_count: int) -> str:
+    failed_count = max(int(analysis_error_count or 0), int(scanned or 0))
+    return (
+        f"Final action: analysis failed for {failed_count} scanned names — "
+        "no valid dip setups were produced"
+    )
+
+
+def _no_qualifying_setup_final_action() -> str:
+    return "Final action: no qualifying dip setups right now — wait for a stronger reversal setup"
+
+
 def build_alert_payload(
     limit: int = 8,
     min_score: int = 6,
@@ -804,7 +816,21 @@ def build_alert_payload(
             rejected.append({"symbol": symbol, "reason": reason})
 
     if not passed:
-        blocked = [{"symbol": s, "action": "NO_BUY", "score": 0, "reason": market.notes or "market correction gate"} for s in symbols[:limit]]
+        if analysis_error_count > 0 and evaluated == 0:
+            blocked = [
+                {"symbol": s, "action": "NO_BUY", "score": 0, "reason": "analysis failed before a valid dip-buyer decision could be produced"}
+                for s in symbols[:limit]
+            ]
+            final_action_line = _analysis_failed_final_action(len(symbols), analysis_error_count)
+        elif regime_value == "correction":
+            blocked = [{"symbol": s, "action": "NO_BUY", "score": 0, "reason": market.notes or "market correction gate"} for s in symbols[:limit]]
+            final_action_line = f"Final action: DO NOT BUY — market regime veto ({_dedupe_reason(market.notes or 'market correction gate')})"
+        else:
+            blocked = [
+                {"symbol": s, "action": "NO_BUY", "score": 0, "reason": "no symbols passed the dip-buyer threshold"}
+                for s in symbols[:limit]
+            ]
+            final_action_line = _no_qualifying_setup_final_action()
         _persist_predictions(market=market, records=blocked)
         posture_line = describe_alert_posture(
             market_regime=regime_value,
@@ -825,7 +851,7 @@ def build_alert_payload(
         )
         lines.append(f"Qualified setups: 0 of {len(symbols)} scanned | BUY 0 | WATCH 0")
         lines.append(f"Top leaders: {_top_names([{'symbol': s} for s in symbols], 3)}")
-        lines.append(f"Final action: DO NOT BUY — market regime veto ({_dedupe_reason(market.notes or 'market correction gate')})")
+        lines.append(final_action_line)
         return _finalize_alert_payload(
             generated_at=generated_at,
             strategy="dip_buyer",

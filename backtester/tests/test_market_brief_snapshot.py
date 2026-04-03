@@ -176,6 +176,8 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
 
 def test_format_operator_text_renders_human_summary():
     payload = {
+        "outcome_class": "market_gate_blocked",
+        "degraded_status": "healthy",
         "operator_summary": {
             "headline": "OPEN: WATCH | CORRECTION | size 0%",
             "what_this_means": "Stay defensive.",
@@ -194,8 +196,20 @@ def test_format_operator_text_renders_human_summary():
     text = module.format_operator_text(payload)
 
     assert "OPEN: WATCH | CORRECTION | size 0%" in text
+    assert "Status: valid defensive snapshot; market regime is blocking new risk." in text
     assert "Session: This is a regular session snapshot." in text
     assert "Warnings: one, two, three" in text
+
+
+def test_describe_operator_status_distinguishes_safe_and_risky_degradation():
+    assert (
+        module.describe_operator_status({"outcome_class": "healthy_candidates_found", "degraded_status": "degraded_safe"})
+        == "Status: degraded-safe snapshot; bounded fallback inputs are active."
+    )
+    assert (
+        module.describe_operator_status({"outcome_class": "degraded_risky", "degraded_status": "degraded_risky"})
+        == "Status: degraded-risky snapshot; live market inputs are missing or incomplete."
+    )
 
 
 def test_main_emits_json_payload(monkeypatch, capsys):

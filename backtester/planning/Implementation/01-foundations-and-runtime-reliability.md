@@ -150,6 +150,21 @@ Week 4: V7 + replay/contract hardening
 
 *Dependencies: V2, V3*
 
+#### Delivery Update
+
+- Vertical complete:
+  - strategy alert operator wording now respects normalized machine outcome classes instead of letting empty, gated, and failed paths collapse into similar prose
+  - CANSLIM now says explicitly when all scanned names failed analysis instead of implying a legitimate no-candidate threshold result
+  - Dip Buyer now distinguishes:
+    - market-gated no-trade posture
+    - healthy no-setup posture
+    - analysis-failed posture
+  - market brief operator output now includes a machine-derived status line so healthy defensive snapshots, degraded-safe fallbacks, and degraded-risky snapshots read differently
+  - targeted formatting tests added for machine-truth-to-prose alignment across CANSLIM, Dip Buyer, and market brief outputs
+- Deferred to later verticals:
+  - broader consumer replay fixtures still land in V7
+  - additional formatter cleanup in wrapper-local formatters can happen later if new operator surfaces need the same machine-truth language
+
 #### Jira
 
 - Sub-task 1: Refactor strategy alert producers to build structured payloads before rendering text.
