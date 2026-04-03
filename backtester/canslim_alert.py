@@ -9,6 +9,7 @@ import io
 import inspect
 import json
 import os
+from pathlib import Path
 import re
 import sys
 import time
@@ -893,6 +894,7 @@ def main() -> None:
     parser.add_argument("--min-score", type=int, default=6)
     parser.add_argument("--universe-size", type=int, default=int(os.getenv("TRADING_UNIVERSE_SIZE", "120")))
     parser.add_argument("--json", action="store_true", help="Emit the structured alert payload as JSON.")
+    parser.add_argument("--output-json", type=Path, help="Optional output path for the structured alert payload.")
     parser.add_argument(
         "--review-detail-limit",
         type=int,
@@ -906,6 +908,9 @@ def main() -> None:
         universe_size=args.universe_size,
         review_detail_limit=max(1, int(args.review_detail_limit)),
     )
+    if args.output_json:
+        args.output_json.parent.mkdir(parents=True, exist_ok=True)
+        args.output_json.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(payload, indent=2, sort_keys=True) if args.json else render_alert_payload(payload))
 
 

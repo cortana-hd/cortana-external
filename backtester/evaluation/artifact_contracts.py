@@ -54,8 +54,15 @@ ARTIFACT_FAMILY_MINIMUM_FIELDS: dict[str, tuple[str, ...]] = {
     ARTIFACT_FAMILY_RUN_MANIFEST: REQUIRED_ARTIFACT_METADATA_FIELDS
     + (
         "run_id",
+        "run_kind",
+        "started_at",
+        "finished_at",
+        "code_version",
+        "config_version",
+        "input_sources",
         "stages",
         "artifacts",
+        "warnings",
     ),
 }
 

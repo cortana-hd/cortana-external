@@ -10,7 +10,7 @@ ensure_market_data_runtime_ready() {
 
   ready_path="$(mktemp)"
   ops_path="$(mktemp)"
-  trap 'rm -f "${ready_path}" "${ops_path}"' RETURN
+  trap "rm -f '${ready_path}' '${ops_path}'" RETURN
 
   attempt_market_data_restart() {
     if [[ "${self_heal}" != "1" ]]; then

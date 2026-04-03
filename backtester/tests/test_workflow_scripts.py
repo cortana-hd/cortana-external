@@ -146,6 +146,8 @@ def test_nighttime_flow_forces_progress_and_unbuffered_python(tmp_path):
     env["RUN_CRYPTO_DAILY_REFRESH"] = "0"
     env["NIGHTLY_LIMIT"] = "1"
     env["SKIP_LIVE_PREFILTER_REFRESH"] = "1"
+    env["LOCAL_RUNS_ROOT"] = str(tmp_path / "runs")
+    env["RUN_STAMP"] = "run-1"
 
     result = subprocess.run(
         ["bash", str(NIGHTTIME_FLOW)],
@@ -162,6 +164,107 @@ def test_nighttime_flow_forces_progress_and_unbuffered_python(tmp_path):
     uv_invocation = uv_log.read_text(encoding="utf-8")
     assert "ARGS:run python -u nightly_discovery.py --limit 1 --skip-live-prefilter-refresh" in uv_invocation
     assert "NIGHTLY_PROGRESS=1" in uv_invocation
+    manifest_path = tmp_path / "runs" / "run-1" / "run-manifest.json"
+    assert manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["artifact_family"] == "run_manifest"
+    assert manifest["producer"] == "backtester.nighttime_flow"
+    assert manifest["run_kind"] == "nighttime_flow"
+    assert any(stage["name"] == "nightly_discovery" for stage in manifest["stages"])
+    assert any(artifact["label"] == "nightly-discovery-view" for artifact in manifest["artifacts"])
+
+
+def test_daytime_flow_writes_run_manifest_and_strategy_artifacts(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uv_log = tmp_path / "uv.log"
+    leader_basket_path = tmp_path / "leader-baskets-latest.json"
+    leader_basket_path.write_text(json.dumps({"buckets": {}, "priority": {"symbols": []}}) + "\n", encoding="utf-8")
+    _write_executable(
+        bin_dir / "uv",
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            printf '%s\\n' "ARGS:$*" >>"{uv_log}"
+            if [[ "$1" == "run" && "$2" == "python" && "$3" == "canslim_alert.py" ]]; then
+              output_json=""
+              while [[ $# -gt 0 ]]; do
+                if [[ "$1" == "--output-json" ]]; then
+                  output_json="$2"
+                  shift 2
+                  continue
+                fi
+                shift
+              done
+              cat >"$output_json" <<'JSON'
+            {{"artifact_family":"strategy_alert","schema_version":1,"producer":"backtester.canslim_alert","status":"ok","degraded_status":"healthy","generated_at":"2026-04-03T13:30:00Z","known_at":"2026-04-03T13:30:00Z","strategy":"canslim","summary":{{"scanned":10}},"signals":[],"warnings":[]}}
+            JSON
+              printf '%s\\n' "CANSLIM Scan"
+              exit 0
+            fi
+            if [[ "$1" == "run" && "$2" == "python" && "$3" == "dipbuyer_alert.py" ]]; then
+              output_json=""
+              while [[ $# -gt 0 ]]; do
+                if [[ "$1" == "--output-json" ]]; then
+                  output_json="$2"
+                  shift 2
+                  continue
+                fi
+                shift
+              done
+              cat >"$output_json" <<'JSON'
+            {{"artifact_family":"strategy_alert","schema_version":1,"producer":"backtester.dipbuyer_alert","status":"degraded","degraded_status":"degraded_safe","generated_at":"2026-04-03T13:30:00Z","known_at":"2026-04-03T13:30:00Z","strategy":"dip_buyer","summary":{{"scanned":10}},"signals":[],"inputs":{{"source_counts":{{"schwab":7,"cache":3}},"analysis_error_count":0}},"warnings":["tape_previous_session_fallback"]}}
+            JSON
+              printf '%s\\n' "Dip Buyer Scan"
+              exit 0
+            fi
+            if [[ "$1" == "run" && "$2" == "python" && "$3" == "advisor.py" ]]; then
+              printf '%s\\n' "Advisor output"
+              exit 0
+            fi
+            if [[ "$1" == "run" && "$2" == "python" && "$3" == *"local_output_formatter.py" ]]; then
+              cat
+              exit 0
+            fi
+            exit 0
+            """
+        ),
+    )
+
+    env = _shell_env(bin_dir)
+    env["LOCAL_RUNS_ROOT"] = str(tmp_path / "runs")
+    env["RUN_STAMP"] = "run-2"
+    env["REQUIRE_MARKET_DATA_SERVICE"] = "0"
+    env["RUN_MARKET_INTEL"] = "0"
+    env["RUN_DYNAMIC_WATCHLIST_REFRESH"] = "0"
+    env["RUN_MARKET_DATA_OPS"] = "0"
+    env["RUN_CRYPTO_DAILY_REFRESH"] = "0"
+    env["RUN_DEEP_DIVE"] = "0"
+    env["LEADER_BASKET_PATH"] = str(leader_basket_path)
+
+    result = subprocess.run(
+        ["bash", str(DAYTIME_FLOW)],
+        cwd=str(BACKTESTER_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    manifest_path = tmp_path / "runs" / "run-2" / "run-manifest.json"
+    assert manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["artifact_family"] == "run_manifest"
+    assert manifest["producer"] == "backtester.daytime_flow"
+    assert manifest["run_kind"] == "daytime_flow"
+    assert manifest["status"] == "degraded"
+    assert manifest["degraded_status"] == "degraded_safe"
+    assert any(stage["name"] == "canslim_alert" for stage in manifest["stages"])
+    assert any(stage["name"] == "dipbuyer_alert" for stage in manifest["stages"])
+    assert any(artifact["label"] == "canslim-alert-json" for artifact in manifest["artifacts"])
+    assert any(artifact["label"] == "dipbuyer-alert-json" for artifact in manifest["artifacts"])
 
 
 def test_trend_sweep_preserves_existing_watchlist_when_x_auth_is_unavailable(tmp_path):

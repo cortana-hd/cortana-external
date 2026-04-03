@@ -28,6 +28,11 @@ from evaluation.failure_taxonomy import (
     classify_market_brief_outcome,
     classify_strategy_outcome,
 )
+from evaluation.run_manifest import (
+    RUN_MANIFEST_OUTCOME_COMPLETED,
+    RUN_MANIFEST_OUTCOME_FAILED,
+    build_run_manifest,
+)
 
 __all__ = [
     "ARTIFACT_FAMILY_MARKET_BRIEF",
@@ -41,6 +46,8 @@ __all__ = [
     "OUTCOME_HEALTHY_CANDIDATES_FOUND",
     "OUTCOME_HEALTHY_NO_CANDIDATES",
     "OUTCOME_MARKET_GATE_BLOCKED",
+    "RUN_MANIFEST_OUTCOME_COMPLETED",
+    "RUN_MANIFEST_OUTCOME_FAILED",
     "TaxonomyResult",
     "annotate_artifact",
     "attach_model_family_scores",
@@ -51,5 +58,6 @@ __all__ = [
     "compare_model_families",
     "render_model_comparison_report",
     "score_enhanced_rank",
+    "build_run_manifest",
     "validate_artifact_payload",
 ]

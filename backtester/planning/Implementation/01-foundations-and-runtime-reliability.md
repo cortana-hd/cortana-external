@@ -112,6 +112,24 @@ Week 4: V7 + replay/contract hardening
 
 *Dependencies: V1, V2*
 
+#### Delivery Update
+
+- Vertical complete:
+  - shared run-manifest builder added under `backtester/evaluation/run_manifest.py`
+  - run-manifest contract now requires `run_kind`, `started_at`, `finished_at`, `code_version`, `config_version`, `input_sources`, `stages`, `artifacts`, and `warnings`
+  - `daytime_flow.sh` now writes `run-manifest.json` into the local workflow run directory and records:
+    - stage timings/status for preflight, refreshes, regime, alerts, and quick check
+    - artifact refs for raw/view outputs and alert JSON payloads
+  - `nighttime_flow.sh` now writes `run-manifest.json` into the local workflow run directory and records:
+    - stage timings/status for preflight, nightly discovery, market-data ops, prediction accuracy, and optional crypto refresh
+    - artifact refs for nightly discovery, ops, and prediction-accuracy outputs
+  - CANSLIM and Dip Buyer CLIs now support `--output-json` so wrapper flows can persist structured payloads without rerunning scans
+  - targeted tests added for run-manifest aggregation and wrapper manifest emission
+- Deferred to later verticals:
+  - market-brief and readiness canary manifests remain separate follow-on wiring
+  - downstream consumers do not read run manifests yet; that starts in later W1/W6 work
+  - Postgres persistence for manifests remains a later step; this slice is file-based only
+
 #### Jira
 
 - Sub-task 1: Create `run_manifest.py` with write/read helpers and a stable manifest shape.

@@ -139,7 +139,7 @@ def test_dipbuyer_build_alert_payload_emits_strategy_artifact(monkeypatch):
     assert payload["render_lines"][0] == "Dip Buyer Scan"
 
 
-def test_canslim_main_emits_json_payload(monkeypatch, capsys):
+def test_canslim_main_emits_json_payload(monkeypatch, capsys, tmp_path):
     payload = {
         "artifact_family": ARTIFACT_FAMILY_STRATEGY_ALERT,
         "schema_version": ARTIFACT_SCHEMA_VERSION,
@@ -153,10 +153,11 @@ def test_canslim_main_emits_json_payload(monkeypatch, capsys):
         "signals": [],
         "render_lines": ["CANSLIM Scan"],
     }
+    output_path = tmp_path / "canslim.json"
     monkeypatch.setattr(
         canslim_alert.argparse.ArgumentParser,
         "parse_args",
-        lambda self: SimpleNamespace(limit=8, min_score=6, universe_size=120, review_detail_limit=2, json=True),
+        lambda self: SimpleNamespace(limit=8, min_score=6, universe_size=120, review_detail_limit=2, json=True, output_json=output_path),
     )
     monkeypatch.setattr(canslim_alert, "build_alert_payload", lambda **kwargs: payload)
 
@@ -165,9 +166,10 @@ def test_canslim_main_emits_json_payload(monkeypatch, capsys):
     rendered = json.loads(capsys.readouterr().out)
     assert rendered["producer"] == canslim_alert.CANSLIM_ALERT_PRODUCER
     assert rendered["strategy"] == "canslim"
+    assert json.loads(output_path.read_text(encoding="utf-8"))["strategy"] == "canslim"
 
 
-def test_dipbuyer_main_emits_json_payload(monkeypatch, capsys):
+def test_dipbuyer_main_emits_json_payload(monkeypatch, capsys, tmp_path):
     payload = {
         "artifact_family": ARTIFACT_FAMILY_STRATEGY_ALERT,
         "schema_version": ARTIFACT_SCHEMA_VERSION,
@@ -181,10 +183,11 @@ def test_dipbuyer_main_emits_json_payload(monkeypatch, capsys):
         "signals": [],
         "render_lines": ["Dip Buyer Scan"],
     }
+    output_path = tmp_path / "dipbuyer.json"
     monkeypatch.setattr(
         dipbuyer_alert.argparse.ArgumentParser,
         "parse_args",
-        lambda self: SimpleNamespace(limit=8, min_score=6, universe_size=120, review_detail_limit=2, json=True),
+        lambda self: SimpleNamespace(limit=8, min_score=6, universe_size=120, review_detail_limit=2, json=True, output_json=output_path),
     )
     monkeypatch.setattr(dipbuyer_alert, "build_alert_payload", lambda **kwargs: payload)
 
@@ -193,6 +196,7 @@ def test_dipbuyer_main_emits_json_payload(monkeypatch, capsys):
     rendered = json.loads(capsys.readouterr().out)
     assert rendered["producer"] == dipbuyer_alert.DIPBUYER_ALERT_PRODUCER
     assert rendered["strategy"] == "dip_buyer"
+    assert json.loads(output_path.read_text(encoding="utf-8"))["strategy"] == "dip_buyer"
 
 
 def test_canslim_build_alert_payload_marks_analysis_failed(monkeypatch):
