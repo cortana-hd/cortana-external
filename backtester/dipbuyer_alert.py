@@ -7,12 +7,13 @@ import argparse
 import importlib
 import io
 import inspect
+import json
 import os
 import re
 import warnings
 from collections import Counter, defaultdict
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -29,9 +30,13 @@ from evaluation.alert_posture import (
     describe_calibration_note,
     load_buy_decision_calibration_summary,
 )
+from evaluation.artifact_contracts import ARTIFACT_FAMILY_STRATEGY_ALERT, annotate_artifact
 from evaluation.prediction_accuracy import persist_prediction_snapshot
 from evaluation.decision_review import render_decision_review
 from strategies.dip_buyer import DIPBUYER_CONFIG
+
+
+DIPBUYER_ALERT_PRODUCER = "backtester.dipbuyer_alert"
 
 
 def _trade_quality_sort_key(record: dict) -> tuple:
@@ -528,14 +533,145 @@ def _profile_for_market(market_regime: str) -> tuple[str, dict]:
     return "inactive", {}
 
 
-def format_alert(
+def _serialize_market_state(market: object) -> dict[str, Any]:
+    regime = getattr(getattr(market, "regime", None), "value", str(getattr(market, "regime", "unknown")))
+    return {
+        "regime": str(regime),
+        "position_sizing": float(getattr(market, "position_sizing", 0.0) or 0.0),
+        "notes": str(getattr(market, "notes", "") or ""),
+        "status": str(getattr(market, "status", "ok") or "ok"),
+        "data_source": str(getattr(market, "data_source", "unknown") or "unknown"),
+        "degraded_reason": str(getattr(market, "degraded_reason", "") or "") or None,
+        "snapshot_age_seconds": float(getattr(market, "snapshot_age_seconds", 0.0) or 0.0),
+        "next_action": str(getattr(market, "next_action", "") or "") or None,
+    }
+
+
+def _serialize_selection(selection: UniverseSelectionResult | None, priority_count: int) -> dict[str, Any]:
+    if selection is None:
+        return {
+            "status": "unavailable",
+            "priority_count": int(priority_count),
+            "source": "fallback",
+            "generated_at": None,
+            "cache_age_hours": None,
+        }
+    return {
+        "status": "ok",
+        "priority_count": int(priority_count),
+        "source": str(selection.source),
+        "generated_at": selection.generated_at,
+        "cache_age_hours": selection.cache_age_hours,
+    }
+
+
+def _serialize_signal_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    serialized: list[dict[str, Any]] = []
+    for record in records:
+        serialized.append(
+            {
+                "symbol": str(record.get("symbol", "") or ""),
+                "score": int(record.get("score", 0) or 0),
+                "action": str(record.get("action", "NO_BUY") or "NO_BUY"),
+                "reason": str(record.get("reason", "") or ""),
+                "sentiment_tag": str(record.get("sentiment_tag", "") or ""),
+                "trade_quality_score": float(record.get("trade_quality_score", 0.0) or 0.0),
+                "effective_confidence": float(record.get("effective_confidence", 0.0) or 0.0),
+                "uncertainty_pct": float(record.get("uncertainty_pct", 0.0) or 0.0),
+                "data_source": str(record.get("data_source", "unknown") or "unknown"),
+                "data_staleness_seconds": float(record.get("data_staleness_seconds", 0.0) or 0.0),
+                "abstain": bool(record.get("abstain", False)),
+                "abstain_reason_codes": list(record.get("abstain_reason_codes", []) or []),
+                "abstain_reasons": list(record.get("abstain_reasons", []) or []),
+                "credit_veto": bool(record.get("credit_veto", False)),
+                "falling_knife": bool(record.get("falling_knife", False)),
+                "market_inactive": bool(record.get("market_inactive", False)),
+                "has_risk_telemetry": bool(record.get("has_risk_telemetry", False)),
+            }
+        )
+    return serialized
+
+
+def _finalize_alert_payload(
+    *,
+    generated_at: str,
+    strategy: str,
+    market: object,
+    summary: dict[str, Any],
+    signals: list[dict[str, Any]],
+    source_counts: Counter | dict[str, int],
+    max_input_staleness_seconds: float,
+    selection: UniverseSelectionResult | None,
+    priority_count: int,
+    risk_overlay: dict[str, Any],
+    execution_overlay: dict[str, Any],
+    calibration_note: str,
+    breadth_snapshot: dict[str, Any],
+    risk_snapshot: dict[str, Any],
+    profile_name: str,
+    profile: dict[str, Any],
+    lines: list[str],
+    review_detail_limit: int,
+    limit: int,
+    min_score: int,
+    universe_size: int,
+) -> dict[str, Any]:
+    market_payload = _serialize_market_state(market)
+    artifact_status = "degraded" if market_payload["status"] != "ok" else "ok"
+    payload = {
+        "strategy": strategy,
+        "summary": dict(summary),
+        "signals": _serialize_signal_records(signals),
+        "market": market_payload,
+        "inputs": {
+            "source_counts": dict(source_counts),
+            "max_input_staleness_seconds": float(max_input_staleness_seconds or 0.0),
+            "risk_snapshot": dict(risk_snapshot or {}),
+        },
+        "selection": _serialize_selection(selection, priority_count),
+        "overlays": {
+            "risk": dict(risk_overlay or {}),
+            "execution": dict(execution_overlay or {}),
+            "calibration_note": calibration_note or "",
+            "breadth": dict(breadth_snapshot or {}),
+        },
+        "profile": {
+            "name": profile_name,
+            "settings": dict(profile or {}),
+        },
+        "parameters": {
+            "limit": int(limit),
+            "min_score": int(min_score),
+            "universe_size": int(universe_size),
+            "review_detail_limit": int(review_detail_limit),
+        },
+        "render_lines": list(lines),
+    }
+    return annotate_artifact(
+        payload,
+        artifact_family=ARTIFACT_FAMILY_STRATEGY_ALERT,
+        producer=DIPBUYER_ALERT_PRODUCER,
+        generated_at=generated_at,
+        known_at=generated_at,
+        status=artifact_status,
+        outcome_class="strategy_scan",
+        freshness={"max_input_staleness_seconds": float(max_input_staleness_seconds or 0.0)},
+    )
+
+
+def render_alert_payload(payload: dict[str, Any]) -> str:
+    return "\n".join(str(line) for line in payload.get("render_lines", []) if str(line))
+
+
+def build_alert_payload(
     limit: int = 8,
     min_score: int = 6,
     universe_size: int = 120,
     review_detail_limit: int = 2,
-) -> str:
+) -> dict[str, Any]:
     advisor = TradingAdvisor()
     sentiment_analyzer = XSentimentAnalyzer()
+    generated_at = datetime.now(UTC).isoformat()
 
     market = _run_quiet(advisor.get_market_status, True)
     regime_value = getattr(getattr(market, "regime", None), "value", "")
@@ -641,6 +777,8 @@ def format_alert(
                 "falling_knife": bool(analysis.get("falling_knife", False)),
                 "market_inactive": not bool(analysis.get("market_active", True)),
                 "has_risk_telemetry": has_risk_telemetry,
+                "data_source": analysis.get("data_source", "unknown"),
+                "data_staleness_seconds": float(analysis.get("data_staleness_seconds", 0.0) or 0.0),
             })
         else:
             rejected.append({"symbol": symbol, "reason": f"Below min-score filter ({score}<{min_score})"})
@@ -673,7 +811,36 @@ def format_alert(
         lines.append(f"Qualified setups: 0 of {len(symbols)} scanned | BUY 0 | WATCH 0")
         lines.append(f"Top leaders: {_top_names([{'symbol': s} for s in symbols], 3)}")
         lines.append(f"Final action: DO NOT BUY — market regime veto ({_dedupe_reason(market.notes or 'market correction gate')})")
-        return "\n".join(lines)
+        return _finalize_alert_payload(
+            generated_at=generated_at,
+            strategy="dip_buyer",
+            market=market,
+            summary={
+                "scanned": len(symbols),
+                "evaluated": evaluated,
+                "threshold_passed": 0,
+                "buy_count": 0,
+                "watch_count": 0,
+                "no_buy_count": 0,
+            },
+            signals=blocked,
+            source_counts=source_counts,
+            max_input_staleness_seconds=max_input_staleness,
+            selection=selection,
+            priority_count=priority_count,
+            risk_overlay=risk_overlay,
+            execution_overlay=execution_overlay,
+            calibration_note=calibration_note,
+            breadth_snapshot=breadth_snapshot,
+            risk_snapshot=snapshot if isinstance(snapshot, dict) else {},
+            profile_name=profile_name,
+            profile=profile,
+            lines=lines,
+            review_detail_limit=review_detail_limit,
+            limit=limit,
+            min_score=min_score,
+            universe_size=universe_size,
+        )
 
     ranked = sorted(passed, key=_trade_quality_sort_key)
     candidates = ranked[:limit]
@@ -760,7 +927,52 @@ def format_alert(
     recovery_line = _market_recovery_line(market)
     if recovery_line:
         lines.append(recovery_line)
-    return "\n".join(lines)
+    return _finalize_alert_payload(
+        generated_at=generated_at,
+        strategy="dip_buyer",
+        market=market,
+        summary={
+            "scanned": len(symbols),
+            "evaluated": len(passed),
+            "threshold_passed": len(passed),
+            "buy_count": buy_count,
+            "watch_count": watch_count,
+            "no_buy_count": sum(1 for c in display_candidates if str(c.get("action", "")).upper() == "NO_BUY"),
+        },
+        signals=display_candidates,
+        source_counts=source_counts,
+        max_input_staleness_seconds=max_input_staleness,
+        selection=selection,
+        priority_count=priority_count,
+        risk_overlay=risk_overlay,
+        execution_overlay=execution_overlay,
+        calibration_note=calibration_note,
+        breadth_snapshot=breadth_snapshot,
+        risk_snapshot=snapshot if isinstance(snapshot, dict) else {},
+        profile_name=profile_name,
+        profile=profile,
+        lines=lines,
+        review_detail_limit=review_detail_limit,
+        limit=limit,
+        min_score=min_score,
+        universe_size=universe_size,
+    )
+
+
+def format_alert(
+    limit: int = 8,
+    min_score: int = 6,
+    universe_size: int = 120,
+    review_detail_limit: int = 2,
+) -> str:
+    return render_alert_payload(
+        build_alert_payload(
+            limit=limit,
+            min_score=min_score,
+            universe_size=universe_size,
+            review_detail_limit=review_detail_limit,
+        )
+    )
 
 
 def main() -> None:
@@ -768,6 +980,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--min-score", type=int, default=6)
     parser.add_argument("--universe-size", type=int, default=int(os.getenv("TRADING_UNIVERSE_SIZE", "120")))
+    parser.add_argument("--json", action="store_true", help="Emit the structured alert payload as JSON.")
     parser.add_argument(
         "--review-detail-limit",
         type=int,
@@ -775,14 +988,13 @@ def main() -> None:
         help="Maximum number of decision-review details to show per group",
     )
     args = parser.parse_args()
-    print(
-        format_alert(
-            limit=args.limit,
-            min_score=args.min_score,
-            universe_size=args.universe_size,
-            review_detail_limit=max(1, int(args.review_detail_limit)),
-        )
+    payload = build_alert_payload(
+        limit=args.limit,
+        min_score=args.min_score,
+        universe_size=args.universe_size,
+        review_detail_limit=max(1, int(args.review_detail_limit)),
     )
+    print(json.dumps(payload, indent=2, sort_keys=True) if args.json else render_alert_payload(payload))
 
 
 if __name__ == "__main__":

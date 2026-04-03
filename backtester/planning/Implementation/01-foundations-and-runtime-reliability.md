@@ -48,15 +48,15 @@ Week 4: V7 + replay/contract hardening
 
 #### Delivery Update
 
-- Initial slice shipped:
+- Vertical complete:
   - shared artifact-contract helpers added under `backtester/evaluation`
   - baseline artifact families defined for market brief, strategy alerts, and run manifests
   - market brief payload now emits baseline machine metadata before formatter logic runs
-  - targeted tests added for serializer validation and market-brief metadata wiring
-- Remaining follow-up in V1:
-  - wire the same shared contract into strategy-alert producers
-  - add run-manifest producer wiring once V3 starts
-  - widen emitter coverage across additional machine-readable producers
+  - CANSLIM and Dip Buyer now expose structured payload builders and opt-in JSON emission while preserving default text/stdout behavior
+  - targeted tests added for serializer validation, market-brief metadata wiring, strategy-alert payload metadata, and JSON emitter behavior
+- Deferred to later verticals:
+  - run-manifest producer wiring begins in V3
+  - normalized outcome taxonomy and failure-class semantics begin in V2
 
 #### Jira
 
