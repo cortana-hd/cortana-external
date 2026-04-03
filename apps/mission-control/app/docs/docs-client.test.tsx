@@ -20,7 +20,7 @@ describe("DocsClient", () => {
       .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "", content: "" }));
 
     render(<DocsClient />);
-    expect(screen.getByText("OpenClaw Docs")).toBeInTheDocument();
+    expect(screen.getByText("Docs Library")).toBeInTheDocument();
   });
 
   it("shows loading state initially", () => {
@@ -36,8 +36,8 @@ describe("DocsClient", () => {
         jsonResponse({
           status: "ok",
           files: [
-            { name: "b.md", path: "/docs/b.md" },
-            { name: "a.md", path: "/docs/a.md" },
+            { id: "OpenClaw Docs:b.md", name: "b.md", path: "/docs/b.md", section: "OpenClaw Docs" },
+            { id: "OpenClaw Docs:a.md", name: "a.md", path: "/docs/a.md", section: "OpenClaw Docs" },
           ],
         })
       )
@@ -56,8 +56,8 @@ describe("DocsClient", () => {
         jsonResponse({
           status: "ok",
           files: [
-            { name: "a.md", path: "/docs/a.md" },
-            { name: "b.md", path: "/docs/b.md" },
+            { id: "OpenClaw Docs:a.md", name: "a.md", path: "/docs/a.md", section: "OpenClaw Docs" },
+            { id: "Backtester Docs:b.md", name: "b.md", path: "/docs/b.md", section: "Backtester Docs" },
           ],
         })
       )
@@ -70,7 +70,7 @@ describe("DocsClient", () => {
     fireEvent.click(secondFile);
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/docs?file=b.md", { cache: "no-store" });
+      expect(fetchMock).toHaveBeenCalledWith("/api/docs?file=Backtester%20Docs%3Ab.md", { cache: "no-store" });
     });
 
     await screen.findByText("B content");
@@ -97,5 +97,24 @@ describe("DocsClient", () => {
 
     await screen.findByText("No markdown files found.");
     expect(screen.queryByText(/DOCS_PATH/i)).not.toBeInTheDocument();
+  });
+
+  it("renders section headers for multiple doc sources", async () => {
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            { id: "OpenClaw Docs:a.md", name: "a.md", path: "/docs/a.md", section: "OpenClaw Docs" },
+            { id: "Backtester Docs:README.md", name: "README.md", path: "/backtester/README.md", section: "Backtester Docs" },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "a.md", content: "# A" }));
+
+    render(<DocsClient />);
+
+    expect(await screen.findByText("OpenClaw Docs")).toBeInTheDocument();
+    expect(screen.getByText("Backtester Docs")).toBeInTheDocument();
   });
 });

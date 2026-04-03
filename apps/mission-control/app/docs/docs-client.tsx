@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-type DocFile = { name: string; path: string };
+type DocFile = { id: string; name: string; path: string; section: string };
 
 type DocsListResponse =
   | { status: "ok"; files: DocFile[] }
@@ -19,7 +19,7 @@ type DocContentResponse =
 
 export default function DocsClient() {
   const [files, setFiles] = React.useState<DocFile[]>([]);
-  const [selectedFile, setSelectedFile] = React.useState<string | null>(null);
+  const [selectedFileId, setSelectedFileId] = React.useState<string | null>(null);
   const [content, setContent] = React.useState<string>("");
   const [listLoading, setListLoading] = React.useState(true);
   const [contentLoading, setContentLoading] = React.useState(false);
@@ -43,7 +43,7 @@ export default function DocsClient() {
         const sorted = [...payload.files].sort((a, b) => a.name.localeCompare(b.name));
         if (active) {
           setFiles(sorted);
-          setSelectedFile(sorted[0]?.name ?? null);
+          setSelectedFileId(sorted[0]?.id ?? null);
           setListError(null);
         }
       } catch (error) {
@@ -66,7 +66,7 @@ export default function DocsClient() {
     let active = true;
 
     const loadDoc = async () => {
-      if (!selectedFile) {
+      if (!selectedFileId) {
         setContent("");
         setContentError(null);
         return;
@@ -74,7 +74,7 @@ export default function DocsClient() {
 
       try {
         setContentLoading(true);
-        const response = await fetch(`/api/docs?file=${encodeURIComponent(selectedFile)}`, {
+        const response = await fetch(`/api/docs?file=${encodeURIComponent(selectedFileId)}`, {
           cache: "no-store",
         });
         const payload = (await response.json()) as DocContentResponse;
@@ -102,17 +102,30 @@ export default function DocsClient() {
     return () => {
       active = false;
     };
-  }, [selectedFile]);
+  }, [selectedFileId]);
+
+  const selectedFile = React.useMemo(
+    () => files.find((file) => file.id === selectedFileId) ?? null,
+    [files, selectedFileId]
+  );
+
+  const filesBySection = React.useMemo(() => {
+    return files.reduce<Record<string, DocFile[]>>((acc, file) => {
+      acc[file.section] ||= [];
+      acc[file.section].push(file);
+      return acc;
+    }, {});
+  }, [files]);
 
   return (
     <div className="space-y-4">
       <div className="space-y-1">
         <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
-          OpenClaw Docs
+          Docs Library
         </p>
         <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Docs</h1>
         <p className="text-sm text-muted-foreground">
-          Browse markdown documentation from the OpenClaw knowledge base.
+          Browse markdown documentation from the OpenClaw and Backtester knowledge bases.
         </p>
       </div>
 
@@ -143,24 +156,31 @@ export default function DocsClient() {
                     No markdown files found.
                   </p>
                 ) : (
-                  files.map((file) => {
-                    const isActive = file.name === selectedFile;
-                    return (
-                      <button
-                        key={file.name}
-                        type="button"
-                        onClick={() => setSelectedFile(file.name)}
-                        className={cn(
-                          "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-                          isActive
-                            ? "bg-primary/10 text-foreground"
-                            : "text-muted-foreground hover:bg-muted/40"
-                        )}
-                      >
-                        <span className="truncate font-medium text-foreground">{file.name}</span>
-                      </button>
-                    );
-                  })
+                  Object.entries(filesBySection).map(([section, sectionFiles]) => (
+                    <div key={section} className="space-y-1">
+                      <p className="px-2 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {section}
+                      </p>
+                      {sectionFiles.map((file) => {
+                        const isActive = file.id === selectedFileId;
+                        return (
+                          <button
+                            key={file.id}
+                            type="button"
+                            onClick={() => setSelectedFileId(file.id)}
+                            className={cn(
+                              "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+                              isActive
+                                ? "bg-primary/10 text-foreground"
+                                : "text-muted-foreground hover:bg-muted/40"
+                            )}
+                          >
+                            <span className="truncate font-medium text-foreground">{file.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))
                 )}
               </div>
             </CardContent>
@@ -169,7 +189,7 @@ export default function DocsClient() {
           <Card className="overflow-hidden">
             <CardHeader className="border-b">
               <CardTitle className="text-base">
-                {selectedFile ?? "Documentation"}
+                {selectedFile?.name ?? "Documentation"}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">

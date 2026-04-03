@@ -39,8 +39,18 @@ describe("GET /api/docs", () => {
     expect(payload).toEqual({
       status: "ok",
       files: [
-        { name: "AGENTS.md", path: "/Users/hd/Developer/cortana/docs/AGENTS.md" },
-        { name: "README.md", path: "/Users/hd/Developer/cortana/docs/README.md" },
+        {
+          id: "OpenClaw Docs:AGENTS.md",
+          name: "AGENTS.md",
+          path: "/Users/hd/Developer/cortana/docs/AGENTS.md",
+          section: "OpenClaw Docs",
+        },
+        {
+          id: "OpenClaw Docs:README.md",
+          name: "README.md",
+          path: "/Users/hd/Developer/cortana/docs/README.md",
+          section: "OpenClaw Docs",
+        },
       ],
     });
   });
@@ -55,7 +65,14 @@ describe("GET /api/docs", () => {
     expect(response.status).toBe(200);
     expect(payload).toEqual({
       status: "ok",
-      files: [{ name: "README.md", path: "/tmp/mission-control-docs/README.md" }],
+      files: [
+        {
+          id: "OpenClaw Docs:README.md",
+          name: "README.md",
+          path: "/tmp/mission-control-docs/README.md",
+          section: "OpenClaw Docs",
+        },
+      ],
     });
   });
 
@@ -63,35 +80,32 @@ describe("GET /api/docs", () => {
     fsMocks.stat.mockResolvedValueOnce({ isFile: () => true });
     fsMocks.readFile.mockResolvedValueOnce("# hello");
 
-    const response = await GET(makeRequest("?file=README.md"));
+    fsMocks.readdir.mockResolvedValueOnce([{ name: "README.md", isFile: () => true }]);
+
+    const response = await GET(makeRequest("?file=OpenClaw%20Docs%3AREADME.md"));
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(payload).toEqual({ status: "ok", name: "README.md", content: "# hello" });
   });
 
-  it("rejects path traversal attempts", async () => {
+  it("returns 404 for unknown document ids", async () => {
+    fsMocks.readdir.mockResolvedValueOnce([{ name: "README.md", isFile: () => true }]);
+
     const response = await GET(makeRequest("?file=../../../etc/passwd"));
     const payload = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(payload).toEqual({ status: "error", message: "Invalid file name." });
-  });
-
-  it("rejects non-.md file extensions", async () => {
-    const response = await GET(makeRequest("?file=notes.txt"));
-    const payload = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(payload).toEqual({ status: "error", message: "Invalid file name." });
+    expect(response.status).toBe(404);
+    expect(payload).toEqual({ status: "error", message: "File not found." });
   });
 
   it("returns 404 for non-existent files", async () => {
     const err = new Error("missing") as NodeJS.ErrnoException;
     err.code = "ENOENT";
     fsMocks.stat.mockRejectedValueOnce(err);
+    fsMocks.readdir.mockResolvedValueOnce([{ name: "missing.md", isFile: () => true }]);
 
-    const response = await GET(makeRequest("?file=missing.md"));
+    const response = await GET(makeRequest("?file=OpenClaw%20Docs%3Amissing.md"));
     const payload = await response.json();
 
     expect(response.status).toBe(404);
@@ -105,11 +119,12 @@ describe("GET /api/docs", () => {
 
     expect(payload.status).toBe("ok");
     expect(Array.isArray(payload.files)).toBe(true);
-    expect(payload.files[0]).toMatchObject({ name: "a.md" });
+    expect(payload.files[0]).toMatchObject({ id: "OpenClaw Docs:a.md", name: "a.md", section: "OpenClaw Docs" });
 
     fsMocks.stat.mockResolvedValueOnce({ isFile: () => true });
     fsMocks.readFile.mockResolvedValueOnce("content");
-    response = await GET(makeRequest("?file=a.md"));
+    fsMocks.readdir.mockResolvedValueOnce([{ name: "a.md", isFile: () => true }]);
+    response = await GET(makeRequest("?file=OpenClaw%20Docs%3Aa.md"));
     payload = await response.json();
 
     expect(payload).toMatchObject({

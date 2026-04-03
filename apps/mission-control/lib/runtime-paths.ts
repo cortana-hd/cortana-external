@@ -21,7 +21,10 @@ export function getAgentModelsPath(): string {
 }
 
 export function getHeartbeatStatePath(): string {
-  return readEnvPath("HEARTBEAT_STATE_PATH") ?? path.join(os.homedir(), ".openclaw", "memory", "heartbeat-state.json");
+  return (
+    readEnvPath("HEARTBEAT_STATE_PATH") ??
+    path.join(getCortanaSourceRepo(), "memory", "heartbeat-state.json")
+  );
 }
 
 export function getTelegramUsageHandlerPath(): string {

@@ -31,7 +31,7 @@ describe("lib/runtime-paths", () => {
     expect(getCortanaSourceRepo()).toBe("/Users/hd/Developer/cortana");
     expect(getDocsPath()).toBe("/Users/hd/Developer/cortana/docs");
     expect(getAgentModelsPath()).toBe("/Users/hd/Developer/cortana/config/agent-models.json");
-    expect(getHeartbeatStatePath()).toBe("/tmp/runtime-paths-home/.openclaw/memory/heartbeat-state.json");
+    expect(getHeartbeatStatePath()).toBe("/Users/hd/Developer/cortana/memory/heartbeat-state.json");
     expect(getTelegramUsageHandlerPath()).toBe(
       "/Users/hd/Developer/cortana/skills/telegram-usage/handler.ts"
     );
