@@ -20,6 +20,9 @@ MARKET_DATA_BASE_URL="${MARKET_DATA_BASE_URL:-$FITNESS_BASE_URL}"
 MARKET_DATA_LAUNCHD_LABEL="${MARKET_DATA_LAUNCHD_LABEL:-com.cortana.fitness-service}"
 MARKET_DATA_RESTART_WAIT_SECONDS="${MARKET_DATA_RESTART_WAIT_SECONDS:-8}"
 MARKET_DATA_QUOTE_SYMBOLS="${MARKET_DATA_QUOTE_SYMBOLS:-SPY,QQQ}"
+PRE_OPEN_CANARY_PATH="${PRE_OPEN_CANARY_PATH:-/Users/hd/Developer/cortana-external/backtester/var/readiness/pre-open-canary-latest.json}"
+PRE_OPEN_CANARY_MAX_AGE_SECONDS="${PRE_OPEN_CANARY_MAX_AGE_SECONDS:-7200}"
+PRE_OPEN_CANARY_WARN_THRESHOLD_SECONDS="${PRE_OPEN_CANARY_WARN_THRESHOLD_SECONDS:-900}"
 MISSION_CONTROL_BASE_URL="${MISSION_CONTROL_BASE_URL:-http://127.0.0.1:3000}"
 MISSION_CONTROL_HEALTH_PATH="${MISSION_CONTROL_HEALTH_PATH:-/api/heartbeat-status}"
 MISSION_CONTROL_LAUNCHD_LABEL="${MISSION_CONTROL_LAUNCHD_LABEL:-com.cortana.mission-control}"
@@ -397,6 +400,178 @@ market_data_advisory_should_recover() {
     return 1
   fi
   return 0
+}
+
+get_iso8601_age_seconds() {
+  local iso_timestamp="${1:-}"
+  python3 - "$iso_timestamp" <<'PY'
+from __future__ import annotations
+
+from datetime import UTC, datetime
+import sys
+
+value = (sys.argv[1] or "").strip()
+if not value:
+    print("")
+    raise SystemExit(0)
+
+try:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+if parsed.tzinfo is None:
+    parsed = parsed.replace(tzinfo=UTC)
+
+now = datetime.now(UTC)
+age = int((now - parsed.astimezone(UTC)).total_seconds())
+if age < 0:
+    age = 0
+print(age)
+PY
+}
+
+humanize_pre_open_canary_check() {
+  local check_name="${1:-}"
+  local result="${2:-}"
+  local reason="${3:-}"
+  local detail="${4:-}"
+  case "$check_name" in
+    service_ready)
+      humanize_market_data_issue "${detail:-$reason}"
+      ;;
+    quote_smoke)
+      if [[ -n "$detail" ]]; then
+        humanize_market_data_issue "$detail"
+      else
+        printf '%s' "Quote smoke is unavailable."
+      fi
+      ;;
+    regime_path)
+      if [[ "$result" == "fail" ]]; then
+        printf '%s' "Live market regime path failed."
+      else
+        printf '%s' "Live market regime path is degraded."
+      fi
+      ;;
+    strategy_smoke)
+      if [[ "$result" == "fail" ]]; then
+        printf '%s' "Reduced CANSLIM strategy smoke failed."
+      else
+        printf '%s' "Reduced CANSLIM strategy smoke is degraded."
+      fi
+      ;;
+    *)
+      if [[ -n "$reason" ]]; then
+        printf '%s' "$reason"
+      else
+        printf '%s' "$check_name"
+      fi
+      ;;
+  esac
+}
+
+check_pre_open_readiness() {
+  local readiness_check_name="pre_open_readiness"
+  local warn_threshold_seconds="${PRE_OPEN_CANARY_WARN_THRESHOLD_SECONDS:-900}"
+
+  if [[ ! -f "$PRE_OPEN_CANARY_PATH" ]]; then
+    log "info" "Pre-open canary artifact not present at ${PRE_OPEN_CANARY_PATH}; skipping readiness check"
+    clear_check_recovery_silent "$readiness_check_name"
+    return
+  fi
+
+  local checked_at age_seconds
+  checked_at=$(jq -r '.checked_at // empty' "$PRE_OPEN_CANARY_PATH" 2>/dev/null || true)
+  age_seconds=$(get_iso8601_age_seconds "$checked_at")
+  if [[ -z "$age_seconds" ]]; then
+    log "warning" "Pre-open canary artifact is unreadable or missing checked_at; skipping readiness check"
+    clear_check_recovery_silent "$readiness_check_name"
+    return
+  fi
+  if [[ "$age_seconds" -gt "$PRE_OPEN_CANARY_MAX_AGE_SECONDS" ]]; then
+    log "info" "Pre-open canary artifact is stale (${age_seconds}s old); skipping readiness check"
+    clear_check_recovery_silent "$readiness_check_name"
+    return
+  fi
+
+  local artifact_family result outcome_class
+  artifact_family=$(jq -r '.artifact_family // empty' "$PRE_OPEN_CANARY_PATH" 2>/dev/null || true)
+  result=$(jq -r '.result // empty' "$PRE_OPEN_CANARY_PATH" 2>/dev/null || true)
+  outcome_class=$(jq -r '.outcome_class // empty' "$PRE_OPEN_CANARY_PATH" 2>/dev/null || true)
+  if [[ "$artifact_family" != "readiness_check" || -z "$result" ]]; then
+    log "warning" "Pre-open canary artifact at ${PRE_OPEN_CANARY_PATH} is missing required readiness fields"
+    clear_check_recovery_silent "$readiness_check_name"
+    return
+  fi
+
+  if [[ "$result" == "pass" ]]; then
+    if [[ "$(get_last_alert_time "$readiness_check_name")" != "0" ]]; then
+      recovery_alert "$readiness_check_name" "Pre-open canary recovered and the trading lane is ready for the open"
+    else
+      clear_check_recovery_silent "$readiness_check_name"
+    fi
+    log "info" "Pre-open canary: PASS (${age_seconds}s old)"
+    return
+  fi
+
+  local non_pass_names
+  non_pass_names=$(jq -r '[.checks[]? | select((.result // "pass") != "pass") | .name] | join(",")' "$PRE_OPEN_CANARY_PATH" 2>/dev/null || true)
+  if [[ -z "$non_pass_names" ]]; then
+    non_pass_names="unknown"
+  fi
+
+  if [[ "$non_pass_names" =~ ^(service_ready|quote_smoke)(,(service_ready|quote_smoke))*$ ]]; then
+    local result_upper
+    result_upper=$(printf '%s' "$result" | tr '[:lower:]' '[:upper:]')
+    log "info" "Pre-open canary is ${result_upper}, but only for market-data-owned issues (${non_pass_names}); market-data watchdog owns alerting"
+    clear_check_recovery_silent "$readiness_check_name"
+    return
+  fi
+
+  local reasons_json
+  reasons_json=$(jq -r '
+    [
+      .checks[]?
+      | select((.result // "pass") != "pass")
+      | {
+          name: (.name // ""),
+          result: (.result // ""),
+          reason: (.evidence.reason // ""),
+          detail: (.evidence.error // .evidence.degraded_reason // .evidence.operator_action // .evidence.detail // "")
+        }
+    ] | @json
+  ' "$PRE_OPEN_CANARY_PATH" 2>/dev/null || echo "[]")
+
+  local human_causes=""
+  while IFS=$'\t' read -r check_name check_result check_reason check_detail; do
+    [[ -n "$check_name" ]] || continue
+    local rendered
+    rendered=$(humanize_pre_open_canary_check "$check_name" "$check_result" "$check_reason" "$check_detail")
+    if [[ -n "$rendered" ]]; then
+      if [[ -n "$human_causes" ]]; then
+        human_causes="${human_causes}; ${rendered}"
+      else
+        human_causes="${rendered}"
+      fi
+    fi
+  done < <(echo "$reasons_json" | jq -r '.[] | [.name, .result, .reason, .detail] | @tsv' 2>/dev/null || true)
+
+  if [[ -z "$human_causes" ]]; then
+    human_causes="See readiness artifact for detailed evidence."
+  fi
+
+  if [[ "$result" == "fail" || "$outcome_class" == "readiness_fail" ]]; then
+    alert "Pre-open canary failed. Trading lane is not ready for the open. ${human_causes}" "$readiness_check_name" "critical"
+    return
+  fi
+
+  alert_if_failure_persists \
+    "$readiness_check_name" \
+    "$warn_threshold_seconds" \
+    "Pre-open canary is degraded. Trading lane may not be fully ready for the open. ${human_causes}" \
+    "warning" >/dev/null || true
 }
 
 # ── A) Cron Health ──
@@ -836,6 +1011,7 @@ run_watchdog() {
   check_gateway_health
   check_mission_control_health
   check_market_data_health
+  check_pre_open_readiness
   check_tools
   check_degraded_agents
   check_budget
