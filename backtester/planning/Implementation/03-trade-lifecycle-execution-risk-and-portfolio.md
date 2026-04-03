@@ -186,9 +186,9 @@ Week 6: V7 + regression cleanup
 
 #### Jira
 
-- Sub-task 1: Update operator formatters and `advisor.py` summaries so lifecycle-aware information is visible but still compact.
-- Sub-task 2: Add replay fixtures covering same-bar ambiguity, delayed entries, gap-through-stop behavior, duplicate entries, and concentration conflicts.
-- Sub-task 3: Keep machine-readable lifecycle artifacts authoritative and ensure human summaries never invent lifecycle state.
+- [x] Sub-task 1: Update operator formatters and `advisor.py` summaries so lifecycle-aware information is visible but still compact.
+- [x] Sub-task 2: Add replay fixtures covering same-bar ambiguity, delayed entries, gap-through-stop behavior, duplicate entries, and concentration conflicts.
+- [x] Sub-task 3: Keep machine-readable lifecycle artifacts authoritative and ensure human summaries never invent lifecycle state.
 
 #### Testing
 

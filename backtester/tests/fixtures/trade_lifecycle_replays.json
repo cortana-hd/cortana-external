@@ -1,0 +1,80 @@
+{
+  "same_bar_gap_above_zone": {
+    "signal": {
+      "symbol": "MSFT",
+      "strategy": "canslim",
+      "action": "BUY",
+      "price": 105.0,
+      "trade_quality_score": 80.0,
+      "effective_confidence": 74.0,
+      "entry_plan": {
+        "plan_key": "canslim:MSFT:gap",
+        "schema_version": "lifecycle.v1",
+        "entry_price_ideal_min": 99.0,
+        "entry_price_ideal_max": 101.0,
+        "do_not_chase_above": 103.0,
+        "initial_stop_price": 95.0,
+        "first_target_price": 108.0,
+        "stretch_target_price": 112.0,
+        "executable": true
+      }
+    },
+    "overlays": {
+      "risk": {"state": "open", "budget_fraction": 1.0},
+      "execution": {"estimated_slippage_bps": 14.0, "execution_quality": "good"}
+    }
+  },
+  "gap_through_stop_review": {
+    "open_position": {
+      "id": "open-gap",
+      "position_key": "pos-gap",
+      "schema_version": "lifecycle.v1",
+      "symbol": "NVDA",
+      "strategy": "canslim",
+      "entered_at": "2026-04-01T20:00:00+00:00",
+      "entry_price": 200.0,
+      "stop_price": 190.0,
+      "target_price_1": 216.0,
+      "capital_allocated": 10000.0
+    },
+    "signal": {"symbol": "NVDA", "action": "BUY", "price": 185.0}
+  },
+  "duplicate_entry_conflict": {
+    "first_signal": {
+      "symbol": "AAPL",
+      "strategy": "canslim",
+      "action": "BUY",
+      "price": 150.0,
+      "trade_quality_score": 75.0,
+      "effective_confidence": 70.0,
+      "entry_plan": {
+        "plan_key": "canslim:AAPL:1",
+        "schema_version": "lifecycle.v1",
+        "entry_price_ideal_min": 149.0,
+        "entry_price_ideal_max": 151.0,
+        "initial_stop_price": 144.0,
+        "first_target_price": 162.0,
+        "stretch_target_price": 168.0,
+        "executable": true
+      }
+    },
+    "second_signal": {
+      "symbol": "AAPL",
+      "strategy": "dip_buyer",
+      "action": "BUY",
+      "price": 150.0,
+      "trade_quality_score": 71.0,
+      "effective_confidence": 69.0,
+      "entry_plan": {
+        "plan_key": "dip:AAPL:1",
+        "schema_version": "lifecycle.v1",
+        "entry_price_ideal_min": 149.5,
+        "entry_price_ideal_max": 150.5,
+        "initial_stop_price": 145.0,
+        "first_target_price": 159.0,
+        "stretch_target_price": 165.0,
+        "executable": true
+      }
+    }
+  }
+}

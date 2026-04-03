@@ -28,6 +28,7 @@ def build_report(*, root: Path | None = None) -> dict[str, Any]:
             "closed_count": int(summary.get("closed_count", 0) or 0),
             "open_count": len(open_positions),
             "closed_total_count": len(closed_positions),
+            "portfolio_blocked_count": int(summary.get("portfolio_blocked_count", 0) or 0),
         },
         "portfolio_snapshot": portfolio_snapshot,
         "open_positions": [position.to_dict() for position in open_positions],
@@ -46,7 +47,8 @@ def render_report(report: dict[str, Any]) -> str:
             f"- Open {summary.get('open_count', 0)} | "
             f"Opened this run {summary.get('opened_count', 0)} | "
             f"Closed this run {summary.get('closed_count', 0)} | "
-            f"Closed total {summary.get('closed_total_count', 0)}"
+            f"Closed total {summary.get('closed_total_count', 0)} | "
+            f"Blocked this run {summary.get('portfolio_blocked_count', 0)}"
         ),
     ]
 
@@ -59,6 +61,13 @@ def render_report(report: dict[str, Any]) -> str:
                 f"pending {int(portfolio_snapshot.get('pending_entry_count', 0) or 0)}",
             ]
         )
+        blocked_candidates = list(portfolio_snapshot.get("blocked_candidates", []) or [])
+        if blocked_candidates:
+            preview = ", ".join(
+                f"{item.get('symbol')} ({item.get('block_reason')})"
+                for item in blocked_candidates[:3]
+            )
+            lines.append(f"- Portfolio blocks: {preview}")
 
     open_positions = list(report.get("open_positions", []) or [])
     lines.extend(["", "Open positions"])

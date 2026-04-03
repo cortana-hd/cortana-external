@@ -219,6 +219,7 @@ def run_cycle(
             "closed_count": len(new_closed_positions),
             "open_count": len(updated_open_positions),
             "closed_total_count": len(all_closed_positions),
+            "portfolio_blocked_count": len(portfolio_snapshot.blocked_candidates) if portfolio_snapshot is not None else 0,
         },
         "opened_positions": [position.to_dict() for position in opened_positions],
         "closed_positions": [position.to_dict() for position in new_closed_positions],

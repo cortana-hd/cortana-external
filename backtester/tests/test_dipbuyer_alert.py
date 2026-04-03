@@ -374,7 +374,7 @@ def test_format_alert_includes_decision_review_for_top_leaders():
 
     assert "Top leaders: MSFT WATCH (9/12) 🐦 Neutral | AAPL WATCH (7/12) 🐦 Neutral" in text
     assert "Decision review: BUY 0 | WATCH 2 | NO_BUY 0" in text
-    assert "Tuning balance: clean BUY 0 | risky BUY proxy 0 | abstain 1 | veto 0 | higher-tq restraint proxy n/a" in text
+    assert "Tuning balance: clean BUY 0 | risky BUY proxy 0 | abstain 1 | veto 1 | higher-tq restraint proxy n/a" in text
     assert "Abstains: AAPL WATCH | tq 72.0 | conf 48% u 31% | down/churn 0.0/0.0 | stress normal(0) | ABSTAIN | reasons macro inputs stale | confidence assessment abstained | reason Watch setup" in text
     assert "Final action: WATCH only — correction regime blocks new dip buys" in text
 

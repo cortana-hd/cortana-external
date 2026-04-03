@@ -128,4 +128,4 @@ def test_alert_output_includes_social_sentiment_and_tags():
         text = format_alert(limit=8, min_score=6)
 
     assert "Dip Buyer Scan" in text
-    assert "Leaders: MSFT WATCH (9/12) 🐦 Contrarian ✅ | AAPL WATCH (7/12) 🐦 Caution ⚠️" in text
+    assert "Top leaders: MSFT WATCH (9/12) 🐦 Contrarian ✅ | AAPL WATCH (7/12) 🐦 Caution ⚠️" in text
