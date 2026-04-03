@@ -228,6 +228,25 @@ Week 4: V7 + replay/contract hardening
 
 *Dependencies: V2, V5*
 
+#### Delivery Update
+
+- Vertical complete:
+  - watchdog now consumes the fresh pre-open canary artifact from `backtester/var/readiness/pre-open-canary-latest.json`
+  - pure market-data-owned readiness degradations stay owned by the existing market-data watchdog lane, so pre-open readiness does not reintroduce duplicate cooldown/auth noise
+  - higher-level trade-lane readiness failures now page immediately when the canary fails on:
+    - live regime path failure
+    - reduced strategy smoke failure
+  - degraded readiness warnings now stay low-noise and only alert after persistence, matching the advisory behavior already used for market-data cooldown/quote flap checks
+  - healthy follow-up canary artifacts now emit recovery only when watchdog had previously alerted, avoiding fake recoveries after silent first warnings
+  - shell coverage added for:
+    - provider-only readiness degradation staying silent
+    - immediate alerting on trade-lane readiness failure
+    - sustained degraded readiness warning + recovery
+    - stale readiness artifact suppression
+- Deferred to later verticals:
+  - cron/launchd enforcement of the readiness gate remains later work
+  - downstream `cortana` consumption of readiness artifacts remains in later verticals/workstreams
+
 #### Jira
 
 - Sub-task 1: Update watchdog health logic to consume or align with the normalized failure taxonomy.

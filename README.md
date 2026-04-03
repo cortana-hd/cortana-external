@@ -361,6 +361,7 @@ Local reliability monitor (every 15 min) for service/cron/agent health.
 - **Sub-agent watchdog events** from `~/clawd/tools/subagent-watchdog/` (failed/aborted/timed-out sub-agent runs persisted to `cortana_events`)
 - gog/Gmail availability
 - Schwab market-data lane (`/market-data/ready`, `/market-data/ops`, `SPY,QQQ` quote smoke test, sustained cooldown advisories)
+- Pre-open readiness artifact (`backtester/var/readiness/pre-open-canary-latest.json`) for trade-lane-level open readiness
 - Tonal/Whoop health
 - PostgreSQL health
 - API budget thresholds
