@@ -9,6 +9,11 @@ from pathlib import Path
 import re
 import sys
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+BACKTESTER_ROOT = SCRIPT_DIR.parent
+if str(BACKTESTER_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKTESTER_ROOT))
+
 from operator_surfaces.renderers import render_operator_payload
 
 

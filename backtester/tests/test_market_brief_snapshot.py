@@ -242,6 +242,30 @@ def test_format_operator_text_renders_human_summary():
     assert "Warnings: one, two, three" in text
 
 
+def test_build_operator_summary_prefers_underlying_age_for_cached_regime():
+    summary = module.build_operator_summary(
+        session_phase="AFTER_HOURS",
+        posture={"action": "NO_BUY", "reason": "Stay defensive."},
+        regime={
+            "display": "CORRECTION",
+            "position_sizing_pct": 0.0,
+            "status": "ok",
+            "data_source": "cache",
+            "snapshot_age_seconds": 180.0,
+            "notes": "Regime score -8. [DEGRADED: computed from cached history, age=97.3h]",
+            "degraded_reason": "",
+        },
+        tape={"primary_source": "unavailable"},
+        macro={"state": "watch", "freshness_hours": 2.0},
+        breadth={"override_state": "inactive", "override_reason": "outside regular market session"},
+        focus={"symbols": ["NVDA"], "reason": "Focus names came from the Polymarket macro watchlist."},
+    )
+
+    assert summary["read_this_as"]["regime"] == (
+        "Market regime is CORRECTION using cached history (underlying inputs ~97.3h old)."
+    )
+
+
 def test_format_operator_text_prefers_shared_operator_payload():
     payload = {
         "operator_payload": {

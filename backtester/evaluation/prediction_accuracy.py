@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 import pandas as pd
+import requests
 
 from data.confidence import stable_confidence_bucket
 from data.market_data_provider import MarketDataError, MarketDataProvider
@@ -25,6 +26,7 @@ from outcomes import (
 
 DEFAULT_HORIZONS = (1, 5, 20)
 ROLLING_SAMPLE_WINDOWS = (20, 50, 100)
+DEFAULT_SETTLEMENT_BATCH_SIZE = 200
 
 
 def default_prediction_root() -> Path:
@@ -71,6 +73,7 @@ def settle_prediction_snapshots(
     horizons: tuple[int, ...] = DEFAULT_HORIZONS,
     provider: Optional[MarketDataProvider] = None,
     now: Optional[datetime] = None,
+    max_snapshots_per_run: int = DEFAULT_SETTLEMENT_BATCH_SIZE,
 ) -> list[dict]:
     base = root or default_prediction_root()
     snapshots_dir = base / "snapshots"
@@ -79,13 +82,26 @@ def settle_prediction_snapshots(
     provider = provider or MarketDataProvider()
     current_time = now or datetime.now(timezone.utc)
     settled: list[dict] = []
+    should_attempt_live_settlement = _market_data_available_for_settlement(provider)
+    processed = 0
 
-    for path in sorted(snapshots_dir.glob("*.json")):
+    for path in sorted(snapshots_dir.glob("*.json"), reverse=True):
         payload = json.loads(path.read_text(encoding="utf-8"))
         generated_at = _parse_dt(payload.get("generated_at"))
         if generated_at is None:
             continue
         out_path = settled_dir / path.name
+        existing_payload = _load_existing_settlement(out_path)
+        if _settlement_complete(existing_payload):
+            continue
+        if not should_attempt_live_settlement:
+            if existing_payload is not None:
+                settled.append(existing_payload)
+            continue
+        if max_snapshots_per_run > 0 and processed >= max_snapshots_per_run:
+            if existing_payload is not None:
+                settled.append(existing_payload)
+            continue
         records = payload.get("records") or []
         settled_records = []
         for record in records:
@@ -116,7 +132,49 @@ def settle_prediction_snapshots(
         }
         out_path.write_text(json.dumps(out_payload, indent=2), encoding="utf-8")
         settled.append(out_payload)
+        processed += 1
     return settled
+
+
+def _market_data_available_for_settlement(provider: MarketDataProvider) -> bool:
+    service_base_url = str(getattr(provider, "service_base_url", "") or "").rstrip("/")
+    if not service_base_url:
+        return True
+    try:
+        response = requests.get(f"{service_base_url}/market-data/ready", timeout=3)
+        response.raise_for_status()
+        payload = response.json() or {}
+    except Exception:
+        return False
+    data = payload.get("data") if isinstance(payload, dict) else {}
+    operator_state = str((data or {}).get("operatorState") or "").strip().lower()
+    if operator_state in {"provider_cooldown", "human_action_required"}:
+        return False
+    return bool((data or {}).get("ready", True))
+
+
+def _load_existing_settlement(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _settlement_complete(payload: dict | None) -> bool:
+    if not payload:
+        return False
+    records = payload.get("records") or []
+    if not isinstance(records, list) or not records:
+        return False
+    for record in records:
+        if not isinstance(record, dict):
+            return False
+        if record.get("pending_horizons") or record.get("incomplete_horizons"):
+            return False
+    return True
 
 
 def build_prediction_accuracy_summary(root: Optional[Path] = None) -> dict:

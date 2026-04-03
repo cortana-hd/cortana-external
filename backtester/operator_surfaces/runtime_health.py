@@ -62,6 +62,19 @@ def build_runtime_health_snapshot(
         "notes": "Delivery health is inferred from readiness and watchdog artifacts until direct Telegram receipts are modeled.",
     }
 
+    ready_data = (ready_payload or {}).get("data") if isinstance(ready_payload, dict) else {}
+    ops_data = (ops_payload or {}).get("data") if isinstance(ops_payload, dict) else {}
+    operator_state = str(
+        (ready_data or {}).get("operatorState")
+        or (ops_data or {}).get("serviceOperatorState")
+        or ""
+    ).strip()
+    operator_action = str(
+        (ready_data or {}).get("operatorAction")
+        or (ops_data or {}).get("serviceOperatorAction")
+        or ""
+    ).strip()
+
     incident_markers = []
     if ready_error:
         incident_markers.append(
@@ -69,6 +82,15 @@ def build_runtime_health_snapshot(
                 "incident_type": "market_data_service_unreachable",
                 "severity": "high",
                 "runbook_ref": "watchdog/README.md#What it checks",
+            }
+        )
+    elif operator_state == "provider_cooldown":
+        incident_markers.append(
+            {
+                "incident_type": "provider_cooldown",
+                "severity": "medium",
+                "runbook_ref": "backtester/docs/market-data-service-reference.md",
+                "operator_action": operator_action,
             }
         )
     if readiness and str(readiness.get("result") or "").lower() == "fail":
@@ -79,6 +101,13 @@ def build_runtime_health_snapshot(
                 "runbook_ref": "watchdog/README.md#What it checks",
             }
         )
+
+    if operator_state and operator_state not in {"healthy"} and service_health["status"] == "ok":
+        service_health["status"] = "degraded"
+    if operator_state:
+        service_health["operator_state"] = operator_state
+    if operator_action:
+        service_health["operator_action"] = operator_action
 
     overall_status = "ok" if not incident_markers and readiness else "degraded"
     return annotate_artifact(

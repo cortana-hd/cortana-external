@@ -190,6 +190,65 @@ def test_prediction_accuracy_uses_action_aware_avoidance_rate_for_no_buy(tmp_pat
     assert bucket["20d"]["avg_return_pct"] < 0
 
 
+def test_prediction_accuracy_skips_fresh_settlement_when_market_data_unavailable(tmp_path, monkeypatch):
+    generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    path = persist_prediction_snapshot(
+        strategy="dip_buyer",
+        market_regime="correction",
+        records=[{
+            "symbol": "AAPL",
+            "action": "WATCH",
+            "score": 8,
+            "effective_confidence": 61,
+            "confidence": 61,
+            "risk": "medium",
+            "market_regime": "correction",
+            "breadth_state": "inactive",
+            "entry_plan_ref": "dip_buyer.reversal_watch_v1",
+            "execution_policy_ref": None,
+            "vetoes": [],
+            "uncertainty_pct": 18,
+            "trade_quality_score": 72,
+            "reason": "test",
+        }],
+        root=tmp_path,
+        generated_at=generated_at,
+        producer="backtester.test_prediction_accuracy",
+    )
+    settled_dir = tmp_path / "settled"
+    settled_dir.mkdir(parents=True, exist_ok=True)
+    existing = {
+        "schema_version": 1,
+        "artifact_family": "prediction_settlement",
+        "strategy": "dip_buyer",
+        "market_regime": "correction",
+        "generated_at": generated_at.isoformat(),
+        "settled_at": generated_at.isoformat(),
+        "settlement_horizons": ["1d", "5d", "20d"],
+        "record_count": 1,
+        "settlement_summary": {},
+        "records": [{
+            "symbol": "AAPL",
+            "action": "WATCH",
+            "pending_horizons": [],
+            "incomplete_horizons": [],
+        }],
+    }
+    (settled_dir / path.name).write_text(json.dumps(existing), encoding="utf-8")
+
+    class _ExplodingProvider:
+        def get_history(self, symbol: str, period: str = "6mo"):
+            raise AssertionError("provider should not be called when settlement is skipped")
+
+    monkeypatch.setattr("evaluation.prediction_accuracy._market_data_available_for_settlement", lambda provider: False)
+
+    settled = settle_prediction_snapshots(root=tmp_path, provider=_ExplodingProvider(), now=generated_at + timedelta(days=30))
+
+    assert settled == []
+    persisted = json.loads((settled_dir / path.name).read_text(encoding="utf-8"))
+    assert persisted["records"][0]["symbol"] == "AAPL"
+
+
 def test_prediction_snapshot_contract_requires_reason(tmp_path):
     generated_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
     try:

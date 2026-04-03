@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import time
 from datetime import UTC, datetime
@@ -351,6 +352,23 @@ def _format_age_hours(value: float | None) -> str:
     return f"{value:.1f}h old"
 
 
+def _extract_underlying_regime_age(regime: dict[str, Any]) -> str | None:
+    text_candidates = [
+        str(regime.get("notes") or ""),
+        str(regime.get("degraded_reason") or ""),
+    ]
+    for text in text_candidates:
+        if not text:
+            continue
+        match = re.search(r"age=([0-9]+(?:\.[0-9]+)?[smhd])", text)
+        if match:
+            return match.group(1)
+        match = re.search(r"\(([0-9]+(?:\.[0-9]+)?[smhd]) old", text)
+        if match:
+            return match.group(1)
+    return None
+
+
 def is_local_service_base_url(service_base_url: str) -> bool:
     host = (urlparse(service_base_url).hostname or "").strip().lower()
     return host in {"127.0.0.1", "localhost"}
@@ -493,14 +511,21 @@ def build_operator_summary(
 
     regime_status = str(regime.get("status") or "unknown")
     regime_source = str(regime.get("data_source") or "unknown")
+    underlying_age = _extract_underlying_regime_age(regime)
     if regime_status == "degraded" and regime_source == "unknown":
         regime_read = (
             f"Market regime is {regime['display']}. Fresh live regime is unavailable; "
             "using conservative emergency fallback."
         )
-    elif regime_status == "degraded" and regime_source == "cache":
-        regime_age = _format_age_seconds(regime.get("snapshot_age_seconds"))
-        regime_read = f"Market regime is {regime['display']} using cached snapshot ({regime_age})."
+    elif regime_source == "cache":
+        if underlying_age:
+            regime_read = (
+                f"Market regime is {regime['display']} using cached history "
+                f"(underlying inputs ~{underlying_age} old)."
+            )
+        else:
+            regime_age = _format_age_seconds(regime.get("snapshot_age_seconds"))
+            regime_read = f"Market regime is {regime['display']} using cached snapshot ({regime_age})."
     else:
         regime_age = _format_age_seconds(regime.get("snapshot_age_seconds"))
         regime_read = f"Market regime is {regime['display']} ({regime_age})."
