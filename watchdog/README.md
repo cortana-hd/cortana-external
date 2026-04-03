@@ -11,6 +11,7 @@ Current location: `~/Developer/cortana-external/watchdog` · Status: **active** 
 | **Cron Health** | Alert if any cron has 3+ consecutive failures |
 | **Heartbeat Health (variance + degradation)** | Classify heartbeat as healthy/warning/critical using process count, process age, restart churn (6h), and timing drift variance |
 | **Degraded Agents** | Alert when mission-control agents are degraded/offline or stale (`last_seen > 45m`) |
+| **Mission Control UI** | Probe `http://127.0.0.1:3000/api/heartbeat-status`; restart `com.cortana.mission-control` once, then alert if still down |
 | **gog (Gmail)** | Log failure |
 | **Tonal API** | Health probe + retry; Tonal service self-heals via refresh-token flow |
 | **Whoop API** | Log failure |
@@ -40,6 +41,7 @@ launchctl load ~/Library/LaunchAgents/com.cortana.watchdog.plist
 ```bash
 ~/Developer/cortana-external/watchdog/tests/heartbeat-classifier-test.sh
 ~/Developer/cortana-external/watchdog/tests/market-data-check-test.sh
+~/Developer/cortana-external/watchdog/tests/mission-control-check-test.sh
 ```
 
 ## Check logs
@@ -62,6 +64,7 @@ launchctl load ~/Library/LaunchAgents/com.cortana.watchdog.plist    # start
 - Chat ID: `8171372724`
 - Interval: 900s (15 min)
 - Fitness base URL: `FITNESS_BASE_URL` env var (default: `http://localhost:3033`)
+- Mission Control URL: `MISSION_CONTROL_BASE_URL` env var (default: `http://127.0.0.1:3000`)
 - Optional Slack bridge: `WATCHDOG_SLACK_WEBHOOK_URL` (Telegram remains canonical notification path)
 
 ### Heartbeat thresholds (tunable)

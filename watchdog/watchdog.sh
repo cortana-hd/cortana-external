@@ -20,6 +20,10 @@ MARKET_DATA_BASE_URL="${MARKET_DATA_BASE_URL:-$FITNESS_BASE_URL}"
 MARKET_DATA_LAUNCHD_LABEL="${MARKET_DATA_LAUNCHD_LABEL:-com.cortana.fitness-service}"
 MARKET_DATA_RESTART_WAIT_SECONDS="${MARKET_DATA_RESTART_WAIT_SECONDS:-8}"
 MARKET_DATA_QUOTE_SYMBOLS="${MARKET_DATA_QUOTE_SYMBOLS:-SPY,QQQ}"
+MISSION_CONTROL_BASE_URL="${MISSION_CONTROL_BASE_URL:-http://127.0.0.1:3000}"
+MISSION_CONTROL_HEALTH_PATH="${MISSION_CONTROL_HEALTH_PATH:-/api/heartbeat-status}"
+MISSION_CONTROL_LAUNCHD_LABEL="${MISSION_CONTROL_LAUNCHD_LABEL:-com.cortana.mission-control}"
+MISSION_CONTROL_RESTART_WAIT_SECONDS="${MISSION_CONTROL_RESTART_WAIT_SECONDS:-8}"
 GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 GATEWAY_LABEL="${OPENCLAW_LAUNCHD_LABEL:-ai.openclaw.gateway}"
 CORTANA_SOURCE_REPO="${CORTANA_SOURCE_REPO:-/Users/hd/Developer/cortana}"
@@ -190,7 +194,7 @@ alert() {
   local severity="${3:-warning}"
 
   if should_suppress_alert "$check_name"; then
-    log "info" "Suppressed repeated alert: $msg"
+    log "info" "Suppressed repeated alert for ${check_name}"
     return
   fi
 
@@ -241,7 +245,7 @@ alert_if_failure_persists() {
 
   if [[ "$(get_check_status "$check_name")" != "failing" ]]; then
     begin_check_failure_grace_period "$check_name"
-    log "info" "Deferred alert for ${check_name} until failure persists: ${msg}"
+    log "info" "Deferred alert for ${check_name} until failure persists"
     return 1
   fi
 
@@ -545,7 +549,38 @@ check_gateway_health() {
   alert "OpenClaw gateway is DOWN and automatic restart failed (label=${GATEWAY_LABEL}, port=${GATEWAY_PORT})" "$check_name" "critical"
 }
 
-# ── D) Market Data Health ──
+# ── D) Mission Control Health ──
+check_mission_control_health() {
+  local check_name="mission_control"
+  local health_url="${MISSION_CONTROL_BASE_URL%/}${MISSION_CONTROL_HEALTH_PATH}"
+  local body
+  body="$(mktemp)"
+  trap 'rm -f "$body"' RETURN
+
+  local code
+  code=$(probe_json_endpoint "$health_url" "$body")
+  if [[ "$code" == "200" ]]; then
+    recovery_alert "$check_name" "Mission Control recovered and is responding on localhost:3000"
+    log "info" "Mission Control: OK (${health_url})"
+    return
+  fi
+
+  log "warning" "Mission Control unhealthy via ${health_url} (HTTP ${code}); attempting launchctl kickstart"
+  if attempt_launchd_restart "$MISSION_CONTROL_LAUNCHD_LABEL" "$MISSION_CONTROL_RESTART_WAIT_SECONDS"; then
+    code=$(probe_json_endpoint "$health_url" "$body")
+  fi
+
+  if [[ "$code" == "200" ]]; then
+    ALERTS="${ALERTS}⚠️ Mission Control was down and watchdog restarted it successfully\n"
+    log "warning" "Mission Control restarted successfully by watchdog"
+    update_check_state "$check_name" "recovered"
+    return
+  fi
+
+  alert "Mission Control is DOWN and automatic restart failed (${health_url}, HTTP ${code})" "$check_name" "critical"
+}
+
+# ── E) Market Data Health ──
 check_market_data_health() {
   local readiness_check_name="market_data_service"
   local provider_check_name="market_data_provider"
@@ -652,7 +687,7 @@ check_market_data_health() {
   log "info" "Market-data quote smoke test failed once (HTTP ${quote_code} for ${MARKET_DATA_QUOTE_SYMBOLS}); waiting for a sustained failure before alerting"
 }
 
-# ── E) Tool Smoke Tests ──
+# ── F) Tool Smoke Tests ──
 check_tools() {
   log "info" "Fitness endpoint base: ${FITNESS_BASE_URL}"
 
@@ -799,6 +834,7 @@ run_watchdog() {
   check_cron_health
   check_heartbeat_health
   check_gateway_health
+  check_mission_control_health
   check_market_data_health
   check_tools
   check_degraded_agents
