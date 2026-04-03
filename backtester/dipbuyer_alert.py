@@ -173,6 +173,7 @@ def _persist_predictions(*, market: object, records: list[dict]) -> None:
             strategy="dip_buyer",
             market_regime=getattr(getattr(market, "regime", None), "value", "unknown"),
             records=records,
+            producer=DIPBUYER_ALERT_PRODUCER,
         )
     except Exception:
         return

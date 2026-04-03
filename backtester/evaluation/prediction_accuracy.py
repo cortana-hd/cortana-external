@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Optional
@@ -12,20 +11,13 @@ from typing import Iterable, Optional
 import pandas as pd
 
 from data.market_data_provider import MarketDataError, MarketDataProvider
+from evaluation.prediction_contract import (
+    PREDICTION_CONTRACT_SCHEMA_VERSION,
+    build_prediction_contract_records,
+    serialize_prediction_contract_records,
+)
 
 DEFAULT_HORIZONS = (1, 5, 20)
-
-
-@dataclass(frozen=True)
-class PredictionRecord:
-    symbol: str
-    action: str
-    score: float | None
-    confidence: float | None
-    uncertainty_pct: float | None
-    trade_quality_score: float | None
-    abstain: bool
-    reason: str
 
 
 def default_prediction_root() -> Path:
@@ -39,18 +31,25 @@ def persist_prediction_snapshot(
     records: Iterable[dict],
     root: Optional[Path] = None,
     generated_at: Optional[datetime] = None,
+    producer: str | None = None,
 ) -> Path | None:
-    normalized = [_normalize_record(item) for item in records]
-    normalized = [item for item in normalized if item is not None]
+    now = generated_at or datetime.now(timezone.utc)
+    normalized = build_prediction_contract_records(
+        strategy=strategy,
+        market_regime=market_regime,
+        records=records,
+        generated_at=now,
+        producer=producer,
+    )
     if not normalized:
         return None
 
-    now = generated_at or datetime.now(timezone.utc)
     payload = {
+        "schema_version": PREDICTION_CONTRACT_SCHEMA_VERSION,
         "strategy": strategy,
         "market_regime": market_regime,
         "generated_at": now.isoformat(),
-        "records": [asdict(item) for item in normalized],
+        "records": serialize_prediction_contract_records(normalized),
     }
     out_dir = (root or default_prediction_root()) / "snapshots"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -124,7 +123,7 @@ def build_prediction_accuracy_summary(root: Optional[Path] = None) -> dict:
         for record in payload.get("records") or []:
             normalized = dict(record)
             normalized["strategy"] = strategy
-            normalized["market_regime"] = market_regime
+            normalized["market_regime"] = str(record.get("market_regime") or market_regime)
             normalized["action"] = str(record.get("action") or "UNKNOWN").upper()
             normalized["confidence_bucket"] = _confidence_bucket(record.get("confidence"))
             records.append(normalized)
@@ -150,24 +149,6 @@ def build_prediction_accuracy_summary(root: Optional[Path] = None) -> dict:
     reports_dir.mkdir(parents=True, exist_ok=True)
     (reports_dir / "prediction-accuracy-latest.json").write_text(json.dumps(artifact, indent=2), encoding="utf-8")
     return artifact
-
-
-def _normalize_record(item: dict) -> PredictionRecord | None:
-    symbol = str(item.get("symbol") or "").strip().upper()
-    if not symbol:
-        return None
-    return PredictionRecord(
-        symbol=symbol,
-        action=str(item.get("action") or "UNKNOWN").strip().upper(),
-        score=_to_float(item.get("score")),
-        confidence=_to_float(
-            item.get("effective_confidence", item.get("confidence"))
-        ),
-        uncertainty_pct=_to_float(item.get("uncertainty_pct")),
-        trade_quality_score=_to_float(item.get("trade_quality_score")),
-        abstain=bool(item.get("abstain", False)),
-        reason=str(item.get("reason") or "").strip(),
-    )
 
 
 def _settle_record(

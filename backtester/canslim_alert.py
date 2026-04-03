@@ -118,6 +118,7 @@ def _persist_predictions(*, market: object, records: list[dict]) -> None:
             strategy="canslim",
             market_regime=getattr(getattr(market, "regime", None), "value", "unknown"),
             records=records,
+            producer=CANSLIM_ALERT_PRODUCER,
         )
     except Exception:
         return
