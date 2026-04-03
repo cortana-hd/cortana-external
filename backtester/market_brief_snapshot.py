@@ -508,6 +508,20 @@ def build_operator_summary(
     }
 
 
+def describe_operator_status(payload: dict[str, Any]) -> str:
+    outcome_class = str(payload.get("outcome_class") or "").strip().lower()
+    degraded_status = str(payload.get("degraded_status") or "").strip().lower()
+    if outcome_class == "market_gate_blocked":
+        return "Status: valid defensive snapshot; market regime is blocking new risk."
+    if degraded_status == "degraded_safe":
+        return "Status: degraded-safe snapshot; bounded fallback inputs are active."
+    if degraded_status == "degraded_risky":
+        return "Status: degraded-risky snapshot; live market inputs are missing or incomplete."
+    if outcome_class == "healthy_candidates_found":
+        return "Status: healthy snapshot; machine inputs are aligned."
+    return "Status: snapshot state unavailable."
+
+
 def normalize_regime(status: MarketStatus) -> dict[str, Any]:
     return {
         "label": status.regime.value,
@@ -752,6 +766,7 @@ def format_operator_text(payload: dict[str, Any]) -> str:
     read_this_as = summary.get("read_this_as", {}) if isinstance(summary.get("read_this_as"), dict) else {}
     lines = [
         str(summary.get("headline", "Market snapshot unavailable")).strip(),
+        describe_operator_status(payload),
         str(summary.get("what_this_means", "")).strip(),
         f"Session: {read_this_as.get('session', 'Unavailable')}",
         f"Regime: {read_this_as.get('regime', 'Unavailable')}",

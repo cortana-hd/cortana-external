@@ -113,6 +113,28 @@ def test_canslim_alert_surfaces_degraded_market_warning_in_compact_correction_mo
     assert "Recovery: Retry market fetch after cooldown (45s) or refresh cache" in text
 
 
+def test_canslim_alert_reports_analysis_failed_instead_of_empty_threshold_result():
+    fake = _FakeCanSlimAdvisor()
+    fake._market = SimpleNamespace(
+        regime=MarketRegime.CONFIRMED_UPTREND,
+        position_sizing=1.0,
+        notes="trend intact",
+        snapshot_age_seconds=0.0,
+        status="ok",
+    )
+    fake._analysis = {
+        "CFLT": {"error": "provider timeout"},
+        "HWM": {"error": "provider timeout"},
+        "ALUR": {"error": "provider timeout"},
+        "SHOP": {"error": "provider timeout"},
+    }
+
+    with patch("canslim_alert.TradingAdvisor", return_value=fake), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
+        text = format_canslim(limit=5, min_score=6, universe_size=4)
+
+    assert "Why no buys: analysis failed for 4 scanned names, so no valid CANSLIM setups were produced" in text
+
+
 def test_priority_symbols_prefer_explicit_then_leader_baskets_then_bounded_watchlist(monkeypatch):
     monkeypatch.setenv("TRADING_PRIORITY_SYMBOLS", "TSLA")
     monkeypatch.delenv("TRADING_PRIORITY_FILE", raising=False)
