@@ -48,7 +48,7 @@ Week 4: V7 + replay/contract hardening
 
 #### Delivery Update
 
-- Vertical complete:
+- Near-complete delivery across bounded PRs:
   - shared artifact-contract helpers added under `backtester/evaluation`
   - baseline artifact families defined for market brief, strategy alerts, and run manifests
   - market brief payload now emits baseline machine metadata before formatter logic runs
@@ -276,18 +276,38 @@ Week 4: V7 + replay/contract hardening
 
 #### Delivery Update
 
-- Partial delivery complete in `cortana-external`:
-  - added a stable replay-fixture corpus under `backtester/tests/fixtures/consumer_contracts`
-  - fixture corpus now covers typed consumer states for:
-    - market brief: `market_gate_blocked`, `degraded_safe`, `degraded_risky`
-    - strategy alerts: `healthy_candidates_found`, `healthy_no_candidates`, `market_gate_blocked`, `analysis_failed`
-    - run manifests: `run_completed`, `run_failed`
-    - readiness checks: `readiness_warn`, `readiness_fail`
-  - added validation tests proving every fixture remains machine-valid and parseable through artifact-family metadata instead of human prose
-- Deferred to later cross-repo work:
-  - update `cortana` consumers to rely on typed machine fields first
-  - add replay tests inside `cortana` against these fixtures/artifacts
-  - convert any remaining prose-based consumer branches to typed outcome handling
+- Vertical complete:
+  - Sub-task 1 shipped:
+    - identified the active `cortana` consumers of backtester output and hardened the live consumer set that existed at delivery time:
+      - market brief collection
+      - trading pipeline strategy-alert ingestion
+      - trading cron alert snapshot formatting
+      - backtest compute/watchlist generation
+      - trading recheck tracked-symbol selection
+      - backtest notify latest-run selection
+  - Sub-task 2 shipped:
+    - updated `cortana` consumers to prefer typed machine fields before prose fallback
+    - market brief collection now validates `artifact_family=market_brief` snapshots directly
+    - trading pipeline now prefers typed `strategy_alert` payloads and preserves per-strategy `outcomeClass` through typed snapshots
+    - trading recheck now prefers `watchlist-full.json` over `stdout.txt` when a successful base run has a typed watchlist artifact
+    - backtest notify already relied on typed `summary.json`; tests now explicitly cover failed-latest-vs-successful-older semantics
+  - Sub-task 3 shipped:
+    - added a stable replay-fixture corpus under `backtester/tests/fixtures/consumer_contracts`
+    - vendored replay fixtures into `cortana/tests/fixtures/consumer_contracts` for the active downstream consumer paths
+    - replay coverage now proves downstream handling for:
+      - market brief: `market_gate_blocked`, `degraded_safe`, `degraded_risky`
+      - strategy alerts: `healthy_candidates_found`, `healthy_no_candidates`, `market_gate_blocked`, `analysis_failed`
+      - merged typed strategy chunks without reparsing compact prose
+  - Final open slice:
+    - V7 closes when `cortana #401` merges:
+      - carry per-strategy `outcomeClass` through typed pipeline snapshots into downstream snapshot consumers
+      - distinguish `analysis_failed`, `market_gate_blocked`, and `healthy_no_candidates` in typed cron-alert/backtest-compute surfaces
+  - Delivery note:
+    - this vertical was delivered across multiple bounded PRs instead of one PR per Jira line item
+    - no new Jira subtasks were created; the original three subtasks were completed incrementally to keep review scope safe and additive
+- Deferred to later workstreams:
+  - any future `cortana` consumers of run manifests or readiness artifacts once those artifacts become first-class downstream inputs
+  - removal of legacy prose fallbacks only after the typed contract has been stable long enough that fallback paths are no longer operationally necessary
 
 #### Jira
 
