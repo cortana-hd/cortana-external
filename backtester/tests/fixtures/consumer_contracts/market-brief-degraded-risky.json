@@ -1,0 +1,48 @@
+{
+  "artifact_family": "market_brief",
+  "schema_version": 1,
+  "producer": "backtester.market_brief_snapshot",
+  "status": "error",
+  "generated_at": "2026-04-03T13:32:00Z",
+  "known_at": "2026-04-03T13:32:00Z",
+  "degraded_status": "degraded_risky",
+  "outcome_class": "degraded_risky",
+  "session": {
+    "phase": "OPEN",
+    "is_regular_hours": true
+  },
+  "regime": {
+    "display": "CORRECTION"
+  },
+  "posture": {
+    "action": "NO_BUY"
+  },
+  "tape": {
+    "primary_source": "unavailable"
+  },
+  "macro": {
+    "state": "unknown"
+  },
+  "intraday_breadth": {
+    "override_state": "unavailable"
+  },
+  "focus": {
+    "symbols": [
+      "OXY",
+      "GEV",
+      "FANG"
+    ]
+  },
+  "warnings": [
+    "tape_fetch_failed",
+    "polymarket_context_unavailable"
+  ],
+  "operator_summary": {
+    "headline": "OPEN: NO_BUY | CORRECTION | size 0%"
+  },
+  "freshness": {
+    "regime_snapshot_age_seconds": 0.0,
+    "polymarket_age_hours": null,
+    "tape_primary_source": "unavailable"
+  }
+}

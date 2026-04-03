@@ -1,0 +1,34 @@
+{
+  "artifact_family": "run_manifest",
+  "schema_version": 1,
+  "producer": "backtester.nighttime_flow",
+  "status": "error",
+  "generated_at": "2026-04-03T02:00:00Z",
+  "known_at": "2026-04-03T02:00:00Z",
+  "degraded_status": "degraded_risky",
+  "outcome_class": "run_failed",
+  "run_id": "20260403-020000",
+  "run_kind": "nighttime_flow",
+  "started_at": "2026-04-03T01:55:00Z",
+  "finished_at": "2026-04-03T02:00:00Z",
+  "code_version": "abc124",
+  "config_version": "cfg124",
+  "input_sources": [],
+  "stages": [
+    {
+      "name": "nightly_discovery",
+      "status": "error",
+      "started_at": "2026-04-03T01:55:00Z",
+      "finished_at": "2026-04-03T02:00:00Z",
+      "duration_seconds": 300.0
+    }
+  ],
+  "artifacts": [],
+  "warnings": [
+    "stage_failed:nightly_discovery"
+  ],
+  "freshness": {
+    "stage_count": 1,
+    "artifact_count": 0
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "artifact_family": "readiness_check",
+  "schema_version": 1,
+  "producer": "backtester.pre_open_canary",
+  "status": "error",
+  "generated_at": "2026-04-03T12:46:00Z",
+  "known_at": "2026-04-03T12:46:00Z",
+  "degraded_status": "degraded_risky",
+  "outcome_class": "readiness_fail",
+  "check_name": "pre_open_canary",
+  "result": "fail",
+  "ready_for_open": false,
+  "checked_at": "2026-04-03T12:46:00Z",
+  "checks": [
+    {
+      "name": "strategy_smoke",
+      "result": "fail",
+      "evidence": {
+        "error": "scanner blew up"
+      }
+    }
+  ],
+  "warnings": [
+    "strategy_smoke:fail"
+  ]
+}

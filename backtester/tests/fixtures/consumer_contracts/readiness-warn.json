@@ -1,0 +1,26 @@
+{
+  "artifact_family": "readiness_check",
+  "schema_version": 1,
+  "producer": "backtester.pre_open_canary",
+  "status": "degraded",
+  "generated_at": "2026-04-03T12:45:00Z",
+  "known_at": "2026-04-03T12:45:00Z",
+  "degraded_status": "degraded_safe",
+  "outcome_class": "readiness_warn",
+  "check_name": "pre_open_canary",
+  "result": "warn",
+  "ready_for_open": false,
+  "checked_at": "2026-04-03T12:45:00Z",
+  "checks": [
+    {
+      "name": "service_ready",
+      "result": "warn",
+      "evidence": {
+        "reason": "provider_cooldown"
+      }
+    }
+  ],
+  "warnings": [
+    "service_ready:provider_cooldown"
+  ]
+}

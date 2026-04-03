@@ -274,6 +274,21 @@ Week 4: V7 + replay/contract hardening
 
 *Dependencies: V4, V5*
 
+#### Delivery Update
+
+- Partial delivery complete in `cortana-external`:
+  - added a stable replay-fixture corpus under `backtester/tests/fixtures/consumer_contracts`
+  - fixture corpus now covers typed consumer states for:
+    - market brief: `market_gate_blocked`, `degraded_safe`, `degraded_risky`
+    - strategy alerts: `healthy_candidates_found`, `healthy_no_candidates`, `market_gate_blocked`, `analysis_failed`
+    - run manifests: `run_completed`, `run_failed`
+    - readiness checks: `readiness_warn`, `readiness_fail`
+  - added validation tests proving every fixture remains machine-valid and parseable through artifact-family metadata instead of human prose
+- Deferred to later cross-repo work:
+  - update `cortana` consumers to rely on typed machine fields first
+  - add replay tests inside `cortana` against these fixtures/artifacts
+  - convert any remaining prose-based consumer branches to typed outcome handling
+
 #### Jira
 
 - Sub-task 1: Identify every `cortana` path that consumes backtester output and confirm whether it uses typed machine state vs human prose.

@@ -104,3 +104,98 @@ def test_build_run_manifest_marks_missing_artifact_as_failed(tmp_path):
     assert payload["degraded_status"] == "degraded_risky"
     assert payload["outcome_class"] == "run_failed"
     assert "missing_artifact:nightly-discovery-view" in payload["warnings"]
+
+
+def test_build_run_manifest_aggregates_market_brief_and_readiness_artifacts(tmp_path):
+    stage_log = tmp_path / "stages.tsv"
+    artifact_log = tmp_path / "artifacts.tsv"
+    brief_path = tmp_path / "market-brief.json"
+    readiness_path = tmp_path / "pre-open-canary.json"
+
+    _write_lines(
+        stage_log,
+        [
+            "pre_open_canary\tdegraded\t2026-04-03T13:20:00Z\t2026-04-03T13:20:05Z",
+            "market_brief_snapshot\tdegraded\t2026-04-03T13:20:05Z\t2026-04-03T13:20:08Z",
+        ],
+    )
+    brief_path.write_text(
+        json.dumps(
+            {
+                "artifact_family": "market_brief",
+                "schema_version": 1,
+                "producer": "backtester.market_brief_snapshot",
+                "status": "degraded",
+                "degraded_status": "degraded_safe",
+                "generated_at": "2026-04-03T13:20:08Z",
+                "known_at": "2026-04-03T13:20:08Z",
+                "outcome_class": "degraded_safe",
+                "session": {"phase": "PREMARKET", "is_regular_hours": False},
+                "regime": {"display": "CORRECTION"},
+                "posture": {"action": "NO_BUY"},
+                "tape": {"primary_source": "cache"},
+                "macro": {"state": "watch"},
+                "intraday_breadth": {"override_state": "inactive"},
+                "focus": {"symbols": ["OXY", "GEV", "FANG"]},
+                "warnings": ["tape_previous_session_fallback"],
+                "freshness": {"regime_snapshot_age_seconds": 1800.0, "tape_primary_source": "cache"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    readiness_path.write_text(
+        json.dumps(
+            {
+                "artifact_family": "readiness_check",
+                "schema_version": 1,
+                "producer": "backtester.pre_open_canary",
+                "status": "degraded",
+                "degraded_status": "degraded_safe",
+                "generated_at": "2026-04-03T13:20:05Z",
+                "known_at": "2026-04-03T13:20:05Z",
+                "outcome_class": "readiness_warn",
+                "check_name": "pre_open_canary",
+                "result": "warn",
+                "ready_for_open": False,
+                "checked_at": "2026-04-03T13:20:05Z",
+                "checks": [{"name": "regime_path", "result": "warn", "evidence": {"reason": "cached_fallback"}}],
+                "warnings": ["regime_path:warn"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_lines(
+        artifact_log,
+        [
+            f"market-brief-json\tmarket_brief\t{brief_path}",
+            f"readiness-json\treadiness_check\t{readiness_path}",
+        ],
+    )
+
+    payload = run_manifest.build_run_manifest(
+        run_id="20260403-132000",
+        run_kind="pre_open_readiness",
+        producer="backtester.pre_open_canary",
+        started_at="2026-04-03T13:20:00Z",
+        finished_at="2026-04-03T13:20:08Z",
+        final_status="ok",
+        stage_log=stage_log,
+        artifact_log=artifact_log,
+        settings={},
+    )
+
+    assert payload["status"] == "degraded"
+    assert payload["degraded_status"] == "degraded_safe"
+    assert payload["outcome_class"] == "run_completed"
+    assert {artifact["artifact_family"] for artifact in payload["artifacts"]} == {"market_brief", "readiness_check"}
+    assert any("market-brief-json:tape_previous_session_fallback" == warning for warning in payload["warnings"])
+    assert any("readiness-json:regime_path:warn" == warning for warning in payload["warnings"])
+    assert payload["input_sources"] == [
+        {
+            "artifact": "market-brief-json",
+            "artifact_family": "market_brief",
+            "sources": {"tape": "cache"},
+        }
+    ]
