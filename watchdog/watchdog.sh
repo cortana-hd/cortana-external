@@ -190,7 +190,7 @@ alert() {
   local severity="${3:-warning}"
 
   if should_suppress_alert "$check_name"; then
-    log "info" "Suppressed repeated alert: $msg"
+    log "info" "Suppressed repeated alert for ${check_name}"
     return
   fi
 
@@ -241,7 +241,7 @@ alert_if_failure_persists() {
 
   if [[ "$(get_check_status "$check_name")" != "failing" ]]; then
     begin_check_failure_grace_period "$check_name"
-    log "info" "Deferred alert for ${check_name} until failure persists: ${msg}"
+    log "info" "Deferred alert for ${check_name} until failure persists"
     return 1
   fi
 
