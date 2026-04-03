@@ -187,6 +187,27 @@ Week 4: V7 + replay/contract hardening
 
 *Dependencies: V2, V3*
 
+#### Delivery Update
+
+- Vertical complete:
+  - added standalone `pre_open_canary.py` as the first machine-readable readiness artifact for the live trading lane
+  - canary now checks:
+    - service ready/ops state
+    - quote smoke for `SPY,QQQ`
+    - live market-regime path
+    - reduced CANSLIM strategy smoke path
+  - readiness results now normalize to `pass`, `warn`, or `fail` and map into machine artifact truth with:
+    - `readiness_pass`
+    - `readiness_warn`
+    - `readiness_fail`
+  - hard service/auth failures short-circuit later checks to avoid contradictory noise
+  - canary writes a local artifact and supports `--require-pass` so cron/operator tooling can use it as a gate without changing existing wrapper defaults
+  - targeted tests added for healthy, cooldown-warn, and auth-fail readiness states
+- Deferred to later verticals:
+  - wrapper/cron integration of `--require-pass` remains a later step
+  - watchdog alignment with readiness artifacts begins in V6
+  - any downstream `cortana` consumption of readiness artifacts remains later work
+
 #### Jira
 
 - Sub-task 1: Define the canary scope: service reachable, auth valid, quote smoke pass, regime path pass, reduced end-to-end trading path pass.

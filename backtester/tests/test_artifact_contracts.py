@@ -71,3 +71,23 @@ def test_build_artifact_metadata_accepts_risky_degraded_status():
     )
 
     assert metadata["degraded_status"] == "degraded_risky"
+
+
+def test_validate_artifact_payload_accepts_readiness_check_family():
+    payload = contracts.annotate_artifact(
+        {
+            "check_name": "pre_open_canary",
+            "result": "pass",
+            "ready_for_open": True,
+            "checked_at": "2026-04-03T12:00:00+00:00",
+            "checks": [{"name": "service_ready", "result": "pass", "evidence": {}}],
+            "warnings": [],
+        },
+        artifact_family=contracts.ARTIFACT_FAMILY_READINESS_CHECK,
+        producer="backtester.pre_open_canary",
+        generated_at="2026-04-03T12:00:00+00:00",
+        status="ok",
+    )
+
+    assert payload["artifact_family"] == contracts.ARTIFACT_FAMILY_READINESS_CHECK
+    assert payload["degraded_status"] == "healthy"
