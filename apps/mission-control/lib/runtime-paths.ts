@@ -1,7 +1,8 @@
-import os from "node:os";
+import fs from "node:fs";
 import path from "node:path";
 
 const DEFAULT_CORTANA_SOURCE_REPO = "/Users/hd/Developer/cortana";
+const DEFAULT_BACKTESTER_REPO = "/Users/hd/Developer/cortana-external/backtester";
 
 function readEnvPath(name: string): string | null {
   const value = process.env[name]?.trim();
@@ -10,6 +11,25 @@ function readEnvPath(name: string): string | null {
 
 export function getCortanaSourceRepo(): string {
   return readEnvPath("CORTANA_SOURCE_REPO") ?? DEFAULT_CORTANA_SOURCE_REPO;
+}
+
+export function getBacktesterRepoPath(): string {
+  const explicit = readEnvPath("BACKTESTER_REPO_PATH");
+  if (explicit) return explicit;
+
+  const candidates = [
+    path.resolve(process.cwd(), "backtester"),
+    path.resolve(process.cwd(), "..", "..", "backtester"),
+    DEFAULT_BACKTESTER_REPO,
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return DEFAULT_BACKTESTER_REPO;
 }
 
 export function getDocsPath(): string {

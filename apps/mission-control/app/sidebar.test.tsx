@@ -4,6 +4,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "@/components/sidebar";
 
 const mockUsePathname = vi.fn();
+const storageState: Record<string, string> = {};
+
+const storageMock = {
+  getItem: vi.fn((key: string) => (key in storageState ? storageState[key] : null)),
+  setItem: vi.fn((key: string, value: string) => {
+    storageState[key] = String(value);
+  }),
+  removeItem: vi.fn((key: string) => {
+    delete storageState[key];
+  }),
+  clear: vi.fn(() => {
+    for (const key of Object.keys(storageState)) delete storageState[key];
+  }),
+};
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mockUsePathname(),
@@ -29,6 +43,7 @@ const NAV_LABELS = [
   "Agents",
   "Jobs & Runs",
   "Cron Jobs",
+  "Trading Ops",
   "Decision Traces",
   "Approvals",
   "Feedback",
@@ -44,7 +59,9 @@ const NAV_LABELS = [
 describe("Sidebar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.clear();
+    Object.defineProperty(window, "localStorage", { value: storageMock, configurable: true });
+    Object.defineProperty(globalThis, "localStorage", { value: storageMock, configurable: true });
+    storageMock.clear();
     mockUsePathname.mockReturnValue("/");
   });
 
@@ -110,17 +127,14 @@ describe("Sidebar", () => {
   });
 
   it("reads localStorage on mount and writes on toggle", () => {
-    const getItemSpy = vi.spyOn(Storage.prototype, "getItem");
-    const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
-
-    localStorage.setItem("mc-sidebar-collapsed", "true");
+    storageMock.setItem("mc-sidebar-collapsed", "true");
     render(<Sidebar />);
 
-    expect(getItemSpy).toHaveBeenCalledWith("mc-sidebar-collapsed");
+    expect(storageMock.getItem).toHaveBeenCalledWith("mc-sidebar-collapsed");
 
     const expandBtn = screen.getByRole("button", { name: "Expand sidebar" });
     fireEvent.click(expandBtn);
 
-    expect(setItemSpy).toHaveBeenCalledWith("mc-sidebar-collapsed", "false");
+    expect(storageMock.setItem).toHaveBeenCalledWith("mc-sidebar-collapsed", "false");
   });
 });
