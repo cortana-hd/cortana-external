@@ -19,7 +19,9 @@ describe("trading ops loader", () => {
 
   it("loads mixed live snapshots and persisted artifacts into one dashboard payload", async () => {
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-"));
+    const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-cortana-"));
     tempDirs.push(repoPath);
+    tempDirs.push(cortanaRepoPath);
 
     await writeJson(path.join(repoPath, ".cache", "market_regime_snapshot_SPY.json"), {
       generated_at_utc: "2026-04-03T23:16:06.970801+00:00",
@@ -78,6 +80,31 @@ describe("trading ops loader", () => {
       path.join(repoPath, "var", "local-workflows", "20260403-231522", "run-manifest-artifacts.tsv"),
       "canslim-alert-json\tstrategy_alert\t/tmp/canslim-alert.json\n",
     );
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260403-163103", "summary.json"), {
+      runId: "20260403-163103",
+      completedAt: "2026-04-03T16:38:59.979Z",
+    });
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260403-163103", "watchlist-full.json"), {
+      decision: "WATCH",
+      summary: { buy: 0, watch: 36, noBuy: 12 },
+      focus: { ticker: "ABBV", action: "WATCH", strategy: "Dip Buyer" },
+      strategies: {
+        dipBuyer: {
+          buy: [{ ticker: "ABC" }],
+          watch: [{ ticker: "ABBV" }, { ticker: "ACHV" }, { ticker: "AEP" }, { ticker: "AEE" }, { ticker: "ADM" }, { ticker: "AES" }],
+          noBuy: [{ ticker: "AAPL" }, { ticker: "AMD" }],
+        },
+        canslim: {
+          buy: [{ ticker: "NVDA" }],
+          watch: [{ ticker: "MSFT" }],
+          noBuy: [{ ticker: "TSLA" }],
+        },
+      },
+    });
+    await writeFile(
+      path.join(cortanaRepoPath, "var", "backtests", "runs", "20260403-163103", "message.txt"),
+      "📈 Trading Advisor — Market Snapshot\n🎯 Decision: WATCH\n🔥 Focus: ABBV — WATCH (Dip Buyer)\n",
+    );
 
     const runJsonCommand = async (scriptPath: string) => {
       if (scriptPath.endsWith("runtime_health_snapshot.py")) {
@@ -102,7 +129,7 @@ describe("trading ops loader", () => {
       };
     };
 
-    const data = await loadTradingOpsDashboardData({ backtesterRepoPath: repoPath, runJsonCommand });
+    const data = await loadTradingOpsDashboardData({ backtesterRepoPath: repoPath, cortanaRepoPath, runJsonCommand });
 
     expect(data.market.state).toBe("degraded");
     expect(data.market.data?.focusSymbols).toEqual(["OXY", "GEV", "FANG"]);
@@ -114,6 +141,14 @@ describe("trading ops loader", () => {
     expect(data.workflow.state).toBe("degraded");
     expect(data.workflow.data?.failedStages).toEqual(["dipbuyer_alert"]);
     expect(data.opsHighway.data?.criticalAssetCount).toBe(2);
+    expect(data.tradingRun.state).toBe("ok");
+    expect(data.tradingRun.data?.focusTicker).toBe("ABBV");
+    expect(data.tradingRun.data?.dipBuyerWatch).toEqual(["ABBV", "ACHV", "AEP", "AEE", "ADM", "AES"]);
+    expect(data.tradingRun.data?.dipBuyerBuy).toEqual(["ABC"]);
+    expect(data.tradingRun.data?.dipBuyerNoBuy).toEqual(["AAPL", "AMD"]);
+    expect(data.tradingRun.data?.canslimBuy).toEqual(["NVDA"]);
+    expect(data.tradingRun.data?.canslimWatch).toEqual(["MSFT"]);
+    expect(data.tradingRun.data?.canslimNoBuy).toEqual(["TSLA"]);
   });
 
   it("handles missing artifacts without throwing", async () => {
@@ -122,6 +157,7 @@ describe("trading ops loader", () => {
 
     const data = await loadTradingOpsDashboardData({
       backtesterRepoPath: repoPath,
+      cortanaRepoPath: repoPath,
       runJsonCommand: async () => {
         throw new Error("script unavailable");
       },
@@ -131,6 +167,7 @@ describe("trading ops loader", () => {
     expect(data.workflow.state).toBe("missing");
     expect(data.runtime.state).toBe("error");
     expect(data.opsHighway.state).toBe("error");
+    expect(data.tradingRun.state).toBe("missing");
   });
 });
 

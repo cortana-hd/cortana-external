@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { getBacktesterRepoPath } from "@/lib/runtime-paths";
+import { getBacktesterRepoPath, getCortanaSourceRepo } from "@/lib/runtime-paths";
 
 const execFileAsync = promisify(execFile);
 const JSON_TIMEOUT_MS = 10_000;
@@ -83,9 +83,28 @@ export type OpsHighwayOverview = {
   firstRecoveryStep: string | null;
 };
 
+export type TradingRunOverview = {
+  runId: string;
+  decision: string;
+  focusTicker: string | null;
+  focusAction: string | null;
+  focusStrategy: string | null;
+  watchCount: number;
+  buyCount: number;
+  noBuyCount: number;
+  dipBuyerWatch: string[];
+  dipBuyerBuy: string[];
+  dipBuyerNoBuy: string[];
+  canslimWatch: string[];
+  canslimBuy: string[];
+  canslimNoBuy: string[];
+  messagePreview: string | null;
+};
+
 export type TradingOpsDashboardData = {
   generatedAt: string;
   repoPath: string;
+  cortanaRepoPath: string;
   market: ArtifactState<MarketOverview>;
   runtime: ArtifactState<RuntimeOverview>;
   canary: ArtifactState<CanaryOverview>;
@@ -94,10 +113,12 @@ export type TradingOpsDashboardData = {
   lifecycle: ArtifactState<LifecycleOverview>;
   workflow: ArtifactState<WorkflowOverview>;
   opsHighway: ArtifactState<OpsHighwayOverview>;
+  tradingRun: ArtifactState<TradingRunOverview>;
 };
 
 type LoaderOptions = {
   backtesterRepoPath?: string;
+  cortanaRepoPath?: string;
   runJsonCommand?: (scriptPath: string, args?: string[]) => Promise<unknown>;
 };
 
@@ -105,6 +126,7 @@ export async function loadTradingOpsDashboardData(
   options: LoaderOptions = {},
 ): Promise<TradingOpsDashboardData> {
   const repoPath = options.backtesterRepoPath ?? getBacktesterRepoPath();
+  const cortanaRepoPath = options.cortanaRepoPath ?? getCortanaSourceRepo();
   const runJsonCommand = options.runJsonCommand ?? ((scriptPath: string, args: string[] = ["--pretty"]) =>
     runBacktesterJsonScript(repoPath, scriptPath, args));
 
@@ -117,6 +139,7 @@ export async function loadTradingOpsDashboardData(
     lifecycle,
     workflow,
     opsHighway,
+    tradingRun,
   ] = await Promise.all([
     loadMarketOverview(repoPath),
     loadRuntimeOverview(repoPath, runJsonCommand),
@@ -126,11 +149,13 @@ export async function loadTradingOpsDashboardData(
     loadLifecycleOverview(repoPath),
     loadWorkflowOverview(repoPath),
     loadOpsHighwayOverview(repoPath, runJsonCommand),
+    loadTradingRunOverview(cortanaRepoPath),
   ]);
 
   return {
     generatedAt: new Date().toISOString(),
     repoPath,
+    cortanaRepoPath,
     market,
     runtime,
     canary,
@@ -139,6 +164,7 @@ export async function loadTradingOpsDashboardData(
     lifecycle,
     workflow,
     opsHighway,
+    tradingRun,
   };
 }
 
@@ -550,6 +576,83 @@ async function loadOpsHighwayOverview(
   }
 }
 
+async function loadTradingRunOverview(cortanaRepoPath: string): Promise<ArtifactState<TradingRunOverview>> {
+  const runsRoot = path.join(cortanaRepoPath, "var", "backtests", "runs");
+  const latestRun = await findLatestRunDirectory(runsRoot);
+
+  if (!latestRun) {
+    return {
+      state: "missing",
+      label: "No trading runs",
+      message: "No trading backtest runs have been written yet.",
+      data: null,
+      source: runsRoot,
+      warnings: [],
+    };
+  }
+
+  const [summary, watchlist, message] = await Promise.all([
+    readJsonFile<Record<string, unknown>>(path.join(latestRun.path, "summary.json")),
+    readJsonFile<Record<string, unknown>>(path.join(latestRun.path, "watchlist-full.json")),
+    readTextIfExists(path.join(latestRun.path, "message.txt")),
+  ]);
+
+  const summaryData = summary.data;
+  const watchlistData = watchlist.data;
+  if (!summaryData || !watchlistData) {
+    return {
+      state: "degraded",
+      label: latestRun.runId,
+      message: "Latest run is missing summary or watchlist artifacts.",
+      data: null,
+      source: latestRun.path,
+      updatedAt: stringValue(summaryData?.completedAt) ?? stringValue(summaryData?.completed_at) ?? null,
+      warnings: compactStrings([summary.message, watchlist.message]),
+    };
+  }
+
+  const focus = asRecord(watchlistData.focus);
+  const strategies = asRecord(watchlistData.strategies);
+  const dipBuyer = asRecord(strategies?.dipBuyer);
+  const canslim = asRecord(strategies?.canslim);
+  const dipBuyerWatch = extractTickers(dipBuyer?.watch);
+  const dipBuyerBuy = extractTickers(dipBuyer?.buy);
+  const dipBuyerNoBuy = extractTickers(dipBuyer?.noBuy);
+  const canslimWatch = extractTickers(canslim?.watch);
+  const canslimBuy = extractTickers(canslim?.buy);
+  const canslimNoBuy = extractTickers(canslim?.noBuy);
+
+  return {
+    state: "ok",
+    label: latestRun.runId,
+    message: `Latest trading run finished with ${stringValue(watchlistData.decision) ?? "unknown"} and ${numberValue(asRecord(watchlistData.summary)?.watch) ?? 0} watch names.`,
+    source: latestRun.path,
+    updatedAt:
+      stringValue(summaryData.completedAt) ??
+      stringValue(summaryData.completed_at) ??
+      stringValue(summaryData.finalizedAt) ??
+      null,
+    warnings: [],
+    data: {
+      runId: latestRun.runId,
+      decision: stringValue(watchlistData.decision) ?? "unknown",
+      focusTicker: stringValue(focus?.ticker),
+      focusAction: stringValue(focus?.action),
+      focusStrategy: stringValue(focus?.strategy),
+      watchCount: numberValue(asRecord(watchlistData.summary)?.watch) ?? 0,
+      buyCount: numberValue(asRecord(watchlistData.summary)?.buy) ?? 0,
+      noBuyCount: numberValue(asRecord(watchlistData.summary)?.noBuy) ?? 0,
+      dipBuyerWatch,
+      dipBuyerBuy,
+      dipBuyerNoBuy,
+      canslimWatch,
+      canslimBuy,
+      canslimNoBuy,
+      messagePreview: message ? message.split(/\r?\n/).slice(0, 6).join("\n") : null,
+    },
+  };
+}
+
 async function runBacktesterJsonScript(
   repoPath: string,
   scriptPath: string,
@@ -604,6 +707,21 @@ async function findLatestWorkflow(repoPath: string): Promise<{ runId: string; pa
   }
 }
 
+async function findLatestRunDirectory(rootPath: string): Promise<{ runId: string; path: string } | null> {
+  try {
+    const entries = await fs.readdir(rootPath, { withFileTypes: true });
+    const latest = entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+      .at(-1);
+    return latest ? { runId: latest, path: path.join(rootPath, latest) } : null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 function parseTsvRows(contents: string, columns: number): string[][] {
   return contents
     .split(/\r?\n/)
@@ -623,6 +741,14 @@ function summaryLineFromCounts(summary: Record<string, unknown> | null | undefin
     `WATCH ${numberValue(summary.watch_count) ?? 0}`,
     `NO_BUY ${numberValue(summary.no_buy_count) ?? 0}`,
   ].join(" · ");
+}
+
+function extractTickers(value: unknown): string[] {
+  return asArray(value)
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+    .map((entry) => stringValue(entry.ticker))
+    .filter((ticker): ticker is string => Boolean(ticker));
 }
 
 function compactStrings(values: Array<string | null | undefined>): string[] {

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { TradingOpsDashboard } from "@/components/trading-ops-dashboard";
 import type { TradingOpsDashboardData } from "@/lib/trading-ops";
@@ -129,20 +129,56 @@ const fixture: TradingOpsDashboardData = {
       firstRecoveryStep: "Restore repo config.",
     },
   },
+  tradingRun: {
+    state: "ok",
+    label: "20260403-163103",
+    message: "Latest trading run finished with WATCH and 36 watch names.",
+    updatedAt: "2026-04-03T16:38:59.979Z",
+    source: "/Users/hd/Developer/cortana/var/backtests/runs/20260403-163103",
+    warnings: [],
+    data: {
+      runId: "20260403-163103",
+      decision: "WATCH",
+      focusTicker: "ABBV",
+      focusAction: "WATCH",
+      focusStrategy: "Dip Buyer",
+      watchCount: 36,
+      buyCount: 0,
+      noBuyCount: 12,
+      dipBuyerWatch: ["ABBV", "ACHV", "AEP", "AEE", "ADM", "AES"],
+      dipBuyerBuy: [],
+      dipBuyerNoBuy: ["AAPL", "AMD"],
+      canslimWatch: [],
+      canslimBuy: [],
+      canslimNoBuy: ["MSFT"],
+      messagePreview: "📈 Trading Advisor — Market Snapshot\n🎯 Decision: WATCH",
+    },
+  },
 };
 
 describe("TradingOpsDashboard", () => {
   it("renders the operator overview and key sections", () => {
-    render(<TradingOpsDashboard data={fixture} />);
+    const { container } = render(<TradingOpsDashboard data={fixture} />);
 
     expect(screen.getByText("Backtester operator console")).toBeInTheDocument();
     expect(screen.getByText("What to read first")).toBeInTheDocument();
     expect(screen.getByText("Quick answer")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Watchlists" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "System Health" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Deep Dive" })).toBeInTheDocument();
     expect(screen.getByText("Market posture")).toBeInTheDocument();
+    expect(screen.getAllByText("Latest trading run").length).toBeGreaterThan(0);
+    expect(screen.getByText("ABBV · WATCH")).toBeInTheDocument();
     expect(screen.getAllByText("OXY, GEV, FANG").length).toBeGreaterThan(0);
-    expect(screen.getByText("Failed stages: dipbuyer_alert")).toBeInTheDocument();
+    expect(screen.getByText(/Dip Buyer currently has/i)).toBeInTheDocument();
+    expect(container).toHaveTextContent("Failed stages: dipbuyer_alert");
+
+    const watchlistsTab = screen.getByRole("tab", { name: "Watchlists" });
+    fireEvent.mouseDown(watchlistsTab);
+    fireEvent.click(watchlistsTab);
+    expect(container).toHaveTextContent("Latest trading run watchlists");
+    expect(container).toHaveTextContent("BUY 0 · WATCH 6 · NO_BUY 2");
+    expect(container).toHaveTextContent("ABBV, ACHV, AEP, AEE, ADM, AES");
   });
 });

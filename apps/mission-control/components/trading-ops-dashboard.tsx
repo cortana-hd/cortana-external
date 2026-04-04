@@ -63,6 +63,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
               <Metric label="Focus names" value={data.market.data?.focusSymbols.join(", ") || "None yet"} />
               <Metric label="Runtime" value={data.runtime.data?.operatorState ?? data.runtime.label} />
               <Metric label="Workflow" value={data.workflow.data ? data.workflow.data.runId : data.workflow.label} />
+              <Metric label="Latest trading run" value={data.tradingRun.data ? data.tradingRun.data.decision : data.tradingRun.label} />
               <Metric label="Open positions" value={String(data.lifecycle.data?.openCount ?? 0)} />
             </dl>
           </CardContent>
@@ -107,6 +108,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="watchlists">Watchlists</TabsTrigger>
           <TabsTrigger value="health">System Health</TabsTrigger>
           <TabsTrigger value="deep-dive">Deep Dive</TabsTrigger>
         </TabsList>
@@ -131,6 +133,48 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
               ) : null}
             </ArtifactCard>
 
+            <ArtifactCard title="Latest trading run" artifact={data.tradingRun}>
+              {data.tradingRun.data ? (
+                <div className="space-y-3 text-sm">
+                  <dl className="grid grid-cols-2 gap-3">
+                    <Metric label="Run id" value={data.tradingRun.data.runId} />
+                    <Metric
+                      label="Decision"
+                      value={data.tradingRun.data.decision}
+                    />
+                  </dl>
+                  <dl className="grid grid-cols-2 gap-3">
+                    <Metric
+                      label="Focus"
+                      value={
+                        data.tradingRun.data.focusTicker
+                          ? `${data.tradingRun.data.focusTicker} · ${data.tradingRun.data.focusAction ?? "n/a"}`
+                          : "No focus name"
+                      }
+                    />
+                    <Metric
+                      label="Counts"
+                      value={`BUY ${data.tradingRun.data.buyCount} · WATCH ${data.tradingRun.data.watchCount} · NO_BUY ${data.tradingRun.data.noBuyCount}`}
+                    />
+                  </dl>
+                  <p className="rounded-lg border border-border/70 bg-card/40 px-3 py-3 text-sm">
+                    Open the <span className="font-medium">Watchlists</span> tab to see the full latest run names.
+                    Dip Buyer currently has <span className="font-medium">{data.tradingRun.data.dipBuyerWatch.length}</span> watch names.
+                  </p>
+                  {data.tradingRun.data.messagePreview ? (
+                    <details className="rounded-lg border border-border/70 bg-muted/30 p-3">
+                      <summary className="cursor-pointer text-sm font-medium">Telegram preview</summary>
+                      <pre className="mt-3 whitespace-pre-wrap text-xs text-muted-foreground">
+                        {data.tradingRun.data.messagePreview}
+                      </pre>
+                    </details>
+                  ) : null}
+                </div>
+              ) : null}
+            </ArtifactCard>
+          </section>
+
+          <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <ArtifactCard title="Latest workflow" artifact={data.workflow}>
               {data.workflow.data ? (
                 <div className="space-y-3 text-sm">
@@ -157,11 +201,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                 </div>
               ) : null}
             </ArtifactCard>
-          </section>
-        </TabsContent>
 
-        <TabsContent value="health" className="space-y-4">
-          <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <ArtifactCard title="Runtime health" artifact={data.runtime}>
               {data.runtime.data ? (
                 <div className="space-y-3 text-sm">
@@ -185,7 +225,37 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                 </div>
               ) : null}
             </ArtifactCard>
+          </section>
+        </TabsContent>
 
+        <TabsContent value="watchlists" className="space-y-4">
+          <ArtifactCard title="Latest trading run watchlists" artifact={data.tradingRun}>
+            {data.tradingRun.data ? (
+              <div className="space-y-4 text-sm">
+                <p className="text-muted-foreground">
+                  This tab shows every name from the latest trading run so you can scan the full list without crowding the overview.
+                </p>
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <StrategyWatchlistSection
+                    strategy="Dip Buyer"
+                    buy={data.tradingRun.data.dipBuyerBuy}
+                    watch={data.tradingRun.data.dipBuyerWatch}
+                    noBuy={data.tradingRun.data.dipBuyerNoBuy}
+                  />
+                  <StrategyWatchlistSection
+                    strategy="CANSLIM"
+                    buy={data.tradingRun.data.canslimBuy}
+                    watch={data.tradingRun.data.canslimWatch}
+                    noBuy={data.tradingRun.data.canslimNoBuy}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </ArtifactCard>
+        </TabsContent>
+
+        <TabsContent value="health" className="space-y-4">
+          <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <ArtifactCard title="Pre-open canary" artifact={data.canary}>
               {data.canary.data ? (
                 <div className="space-y-3 text-sm">
@@ -356,6 +426,41 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-border/70 bg-card/40 px-3 py-3">
       <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-1 text-sm font-medium leading-5">{value}</p>
+    </div>
+  );
+}
+
+function Watchline({ title, tickers }: { title: string; tickers: string[] }) {
+  return (
+    <div className="rounded-lg border border-border/70 bg-card/40 px-3 py-3">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">{title}</p>
+      <p className="mt-1 text-sm font-medium leading-5">{tickers.length > 0 ? tickers.join(", ") : "None right now"}</p>
+    </div>
+  );
+}
+
+function StrategyWatchlistSection({
+  strategy,
+  buy,
+  watch,
+  noBuy,
+}: {
+  strategy: string;
+  buy: string[];
+  watch: string[];
+  noBuy: string[];
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border border-border/70 bg-card/40 p-4">
+      <div>
+        <p className="text-base font-semibold">{strategy}</p>
+        <p className="text-xs text-muted-foreground">
+          BUY {buy.length} · WATCH {watch.length} · NO_BUY {noBuy.length}
+        </p>
+      </div>
+      <Watchline title={`${strategy} buy`} tickers={buy} />
+      <Watchline title={`${strategy} watch`} tickers={watch} />
+      <Watchline title={`${strategy} no-buy`} tickers={noBuy} />
     </div>
   );
 }
