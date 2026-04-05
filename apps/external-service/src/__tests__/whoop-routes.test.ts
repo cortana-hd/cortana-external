@@ -52,6 +52,15 @@ describe("whoop routes", () => {
         recovery: [{ score: 90 }],
         sleep: [],
         workouts: [],
+        quality: {
+          fetched_at: "2026-04-05T12:00:00.000Z",
+          page_count: 1,
+          next_tokens: [],
+          repeated_next_token_detected: false,
+          workout_record_count: 0,
+          unique_workout_count: 0,
+          duplicate_workout_ids_removed: 0,
+        },
       }),
     );
 
@@ -69,8 +78,9 @@ describe("whoop routes", () => {
     const response = await app.request("/whoop/data");
     expect(response.status).toBe(200);
     expect(response.headers.get("Warning")).toBe('110 - "Serving stale Whoop cache after token refresh failure"');
-    const payload = (await response.json()) as { profile: { name: string } };
+    const payload = (await response.json()) as { profile: { name: string }; quality?: { page_count: number } };
     expect(payload.profile.name).toBe("cached");
+    expect(payload.quality?.page_count).toBe(1);
   });
 
   it("returns 404 for latest recovery when empty", async () => {

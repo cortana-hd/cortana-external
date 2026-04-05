@@ -2,7 +2,8 @@ import { markFailure, markSuccess } from "../lib/authalert.js";
 import { createLogger } from "../lib/logger.js";
 import { isZeroOrInvalidDate } from "../lib/time.js";
 import { loadWhoopData, loadWhoopTokens, saveWhoopData, saveWhoopTokens, type NormalizedWhoopToken } from "./store.js";
-import type { WhoopCollectionResponse, WhoopData, WhoopServiceOptions, WhoopTokenResponse } from "./types.js";
+import type { WhoopCollectionResponse, WhoopData, WhoopQuality, WhoopServiceOptions, WhoopTokenResponse } from "./types.js";
+import crypto from "node:crypto";
 
 const WHOOP_AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth";
 const WHOOP_TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token";
@@ -12,6 +13,13 @@ const TOKEN_REFRESH_SKEW_MS = 10 * 60 * 1000;
 
 type RefreshResult = {
   token: NormalizedWhoopToken;
+};
+
+type WhoopCollectionFetchResult = {
+  records: Record<string, unknown>[];
+  pageCount: number;
+  nextTokens: string[];
+  repeatedNextTokenDetected: boolean;
 };
 
 export class WhoopService {
@@ -331,11 +339,21 @@ export class WhoopService {
   private async fetchAllWhoopData(accessToken: string): Promise<WhoopData> {
     const profile = await this.fetchWhoopObject(accessToken, "/v2/user/profile/basic");
     const body = await this.fetchWhoopObject(accessToken, "/v2/user/measurement/body");
-    const cycles = await this.fetchWhoopCollection(accessToken, "/v2/cycle");
-    const recovery = await this.fetchWhoopCollection(accessToken, "/v2/recovery");
-    const sleep = await this.fetchWhoopCollection(accessToken, "/v2/activity/sleep");
-    const workouts = await this.fetchWhoopCollection(accessToken, "/v2/activity/workout");
-    return { profile, body_measurement: body, cycles, recovery, sleep, workouts };
+    const cycles = (await this.fetchWhoopCollection(accessToken, "/v2/cycle")).records;
+    const recovery = (await this.fetchWhoopCollection(accessToken, "/v2/recovery")).records;
+    const sleep = (await this.fetchWhoopCollection(accessToken, "/v2/activity/sleep")).records;
+    const workoutsCollection = await this.fetchWhoopCollection(accessToken, "/v2/activity/workout");
+    const dedupedWorkouts = this.dedupeWhoopRecords(workoutsCollection.records);
+    const quality = this.buildWhoopQuality({
+      fetchedAt: new Date().toISOString(),
+      pageCount: workoutsCollection.pageCount,
+      nextTokens: workoutsCollection.nextTokens,
+      repeatedNextTokenDetected: workoutsCollection.repeatedNextTokenDetected,
+      workoutRecordCount: workoutsCollection.records.length,
+      uniqueWorkoutCount: dedupedWorkouts.records.length,
+      duplicateWorkoutIdsRemoved: dedupedWorkouts.duplicateCount,
+    });
+    return { profile, body_measurement: body, cycles, recovery, sleep, workouts: dedupedWorkouts.records, quality };
   }
 
   private async fetchWhoopObject(accessToken: string, path: string): Promise<Record<string, unknown>> {
@@ -343,11 +361,15 @@ export class WhoopService {
     return JSON.parse(body) as Record<string, unknown>;
   }
 
-  private async fetchWhoopCollection(accessToken: string, path: string): Promise<Record<string, unknown>[]> {
+  private async fetchWhoopCollection(accessToken: string, path: string): Promise<WhoopCollectionFetchResult> {
     const pageLimit = 25;
     const maxPages = 5;
     const records: Record<string, unknown>[] = [];
+    const nextTokens: string[] = [];
+    const seenTokens = new Set<string>();
     let nextToken = "";
+    let repeatedNextTokenDetected = false;
+    let pageCount = 0;
     for (let page = 0; page < maxPages; page += 1) {
       const params = new URLSearchParams();
       params.set("limit", String(pageLimit));
@@ -357,12 +379,117 @@ export class WhoopService {
       const body = await this.fetchWhoop(accessToken, path, params);
       const payload = JSON.parse(body) as WhoopCollectionResponse;
       records.push(...(payload.records ?? []));
+      pageCount += 1;
       if (!payload.next_token) {
         break;
       }
-      nextToken = payload.next_token;
+      const normalizedNextToken = this.normalizeWhoopToken(payload.next_token);
+      if (!normalizedNextToken) {
+        break;
+      }
+      if (seenTokens.has(normalizedNextToken)) {
+        repeatedNextTokenDetected = true;
+        break;
+      }
+      seenTokens.add(normalizedNextToken);
+      nextTokens.push(normalizedNextToken);
+      nextToken = normalizedNextToken;
     }
-    return records;
+    return { records, pageCount, nextTokens, repeatedNextTokenDetected };
+  }
+
+  private normalizeWhoopRecordId(record: Record<string, unknown>): string {
+    const candidates = [
+      record.id,
+      record.record_id,
+      record.recordId,
+      record.workout_id,
+      record.workoutId,
+      record.activity_id,
+      record.activityId,
+      record.uuid,
+    ];
+
+    for (const candidate of candidates) {
+      if (candidate == null) {
+        continue;
+      }
+      if (typeof candidate === "string") {
+        const trimmed = candidate.trim();
+        if (trimmed.length > 0) {
+          return trimmed;
+        }
+      } else if (typeof candidate === "number" && Number.isFinite(candidate)) {
+        return String(candidate);
+      }
+    }
+
+    return crypto.createHash("sha256").update(this.stableStringify(record)).digest("hex");
+  }
+
+  private normalizeWhoopToken(value: unknown): string {
+    if (typeof value !== "string") {
+      return "";
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : "";
+  }
+
+  private stableStringify(value: unknown): string {
+    const stable = this.stableValue(value);
+    return JSON.stringify(stable);
+  }
+
+  private stableValue(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.stableValue(item));
+    }
+    if (!value || typeof value !== "object") {
+      return value;
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, child]) => [key, this.stableValue(child)]),
+    );
+  }
+
+  private dedupeWhoopRecords(records: Record<string, unknown>[]): { records: Record<string, unknown>[]; duplicateCount: number } {
+    const seen = new Set<string>();
+    const deduped: Record<string, unknown>[] = [];
+    let duplicateCount = 0;
+
+    for (const record of records) {
+      const id = this.normalizeWhoopRecordId(record);
+      if (seen.has(id)) {
+        duplicateCount += 1;
+        continue;
+      }
+      seen.add(id);
+      deduped.push(record);
+    }
+
+    return { records: deduped, duplicateCount };
+  }
+
+  private buildWhoopQuality(input: {
+    fetchedAt: string;
+    pageCount: number;
+    nextTokens: string[];
+    repeatedNextTokenDetected: boolean;
+    workoutRecordCount: number;
+    uniqueWorkoutCount: number;
+    duplicateWorkoutIdsRemoved: number;
+  }): WhoopQuality {
+    return {
+      fetched_at: input.fetchedAt,
+      page_count: input.pageCount,
+      next_tokens: input.nextTokens,
+      repeated_next_token_detected: input.repeatedNextTokenDetected,
+      workout_record_count: input.workoutRecordCount,
+      unique_workout_count: input.uniqueWorkoutCount,
+      duplicate_workout_ids_removed: input.duplicateWorkoutIdsRemoved,
+    };
   }
 
   private async fetchWhoop(accessToken: string, routePath: string, params: URLSearchParams): Promise<string> {

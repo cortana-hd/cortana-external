@@ -20,6 +20,17 @@ export interface WhoopData {
   recovery: Record<string, unknown>[];
   sleep: Record<string, unknown>[];
   workouts: Record<string, unknown>[];
+  quality?: WhoopQuality;
+}
+
+export interface WhoopQuality {
+  fetched_at: string;
+  page_count: number;
+  next_tokens: string[];
+  repeated_next_token_detected: boolean;
+  workout_record_count: number;
+  unique_workout_count: number;
+  duplicate_workout_ids_removed: number;
 }
 
 export interface WhoopCollectionResponse {
