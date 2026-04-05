@@ -15,6 +15,9 @@ function createServices(overrides?: Partial<ExternalServices>): ExternalServices
     alpaca: {
       checkHealth: async () => ({ status: "healthy" }),
     } as unknown as ExternalServices["alpaca"],
+    appleHealth: {
+      handleHealth: async () => ({ status: 200, body: { status: "healthy" } }),
+    } as unknown as ExternalServices["appleHealth"],
     marketData: {
       checkHealth: async () => ({ status: "healthy" }),
     } as unknown as ExternalServices["marketData"],
@@ -38,6 +41,9 @@ describe("/health", () => {
         tonal: {
           getAggregateHealth: async () => ({ status: "unhealthy", error: "boom" }),
         } as unknown as ExternalServices["tonal"],
+        appleHealth: {
+          handleHealth: async () => ({ status: 200, body: { status: "healthy" } }),
+        } as unknown as ExternalServices["appleHealth"],
         marketData: {
           checkHealth: async () => ({ status: "healthy" }),
         } as unknown as ExternalServices["marketData"],
@@ -63,6 +69,9 @@ describe("/health", () => {
         alpaca: {
           checkHealth: async () => ({ status: "unhealthy" }),
         } as unknown as ExternalServices["alpaca"],
+        appleHealth: {
+          handleHealth: async () => ({ status: 503, body: { status: "unhealthy" } }),
+        } as unknown as ExternalServices["appleHealth"],
         marketData: {
           checkHealth: async () => ({ status: "unhealthy" }),
         } as unknown as ExternalServices["marketData"],
