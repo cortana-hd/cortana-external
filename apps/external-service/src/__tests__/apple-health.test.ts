@@ -162,4 +162,95 @@ describe("apple health service", () => {
     expect(healthBody.status).toBe("unconfigured");
     expect(healthBody.note).toContain("not configured");
   });
+
+  it("imports a valid export through the route and serves it back", async () => {
+    const dir = await makeTempDir();
+    dirs.push(dir);
+    const dataPath = path.join(dir, "latest.json");
+
+    const service = new AppleHealthService({
+      dataPath,
+      apiToken: "secret-token",
+      maxAgeMs: 12 * 60 * 60 * 1000,
+      now: () => fixedNow,
+    });
+    const app = new Hono();
+    app.route("/", createAppleHealthRouter(service));
+
+    const importResponse = await app.request("/apple-health/import", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer secret-token",
+      },
+      body: JSON.stringify({
+        schema_version: 1,
+        generated_at: "2026-04-05T11:45:00.000Z",
+        days: [
+          {
+            date: "2026-04-05",
+            bodyWeightKg: 78.6,
+            steps: 10432,
+            activeEnergyKcal: 612,
+          },
+        ],
+      }),
+    });
+    const importBody = (await importResponse.json()) as { ok: boolean; stored: boolean; days: number | null; metrics: string[] };
+    expect(importResponse.status).toBe(200);
+    expect(importBody.ok).toBe(true);
+    expect(importBody.stored).toBe(true);
+    expect(importBody.days).toBe(1);
+    expect(importBody.metrics).toEqual(["activeEnergyKcal", "bodyWeightKg", "steps"]);
+
+    const stored = JSON.parse(await fs.readFile(dataPath, "utf-8")) as {
+      freshness?: { generated_at: string; is_stale: boolean; max_age_seconds: number };
+    };
+    expect(stored.freshness).toEqual({
+      generated_at: "2026-04-05T11:45:00.000Z",
+      is_stale: false,
+      max_age_seconds: 43200,
+    });
+
+    const healthResponse = await app.request("/apple-health/health");
+    const healthBody = (await healthResponse.json()) as { status: string };
+    expect(healthResponse.status).toBe(200);
+    expect(healthBody.status).toBe("healthy");
+  });
+
+  it("rejects unauthorized or invalid imports", async () => {
+    const dir = await makeTempDir();
+    dirs.push(dir);
+    const dataPath = path.join(dir, "latest.json");
+
+    const service = new AppleHealthService({
+      dataPath,
+      apiToken: "secret-token",
+      maxAgeMs: 12 * 60 * 60 * 1000,
+      now: () => fixedNow,
+    });
+    const app = new Hono();
+    app.route("/", createAppleHealthRouter(service));
+
+    const unauthorized = await app.request("/apple-health/import", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ schema_version: 1, generated_at: fixedNow.toISOString() }),
+    });
+    expect(unauthorized.status).toBe(401);
+
+    const invalid = await app.request("/apple-health/import", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer secret-token",
+      },
+      body: JSON.stringify({ generated_at: fixedNow.toISOString() }),
+    });
+    const invalidBody = (await invalid.json()) as { error: string };
+    expect(invalid.status).toBe(400);
+    expect(invalidBody.error).toBe("validation failed");
+  });
 });

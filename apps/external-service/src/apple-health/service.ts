@@ -1,18 +1,20 @@
 import path from "node:path";
 import os from "node:os";
 
-import { readJsonFile, resolveFromCwd } from "../lib/files.js";
+import { readJsonFile, resolveFromCwd, writeJsonFileAtomic } from "../lib/files.js";
 import { createLogger, type AppLogger } from "../lib/logger.js";
 import {
   AppleHealthExportSchema,
   type AppleHealthExport,
   type AppleHealthHealthResponse,
+  type AppleHealthImportResponse,
   type AppleHealthFreshness,
 } from "./types.js";
 
 export interface AppleHealthServiceOptions {
   dataPath: string;
   maxAgeMs?: number;
+  apiToken?: string;
   logger?: AppLogger;
   now?: () => Date;
 }
@@ -40,14 +42,43 @@ function toIsoString(date: Date): string {
 export class AppleHealthService {
   private readonly dataPath: string;
   private readonly maxAgeMs: number;
+  private readonly apiToken: string;
   private readonly logger: AppLogger;
   private readonly now: () => Date;
 
   constructor(options: AppleHealthServiceOptions) {
     this.dataPath = normalizeAppleHealthPath(options.dataPath);
     this.maxAgeMs = options.maxAgeMs ?? 36 * 60 * 60 * 1000;
+    this.apiToken = options.apiToken?.trim() ?? "";
     this.logger = options.logger ?? createLogger("apple-health");
     this.now = options.now ?? (() => new Date());
+  }
+
+  validateToken(authorizationHeader: string | null | undefined): boolean {
+    if (!this.apiToken) return true;
+    const expected = `Bearer ${this.apiToken}`;
+    return authorizationHeader?.trim() === expected;
+  }
+
+  async handleImport(raw: unknown): Promise<{ status: number; body: AppleHealthImportResponse }> {
+    const parsed = AppleHealthExportSchema.parse(raw);
+    const normalized = this.normalizeStoredExport(parsed);
+    await writeJsonFileAtomic(this.dataPath, normalized);
+
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        stored: true,
+        data_path: this.dataPath,
+        generated_at: normalized.generated_at,
+        max_age_seconds: normalized.freshness?.max_age_seconds ?? Math.trunc(this.maxAgeMs / 1000),
+        is_stale: normalized.freshness?.is_stale ?? false,
+        days: this.countDays(normalized),
+        metrics: this.listMetrics(normalized),
+        received_at: this.now().toISOString(),
+      },
+    };
   }
 
   async handleData(): Promise<{ status: number; body: unknown; warning?: string }> {
@@ -173,6 +204,41 @@ export class AppleHealthService {
 
   private isConfiguredMissingExportError(error: unknown): boolean {
     return error instanceof Error && /apple health export not found at /.test(error.message);
+  }
+
+  private normalizeStoredExport(payload: AppleHealthExport): AppleHealthExport {
+    const maxAgeSeconds = payload.freshness?.max_age_seconds ?? Math.trunc(this.maxAgeMs / 1000);
+    const generatedAtMs = Date.parse(payload.generated_at);
+    const nowMs = this.now().getTime();
+    const isStale = Number.isFinite(generatedAtMs) ? nowMs - generatedAtMs > maxAgeSeconds * 1000 : false;
+    return {
+      ...payload,
+      freshness: {
+        generated_at: payload.generated_at,
+        max_age_seconds: maxAgeSeconds,
+        is_stale: isStale,
+      },
+    };
+  }
+
+  private countDays(payload: AppleHealthExport): number | null {
+    const root = payload as Record<string, unknown>;
+    if (Array.isArray(root.days)) return root.days.length;
+    if (Array.isArray(root.entries)) return root.entries.length;
+    return null;
+  }
+
+  private listMetrics(payload: AppleHealthExport): string[] {
+    const root = payload as Record<string, unknown>;
+    const firstDay =
+      Array.isArray(root.days) && root.days[0] && typeof root.days[0] === "object" && !Array.isArray(root.days[0])
+        ? (root.days[0] as Record<string, unknown>)
+        : null;
+    if (!firstDay) return [];
+
+    return Object.keys(firstDay)
+      .filter((key) => key !== "date" && key !== "source" && key !== "source_name" && key !== "sourceName" && key !== "provenance")
+      .sort();
   }
 
   private toErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } {

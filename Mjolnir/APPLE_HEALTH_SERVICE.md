@@ -19,6 +19,7 @@ Apple Health integration runs inside the TypeScript external service package:
 |--------|------|---------|
 | GET | `/apple-health/data` | Returns the latest validated Apple Health export |
 | GET | `/apple-health/health` | Returns schema and freshness status for the export |
+| POST | `/apple-health/import` | Validates and stores a new Apple Health export as the current local `latest.json` |
 
 ## Local Export
 
@@ -28,6 +29,9 @@ Apple Health integration runs inside the TypeScript external service package:
   - `APPLE_HEALTH_DATA_PATH`
 - Freshness window:
   - `APPLE_HEALTH_MAX_AGE_HOURS` defaults to `36`
+- Optional import auth token:
+  - `APPLE_HEALTH_API_TOKEN`
+  - when set, `POST /apple-health/import` requires `Authorization: Bearer <token>`
 
 The service validates the export before serving it. A valid export must include:
 - `schema_version: 1`
@@ -39,11 +43,41 @@ Freshness is derived from `generated_at`. If the export is older than the config
 
 - `healthy`: schema is valid and the export is within the freshness window
 - `degraded`: schema is valid but the export is stale
-- `unhealthy`: file is missing, unreadable, or fails schema validation
+- `unconfigured`: no local export file exists yet
+- `unhealthy`: file is unreadable or fails schema validation
+
+## Import Contract
+
+`POST /apple-health/import` accepts the same JSON export contract that `GET /apple-health/data` later serves.
+
+Minimum payload:
+
+```json
+{
+  "schema_version": 1,
+  "generated_at": "2026-04-06T09:00:00.000Z",
+  "days": [
+    {
+      "date": "2026-04-06",
+      "bodyWeightKg": 78.4,
+      "steps": 10432,
+      "activeEnergyKcal": 612
+    }
+  ]
+}
+```
+
+On import, the service normalizes freshness metadata and writes the payload atomically to the configured `latest.json` path.
 
 ## Verification
 
 ```bash
 curl -s http://127.0.0.1:3033/apple-health/health | jq .
 curl -s http://127.0.0.1:3033/apple-health/data | jq .
+
+curl -s \
+  -X POST http://127.0.0.1:3033/apple-health/import \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer ${APPLE_HEALTH_API_TOKEN}" \
+  --data-binary @/path/to/apple-health-export.json | jq .
 ```

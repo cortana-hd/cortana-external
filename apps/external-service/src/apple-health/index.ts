@@ -9,6 +9,7 @@ export function createAppleHealthService(config: AppConfig): AppleHealthService 
   return new AppleHealthService({
     dataPath: config.APPLE_HEALTH_DATA_PATH,
     maxAgeMs: config.APPLE_HEALTH_MAX_AGE_HOURS * 60 * 60 * 1000,
+    apiToken: config.APPLE_HEALTH_API_TOKEN,
     logger: createLogger("apple-health"),
   });
 }
