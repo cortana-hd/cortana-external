@@ -1110,7 +1110,7 @@ export async function getServicesWorkspaceData(options: WorkspaceOptions = {}): 
     files,
     sections,
     health,
-    openclawDocsPath: path.join(root, "docs", "mission-control.md"),
+    openclawDocsPath: path.join(root, "docs", "source", "architecture", "mission-control.md"),
   };
 }
 

@@ -41,10 +41,9 @@ export default function DocsClient() {
           throw new Error(message);
         }
 
-        const sorted = [...payload.files].sort((a, b) => a.name.localeCompare(b.name));
         if (active) {
-          setFiles(sorted);
-          setSelectedFileId(sorted[0]?.id ?? null);
+          setFiles(payload.files);
+          setSelectedFileId(payload.files[0]?.id ?? null);
           setMobileBrowseOpen(false);
           setListError(null);
         }
@@ -184,7 +183,7 @@ export default function DocsClient() {
         </p>
         <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Docs</h1>
         <p className="text-sm text-muted-foreground">
-          Browse markdown documentation from the OpenClaw and Backtester knowledge bases.
+          Browse markdown documentation from the external repo, backtester, and OpenClaw knowledge bases.
         </p>
       </div>
 
