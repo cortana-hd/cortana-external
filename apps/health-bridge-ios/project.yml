@@ -31,8 +31,26 @@ targets:
         PRODUCT_NAME: HealthBridge
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
+  HealthBridgeTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: HealthBridgeTests
+        excludes:
+          - BackgroundSyncManagerTests.swift
+    dependencies:
+      - target: HealthBridge
+    settings:
+      base:
+        SWIFT_VERSION: 6.0
+        PRODUCT_BUNDLE_IDENTIFIER: com.cortana.healthbridge.tests
 schemes:
   HealthBridge:
     build:
       targets:
         HealthBridge: all
+        HealthBridgeTests: [test]
+    test:
+      targets:
+        - name: HealthBridgeTests

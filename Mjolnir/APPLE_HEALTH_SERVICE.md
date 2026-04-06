@@ -69,6 +69,28 @@ Minimum payload:
 
 On import, the service normalizes freshness metadata and writes the payload atomically to the configured `latest.json` path.
 
+## iPhone Exporter
+
+The phone-side exporter now lives in:
+
+- `apps/health-bridge-ios`
+
+It is designed to read Apple Health on-device and send the canonical daily export to `POST /apple-health/import`.
+
+Local core validation:
+
+```bash
+cd ~/Developer/cortana-external/apps/health-bridge-ios
+swift run HealthBridgeValidation
+```
+
+Xcode project generation:
+
+```bash
+cd ~/Developer/cortana-external/apps/health-bridge-ios
+xcodegen generate
+```
+
 ## Verification
 
 ```bash
@@ -81,3 +103,22 @@ curl -s \
   -H "Authorization: Bearer ${APPLE_HEALTH_API_TOKEN}" \
   --data-binary @/path/to/apple-health-export.json | jq .
 ```
+
+## iPhone Producer
+
+The native iPhone producer now lives in:
+
+- `apps/health-bridge-ios`
+
+`HealthBridge` reads Apple Health on-device and posts the export payload to `POST /apple-health/import`.
+
+Important operator notes:
+
+- the iPhone must use a reachable host for `serverURL`
+- `127.0.0.1` will not work from the phone
+- use a LAN IP, DNS name, or Tailscale hostname instead
+- if `APPLE_HEALTH_API_TOKEN` is configured, the phone must send the matching bearer token
+
+For setup and validation details, see:
+
+- `apps/health-bridge-ios/SETUP.md`

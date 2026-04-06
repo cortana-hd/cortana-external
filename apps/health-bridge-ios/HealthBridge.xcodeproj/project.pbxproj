@@ -8,15 +8,23 @@
 
 /* Begin PBXBuildFile section */
 		09CDAE3FDBC48E35806CFFAB /* HomeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4749C8914C363017444D41D9 /* HomeViewModel.swift */; };
+		177CC40E1EB2A0F5085DCB9F /* MockNetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6989AE38C3B713FC5F7A4091 /* MockNetworkService.swift */; };
+		2A7DB1D190BC15310C64F6F2 /* SettingsViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFBEBB28F93C2D5D3224CC51 /* SettingsViewModelTests.swift */; };
 		3D5ABDCD69955C3576B92F44 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9263EDA17BCFD18E3E4294B4 /* SettingsView.swift */; };
 		55349074D7691134BCF2D279 /* HealthKitServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5E1A7871305646B2FAA0BA /* HealthKitServiceProtocol.swift */; };
 		61D6C4363E93649204C7AC31 /* HealthKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C7BB531C76D33D767BEAEA /* HealthKitService.swift */; };
 		689DA4D927431E461E40CE99 /* BackgroundSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68F32E2E50D83BBF2FD46C8 /* BackgroundSyncManager.swift */; };
 		6C7B81E4F3974E85B0E3AB01 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB84A20AF27043F6895B45AA /* ContentView.swift */; };
+		7BF1F9D53A4B7A8DE73ED9FA /* HealthMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6CF6AB79A32003DDD7E7FA5 /* HealthMetricsTests.swift */; };
+		883D94B48298153EFA4B1240 /* NetworkServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2B8E7AF650D6CF85E175CF9 /* NetworkServiceTests.swift */; };
+		8F53D1A3C13AD72E190560BD /* HomeViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6B6FDEB19ED06FC05581B95 /* HomeViewModelTests.swift */; };
+		9311945ECA7C49BA39E057EF /* ServerConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDBAB372E31623D779A6E120 /* ServerConfigTests.swift */; };
 		9BDF446C96281FFC0DF8A950 /* HealthBridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD20CB6D9ECD8580A75AC516 /* HealthBridgeApp.swift */; };
 		9F1BEAB65306F806F75C28B2 /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 298EC68DC662FB90832AF015 /* SettingsViewModel.swift */; };
 		A8A0B1904DAB28B3641EB252 /* ServerConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A71FD4F3FB0FC13FD953D19 /* ServerConfig.swift */; };
 		ACD58C46D55EA57CDB638B7E /* DebugViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B58F28E6479129C992EE96B9 /* DebugViewModel.swift */; };
+		AEEB1A632F51132994F76403 /* MockHealthKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1DEA1DA7251FB8631931413 /* MockHealthKitService.swift */; };
+		BB2A72262ABA3AE143A7F1E1 /* HealthPayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7726ECBBAC116D6A43584252 /* HealthPayloadTests.swift */; };
 		C6A4CBF5A6258115FB4FD898 /* HealthMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3D670F33F170B287A8974F3 /* HealthMetrics.swift */; };
 		C91A54FA298EA9ED417F9201 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A492043B579BCD58950C4D1 /* HomeView.swift */; };
 		CD587B04C3BCBC28B93B191E /* HealthPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FD1F8D14B84BD137E7AA195 /* HealthPayload.swift */; };
@@ -27,6 +35,16 @@
 		F413F1C4C86E31C7CDFF7143 /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15E997B71CA113DDF5267356 /* NetworkService.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		F1E683BB7AEFD63FE303DCB3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F9BA3F44467F02A5CF2A3AD7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 76E497C4EA2FDA64EEB0C989;
+			remoteInfo = HealthBridge;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		02AC71CF4B748F47B17F6C14 /* HealthBridge.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HealthBridge.entitlements; sourceTree = "<group>"; };
 		15E997B71CA113DDF5267356 /* NetworkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkService.swift; sourceTree = "<group>"; };
@@ -35,20 +53,29 @@
 		314D4535767129C4CA2A5980 /* AppleHealthExportBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleHealthExportBuilder.swift; sourceTree = "<group>"; };
 		31A759280715F6FBBAB133C7 /* HealthBridge.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HealthBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3FD1F8D14B84BD137E7AA195 /* HealthPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthPayload.swift; sourceTree = "<group>"; };
+		42C7967B77CD3CD676D07F8A /* HealthBridgeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = HealthBridgeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4749C8914C363017444D41D9 /* HomeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeViewModel.swift; sourceTree = "<group>"; };
 		48029C779B882B9D647A927F /* NetworkServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkServiceProtocol.swift; sourceTree = "<group>"; };
 		4A492043B579BCD58950C4D1 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		6989AE38C3B713FC5F7A4091 /* MockNetworkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockNetworkService.swift; sourceTree = "<group>"; };
+		7726ECBBAC116D6A43584252 /* HealthPayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthPayloadTests.swift; sourceTree = "<group>"; };
 		9263EDA17BCFD18E3E4294B4 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		9A71FD4F3FB0FC13FD953D19 /* ServerConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfig.swift; sourceTree = "<group>"; };
 		A68F32E2E50D83BBF2FD46C8 /* BackgroundSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundSyncManager.swift; sourceTree = "<group>"; };
 		AD20CB6D9ECD8580A75AC516 /* HealthBridgeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthBridgeApp.swift; sourceTree = "<group>"; };
 		B4DBE9F4D5F5EB26B5AE3C15 /* SyncResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncResult.swift; sourceTree = "<group>"; };
 		B58F28E6479129C992EE96B9 /* DebugViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugViewModel.swift; sourceTree = "<group>"; };
+		BDBAB372E31623D779A6E120 /* ServerConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfigTests.swift; sourceTree = "<group>"; };
+		BFBEBB28F93C2D5D3224CC51 /* SettingsViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModelTests.swift; sourceTree = "<group>"; };
 		C906A15FBB198A03265ABBD0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D2B8E7AF650D6CF85E175CF9 /* NetworkServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkServiceTests.swift; sourceTree = "<group>"; };
 		D2C7BB531C76D33D767BEAEA /* HealthKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitService.swift; sourceTree = "<group>"; };
 		D3D670F33F170B287A8974F3 /* HealthMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMetrics.swift; sourceTree = "<group>"; };
+		D6B6FDEB19ED06FC05581B95 /* HomeViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeViewModelTests.swift; sourceTree = "<group>"; };
 		DC5E1A7871305646B2FAA0BA /* HealthKitServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitServiceProtocol.swift; sourceTree = "<group>"; };
+		E1DEA1DA7251FB8631931413 /* MockHealthKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockHealthKitService.swift; sourceTree = "<group>"; };
 		EB84A20AF27043F6895B45AA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		F6CF6AB79A32003DDD7E7FA5 /* HealthMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMetricsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -67,6 +94,7 @@
 			isa = PBXGroup;
 			children = (
 				31A759280715F6FBBAB133C7 /* HealthBridge.app */,
+				42C7967B77CD3CD676D07F8A /* HealthBridgeTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -86,6 +114,7 @@
 			isa = PBXGroup;
 			children = (
 				C37769715314274CEBE70E11 /* HealthBridge */,
+				96BF9DB9B913D339D25E5D79 /* HealthBridgeTests */,
 				3A0FCDB3E203A720986930F1 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -98,6 +127,20 @@
 				9263EDA17BCFD18E3E4294B4 /* SettingsView.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		96BF9DB9B913D339D25E5D79 /* HealthBridgeTests */ = {
+			isa = PBXGroup;
+			children = (
+				F6CF6AB79A32003DDD7E7FA5 /* HealthMetricsTests.swift */,
+				7726ECBBAC116D6A43584252 /* HealthPayloadTests.swift */,
+				D6B6FDEB19ED06FC05581B95 /* HomeViewModelTests.swift */,
+				D2B8E7AF650D6CF85E175CF9 /* NetworkServiceTests.swift */,
+				BDBAB372E31623D779A6E120 /* ServerConfigTests.swift */,
+				BFBEBB28F93C2D5D3224CC51 /* SettingsViewModelTests.swift */,
+				D451CB4D32267A238AA5051F /* Mocks */,
+			);
+			path = HealthBridgeTests;
 			sourceTree = "<group>";
 		};
 		AAEA408FD9FBEE7CC3BCFB7D /* ViewModels */ = {
@@ -135,9 +178,36 @@
 			path = HealthBridge;
 			sourceTree = "<group>";
 		};
+		D451CB4D32267A238AA5051F /* Mocks */ = {
+			isa = PBXGroup;
+			children = (
+				E1DEA1DA7251FB8631931413 /* MockHealthKitService.swift */,
+				6989AE38C3B713FC5F7A4091 /* MockNetworkService.swift */,
+			);
+			path = Mocks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		5044423D0EAE25E9E9DCB1F9 /* HealthBridgeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7DD80EA8C4C48EF1A202D869 /* Build configuration list for PBXNativeTarget "HealthBridgeTests" */;
+			buildPhases = (
+				76F73682FC3AAFE386B4A3E8 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				05C64D15B3970B0D8E49FF70 /* PBXTargetDependency */,
+			);
+			name = HealthBridgeTests;
+			packageProductDependencies = (
+			);
+			productName = HealthBridgeTests;
+			productReference = 42C7967B77CD3CD676D07F8A /* HealthBridgeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		76E497C4EA2FDA64EEB0C989 /* HealthBridge */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 25290398247119839496DC01 /* Build configuration list for PBXNativeTarget "HealthBridge" */;
@@ -185,6 +255,7 @@
 			projectRoot = "";
 			targets = (
 				76E497C4EA2FDA64EEB0C989 /* HealthBridge */,
+				5044423D0EAE25E9E9DCB1F9 /* HealthBridgeTests */,
 			);
 		};
 /* End PBXProject section */
@@ -215,7 +286,30 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		76F73682FC3AAFE386B4A3E8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7BF1F9D53A4B7A8DE73ED9FA /* HealthMetricsTests.swift in Sources */,
+				BB2A72262ABA3AE143A7F1E1 /* HealthPayloadTests.swift in Sources */,
+				8F53D1A3C13AD72E190560BD /* HomeViewModelTests.swift in Sources */,
+				AEEB1A632F51132994F76403 /* MockHealthKitService.swift in Sources */,
+				177CC40E1EB2A0F5085DCB9F /* MockNetworkService.swift in Sources */,
+				883D94B48298153EFA4B1240 /* NetworkServiceTests.swift in Sources */,
+				9311945ECA7C49BA39E057EF /* ServerConfigTests.swift in Sources */,
+				2A7DB1D190BC15310C64F6F2 /* SettingsViewModelTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		05C64D15B3970B0D8E49FF70 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 76E497C4EA2FDA64EEB0C989 /* HealthBridge */;
+			targetProxy = F1E683BB7AEFD63FE303DCB3 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		3EB9E140F86D3A2E9420844F /* Debug */ = {
@@ -237,6 +331,42 @@
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		62FA7A22D1F91DF0480B6CBC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cortana.healthbridge.tests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HealthBridge.app/HealthBridge";
+			};
+			name = Release;
+		};
+		64B0724F07ABAB5723B8BDF3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cortana.healthbridge.tests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HealthBridge.app/HealthBridge";
 			};
 			name = Debug;
 		};
@@ -396,6 +526,15 @@
 			buildConfigurations = (
 				3EB9E140F86D3A2E9420844F /* Debug */,
 				D583F3525192D26C4F953C61 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7DD80EA8C4C48EF1A202D869 /* Build configuration list for PBXNativeTarget "HealthBridgeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				64B0724F07ABAB5723B8BDF3 /* Debug */,
+				62FA7A22D1F91DF0480B6CBC /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

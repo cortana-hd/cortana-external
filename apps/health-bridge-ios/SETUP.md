@@ -1,116 +1,93 @@
-# Health Bridge iPhone Exporter
+# HealthBridge iPhone Setup
 
-Health Bridge is the phone-side Apple Health exporter for Spartan.
+`HealthBridge` is the iPhone-side Apple Health producer for Spartan.
 
-It reads HealthKit on-device, builds the current `schema_version: 1` daily export contract, and sends it to:
+It reads Apple Health on-device, builds the current export contract, and sends that payload to:
 
 - `POST /apple-health/import`
 
-That means the phone app now matches the file-based Apple Health path already used by `cortana-external` and `cortana`.
+inside `cortana-external`.
 
-## What It Exports
+## Folder Layout
 
-Per day, Health Bridge collects the metrics Spartan currently consumes best:
+- `HealthBridge/`: SwiftUI iPhone app source
+- `HealthBridgeTests/`: iOS unit tests
+- `HealthBridge.xcodeproj/`: generated Xcode project
+- `project.yml`: XcodeGen source of truth
+- `Package.swift`: local package manifest for bridge logic and validation
+- `Validation/main.swift`: deterministic CLI validation runner
 
-- `steps`
-- `activeEnergyKcal`
-- `restingEnergyKcal`
-- `walkingRunningDistanceKm`
-- `bodyWeightKg`
-- `bodyFatPct`
-- `leanMassKg`
+## Prerequisites
 
-It writes them into the canonical payload shape served later by:
+- full Xcode installed
+- iPhone running iOS 17 or later
+- Apple ID signed into Xcode
+- `cortana-external` reachable from the phone
 
-- `GET /apple-health/data`
-- `GET /apple-health/health`
-
-## Local Validation
-
-You can validate the shared exporter core on a machine without full Xcode by running:
-
-```bash
-cd ~/Developer/cortana-external/apps/health-bridge-ios
-swift run HealthBridgeValidation
-```
-
-That validates:
-
-- config persistence and lookback-day handling
-- export payload sorting and rounding
-- Home view-model sync behavior
-- import payload construction against the live Apple Health contract
-
-## Generating The Xcode Project
-
-This repo includes `project.yml`, so you do not need to create the project by hand.
-
-Run:
+## Generate The Xcode Project
 
 ```bash
 cd ~/Developer/cortana-external/apps/health-bridge-ios
 xcodegen generate
 ```
 
-This will create `HealthBridge.xcodeproj`.
+This regenerates:
 
-## Xcode Prerequisites
+- `HealthBridge.xcodeproj`
 
-- Xcode 15 or later
-- Apple ID signed in to Xcode
-- iPhone running iOS 17+ for real HealthKit access
+## Configure The App
 
-HealthKit does not work in the simulator, so final sync validation must happen on a physical iPhone.
+1. Open `HealthBridge.xcodeproj`.
+2. Set your signing team and bundle identifier.
+3. Build to a real iPhone.
+4. Grant Apple Health permissions when prompted.
 
-## First Device Run
+Set these fields in the app:
 
-1. Open `HealthBridge.xcodeproj` in Xcode.
-2. Set your signing team and a unique bundle identifier if needed.
-3. Build and run on your iPhone.
-4. Grant HealthKit access when prompted.
-5. In Settings, enter:
-   - the Mac mini service URL, for example `http://192.168.x.x:3033`
-   - `APPLE_HEALTH_API_TOKEN` if you configured one on the server
-   - a device name
-   - the desired lookback window
-6. Tap `Test Connection`.
-7. Tap `Sync Apple Health`.
+- `Server URL`
+  Use a reachable LAN IP, DNS name, or Tailscale hostname for the Mac mini. `127.0.0.1` will not work from the phone.
+- `API Token`
+  Optional. Use this only if `APPLE_HEALTH_API_TOKEN` is configured in `cortana-external`.
+- `Device Name`
+  Human-readable device label stored in export provenance.
+- `Lookback Days`
+  Number of recent daily summaries to resend on each sync.
 
-## Server Checklist
+## Validate Without Xcode
 
-Before the iPhone app can sync successfully:
+Run the deterministic bridge validation locally:
 
-1. `cortana-external` must be running.
-2. `POST /apple-health/import` must be reachable from the phone.
-3. If auth is enabled, `APPLE_HEALTH_API_TOKEN` on the phone must match the server.
+```bash
+cd ~/Developer/cortana-external/apps/health-bridge-ios
+swift run HealthBridgeValidation
+```
 
-Quick verification:
+This validates:
+
+- config persistence and normalization
+- export ordering and rounding
+- manual sync behavior
+- import payload formatting against the current service contract
+
+## Verify The End-To-End Flow
+
+After syncing from the phone:
 
 ```bash
 curl -s http://127.0.0.1:3033/apple-health/health | jq .
+curl -s http://127.0.0.1:3033/apple-health/data | jq .
 ```
 
-## Background Behavior
+Then refresh Spartan ingest:
 
-The app enables HealthKit background delivery for:
+```bash
+cd ~/Developer/cortana
+npx tsx tools/fitness/morning-brief-data.ts
+```
 
-- steps
-- active energy
-- resting energy
-- walking/running distance
-- body weight
-- body fat percentage
-- lean body mass
+## Operational Notes
 
-Background delivery is best effort. iOS decides when to wake the app.
-
-## Current Limitation
-
-This machine does not have a full Xcode installation selected, so the shared exporter core is validated locally, but the actual iPhone app build must be completed on a machine with Xcode + a real device.
-
-## Troubleshooting
-
-- `Connection failed`: confirm the phone can reach the Mac mini on the same network and that the URL includes the correct port.
-- `Unauthorized`: the app token does not match `APPLE_HEALTH_API_TOKEN` on the server.
-- `No Apple Health metrics found`: the selected lookback window has no HealthKit samples for the exported metrics.
-- `HealthKit not available`: run on a physical iPhone, not the simulator.
+- HealthBridge is the producer. `cortana-external` remains the canonical local receiver and file store.
+- Background delivery is best effort and depends on iOS wakeups. Manual sync remains available in the app.
+- The canonical local file stays:
+  - `~/.openclaw/data/apple-health/latest.json`
