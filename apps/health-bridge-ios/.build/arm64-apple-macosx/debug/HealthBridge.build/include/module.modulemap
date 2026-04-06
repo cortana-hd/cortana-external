@@ -1,3 +1,0 @@
-module HealthBridge {
-    header "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/include/HealthBridge-Swift.h"
-}
