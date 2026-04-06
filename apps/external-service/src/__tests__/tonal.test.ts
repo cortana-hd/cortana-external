@@ -121,6 +121,89 @@ describe("tonal service routes", () => {
     expect(Object.keys(body.workouts)).toEqual(["123"]);
   });
 
+  it("preserves planner-critical workout and set detail on /tonal/data", async () => {
+    const dir = await makeTempDir();
+    dirs.push(dir);
+    const tokenPath = path.join(dir, "tonal_tokens.json");
+    const dataPath = path.join(dir, "tonal_data.json");
+
+    await writeJson(tokenPath, {
+      id_token: fakeJwt(3600),
+      refresh_token: "refresh-token",
+      expires_at: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
+    });
+    await writeJson(dataPath, {
+      user_id: "user-1",
+      profile: {},
+      workouts: {},
+      strength_scores: null,
+      last_updated: new Date().toISOString(),
+    });
+
+    const plannerWorkout = {
+      id: "workout-string-id",
+      beginTime: "2026-04-05T10:00:00Z",
+      endTime: "2026-04-05T10:35:00Z",
+      totalDuration: 2100,
+      totalVolume: 12450,
+      workoutId: "template-1",
+      programId: "program-1",
+      workoutSetActivity: [
+        {
+          id: "set-1",
+          setId: "set-1",
+          workoutActivityID: "workout-string-id",
+          workoutId: "template-1",
+          movementId: "8edc0211-4594-4e5e-8e1b-b05dfc1d67c7",
+          repCount: 8,
+          avgWeight: 55,
+          totalVolume: 440,
+          repsInReserve: 2.1,
+        },
+      ],
+    };
+
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("/v6/users/userinfo")) return json({ id: "user-1" });
+      if (url.includes("/v6/users/user-1/profile")) return json({ totalWorkouts: 1 });
+      if (url.includes("/v6/users/user-1/workout-activities")) return json([plannerWorkout]);
+      if (url.includes("/strength-scores/current")) return json([]);
+      if (url.includes("/strength-scores/history")) return json([]);
+      return new Response("not found", { status: 404 });
+    };
+
+    const service = new TonalService({
+      email: "",
+      password: "",
+      tokenPath,
+      dataPath,
+      requestDelayMs: 0,
+      fetchImpl,
+    });
+    const app = new Hono();
+    registerTonalRoutes(app, service);
+
+    const response = await app.request("/tonal/data");
+    const body = (await response.json()) as {
+      workouts: Record<string, {
+        beginTime?: string;
+        endTime?: string;
+        totalDuration?: number;
+        totalVolume?: number;
+        workoutSetActivity?: Array<Record<string, unknown>>;
+      }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.workouts["workout-string-id"]?.beginTime).toBe("2026-04-05T10:00:00Z");
+    expect(body.workouts["workout-string-id"]?.totalDuration).toBe(2100);
+    expect(body.workouts["workout-string-id"]?.totalVolume).toBe(12450);
+    expect(body.workouts["workout-string-id"]?.workoutSetActivity?.[0]?.movementId).toBe("8edc0211-4594-4e5e-8e1b-b05dfc1d67c7");
+    expect(body.workouts["workout-string-id"]?.workoutSetActivity?.[0]?.repCount).toBe(8);
+    expect(body.workouts["workout-string-id"]?.workoutSetActivity?.[0]?.avgWeight).toBe(55);
+  });
+
   it("self-heals after unauthorized and retries once", async () => {
     const dir = await makeTempDir();
     dirs.push(dir);
