@@ -1,0 +1,75 @@
+{
+  "": {
+    "swift-dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/master.swiftdeps"
+  },
+  "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/HealthBridge/Models/HealthMetrics.swift": {
+    "dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthMetrics.d",
+    "object": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthMetrics.swift.o",
+    "swiftmodule": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthMetrics~partial.swiftmodule",
+    "swift-dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthMetrics.swiftdeps",
+    "diagnostics": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthMetrics.dia"
+  },
+  "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/HealthBridge/Models/HealthPayload.swift": {
+    "dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthPayload.d",
+    "object": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthPayload.swift.o",
+    "swiftmodule": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthPayload~partial.swiftmodule",
+    "swift-dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthPayload.swiftdeps",
+    "diagnostics": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthPayload.dia"
+  },
+  "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/HealthBridge/Models/ServerConfig.swift": {
+    "dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/ServerConfig.d",
+    "object": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/ServerConfig.swift.o",
+    "swiftmodule": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/ServerConfig~partial.swiftmodule",
+    "swift-dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/ServerConfig.swiftdeps",
+    "diagnostics": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/ServerConfig.dia"
+  },
+  "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/HealthBridge/Models/SyncResult.swift": {
+    "dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/SyncResult.d",
+    "object": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/SyncResult.swift.o",
+    "swiftmodule": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/SyncResult~partial.swiftmodule",
+    "swift-dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/SyncResult.swiftdeps",
+    "diagnostics": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/SyncResult.dia"
+  },
+  "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/HealthBridge/Protocols/HealthKitServiceProtocol.swift": {
+    "dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthKitServiceProtocol.d",
+    "object": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthKitServiceProtocol.swift.o",
+    "swiftmodule": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthKitServiceProtocol~partial.swiftmodule",
+    "swift-dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthKitServiceProtocol.swiftdeps",
+    "diagnostics": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HealthKitServiceProtocol.dia"
+  },
+  "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/HealthBridge/Protocols/NetworkServiceProtocol.swift": {
+    "dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/NetworkServiceProtocol.d",
+    "object": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/NetworkServiceProtocol.swift.o",
+    "swiftmodule": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/NetworkServiceProtocol~partial.swiftmodule",
+    "swift-dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/NetworkServiceProtocol.swiftdeps",
+    "diagnostics": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/NetworkServiceProtocol.dia"
+  },
+  "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/HealthBridge/Services/AppleHealthExportBuilder.swift": {
+    "dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/AppleHealthExportBuilder.d",
+    "object": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/AppleHealthExportBuilder.swift.o",
+    "swiftmodule": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/AppleHealthExportBuilder~partial.swiftmodule",
+    "swift-dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/AppleHealthExportBuilder.swiftdeps",
+    "diagnostics": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/AppleHealthExportBuilder.dia"
+  },
+  "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/HealthBridge/Services/NetworkService.swift": {
+    "dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/NetworkService.d",
+    "object": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/NetworkService.swift.o",
+    "swiftmodule": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/NetworkService~partial.swiftmodule",
+    "swift-dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/NetworkService.swiftdeps",
+    "diagnostics": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/NetworkService.dia"
+  },
+  "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/HealthBridge/ViewModels/HomeViewModel.swift": {
+    "dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HomeViewModel.d",
+    "object": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HomeViewModel.swift.o",
+    "swiftmodule": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HomeViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HomeViewModel.swiftdeps",
+    "diagnostics": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/HomeViewModel.dia"
+  },
+  "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/HealthBridge/ViewModels/SettingsViewModel.swift": {
+    "dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/SettingsViewModel.d",
+    "object": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/SettingsViewModel.swift.o",
+    "swiftmodule": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/SettingsViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/SettingsViewModel.swiftdeps",
+    "diagnostics": "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridge.build/SettingsViewModel.dia"
+  }
+}

@@ -1,0 +1,3 @@
+module HealthBridgePackageTests {
+    header "/Users/hd/Developer/cortana-external/apps/health-bridge-ios/.build/arm64-apple-macosx/debug/HealthBridgePackageTests.build/include/HealthBridgePackageTests-Swift.h"
+}

@@ -1,0 +1,406 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		09CDAE3FDBC48E35806CFFAB /* HomeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4749C8914C363017444D41D9 /* HomeViewModel.swift */; };
+		3D5ABDCD69955C3576B92F44 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9263EDA17BCFD18E3E4294B4 /* SettingsView.swift */; };
+		55349074D7691134BCF2D279 /* HealthKitServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5E1A7871305646B2FAA0BA /* HealthKitServiceProtocol.swift */; };
+		61D6C4363E93649204C7AC31 /* HealthKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C7BB531C76D33D767BEAEA /* HealthKitService.swift */; };
+		689DA4D927431E461E40CE99 /* BackgroundSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68F32E2E50D83BBF2FD46C8 /* BackgroundSyncManager.swift */; };
+		6C7B81E4F3974E85B0E3AB01 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB84A20AF27043F6895B45AA /* ContentView.swift */; };
+		9BDF446C96281FFC0DF8A950 /* HealthBridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD20CB6D9ECD8580A75AC516 /* HealthBridgeApp.swift */; };
+		9F1BEAB65306F806F75C28B2 /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 298EC68DC662FB90832AF015 /* SettingsViewModel.swift */; };
+		A8A0B1904DAB28B3641EB252 /* ServerConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A71FD4F3FB0FC13FD953D19 /* ServerConfig.swift */; };
+		ACD58C46D55EA57CDB638B7E /* DebugViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B58F28E6479129C992EE96B9 /* DebugViewModel.swift */; };
+		C6A4CBF5A6258115FB4FD898 /* HealthMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3D670F33F170B287A8974F3 /* HealthMetrics.swift */; };
+		C91A54FA298EA9ED417F9201 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A492043B579BCD58950C4D1 /* HomeView.swift */; };
+		CD587B04C3BCBC28B93B191E /* HealthPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FD1F8D14B84BD137E7AA195 /* HealthPayload.swift */; };
+		D102A771C496E8F0E7CD6F40 /* DebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29BE563A1C2EF602E0EBF909 /* DebugView.swift */; };
+		D247D4E5D260ABFB128EDBAD /* SyncResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4DBE9F4D5F5EB26B5AE3C15 /* SyncResult.swift */; };
+		DB58AAA34CE36D4E871C67F0 /* AppleHealthExportBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 314D4535767129C4CA2A5980 /* AppleHealthExportBuilder.swift */; };
+		E770C1450B0A0B63200BE6FC /* NetworkServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48029C779B882B9D647A927F /* NetworkServiceProtocol.swift */; };
+		F413F1C4C86E31C7CDFF7143 /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15E997B71CA113DDF5267356 /* NetworkService.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		02AC71CF4B748F47B17F6C14 /* HealthBridge.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HealthBridge.entitlements; sourceTree = "<group>"; };
+		15E997B71CA113DDF5267356 /* NetworkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkService.swift; sourceTree = "<group>"; };
+		298EC68DC662FB90832AF015 /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModel.swift; sourceTree = "<group>"; };
+		29BE563A1C2EF602E0EBF909 /* DebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugView.swift; sourceTree = "<group>"; };
+		314D4535767129C4CA2A5980 /* AppleHealthExportBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleHealthExportBuilder.swift; sourceTree = "<group>"; };
+		31A759280715F6FBBAB133C7 /* HealthBridge.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HealthBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3FD1F8D14B84BD137E7AA195 /* HealthPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthPayload.swift; sourceTree = "<group>"; };
+		4749C8914C363017444D41D9 /* HomeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeViewModel.swift; sourceTree = "<group>"; };
+		48029C779B882B9D647A927F /* NetworkServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkServiceProtocol.swift; sourceTree = "<group>"; };
+		4A492043B579BCD58950C4D1 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		9263EDA17BCFD18E3E4294B4 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		9A71FD4F3FB0FC13FD953D19 /* ServerConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfig.swift; sourceTree = "<group>"; };
+		A68F32E2E50D83BBF2FD46C8 /* BackgroundSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundSyncManager.swift; sourceTree = "<group>"; };
+		AD20CB6D9ECD8580A75AC516 /* HealthBridgeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthBridgeApp.swift; sourceTree = "<group>"; };
+		B4DBE9F4D5F5EB26B5AE3C15 /* SyncResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncResult.swift; sourceTree = "<group>"; };
+		B58F28E6479129C992EE96B9 /* DebugViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugViewModel.swift; sourceTree = "<group>"; };
+		C906A15FBB198A03265ABBD0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D2C7BB531C76D33D767BEAEA /* HealthKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitService.swift; sourceTree = "<group>"; };
+		D3D670F33F170B287A8974F3 /* HealthMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMetrics.swift; sourceTree = "<group>"; };
+		DC5E1A7871305646B2FAA0BA /* HealthKitServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitServiceProtocol.swift; sourceTree = "<group>"; };
+		EB84A20AF27043F6895B45AA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0820CCF82E60ABDD3CE5580C /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				314D4535767129C4CA2A5980 /* AppleHealthExportBuilder.swift */,
+				A68F32E2E50D83BBF2FD46C8 /* BackgroundSyncManager.swift */,
+				D2C7BB531C76D33D767BEAEA /* HealthKitService.swift */,
+				15E997B71CA113DDF5267356 /* NetworkService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		3A0FCDB3E203A720986930F1 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				31A759280715F6FBBAB133C7 /* HealthBridge.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4A58DD46E9B38FAD7DC0E462 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				D3D670F33F170B287A8974F3 /* HealthMetrics.swift */,
+				3FD1F8D14B84BD137E7AA195 /* HealthPayload.swift */,
+				9A71FD4F3FB0FC13FD953D19 /* ServerConfig.swift */,
+				B4DBE9F4D5F5EB26B5AE3C15 /* SyncResult.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		69BA99135CF1D31BE6AC1DCB = {
+			isa = PBXGroup;
+			children = (
+				C37769715314274CEBE70E11 /* HealthBridge */,
+				3A0FCDB3E203A720986930F1 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7B4780125A266B312A6E3815 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				29BE563A1C2EF602E0EBF909 /* DebugView.swift */,
+				4A492043B579BCD58950C4D1 /* HomeView.swift */,
+				9263EDA17BCFD18E3E4294B4 /* SettingsView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		AAEA408FD9FBEE7CC3BCFB7D /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				B58F28E6479129C992EE96B9 /* DebugViewModel.swift */,
+				4749C8914C363017444D41D9 /* HomeViewModel.swift */,
+				298EC68DC662FB90832AF015 /* SettingsViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		BCAA21E56B57870D77EC2AD7 /* Protocols */ = {
+			isa = PBXGroup;
+			children = (
+				DC5E1A7871305646B2FAA0BA /* HealthKitServiceProtocol.swift */,
+				48029C779B882B9D647A927F /* NetworkServiceProtocol.swift */,
+			);
+			path = Protocols;
+			sourceTree = "<group>";
+		};
+		C37769715314274CEBE70E11 /* HealthBridge */ = {
+			isa = PBXGroup;
+			children = (
+				EB84A20AF27043F6895B45AA /* ContentView.swift */,
+				02AC71CF4B748F47B17F6C14 /* HealthBridge.entitlements */,
+				AD20CB6D9ECD8580A75AC516 /* HealthBridgeApp.swift */,
+				C906A15FBB198A03265ABBD0 /* Info.plist */,
+				4A58DD46E9B38FAD7DC0E462 /* Models */,
+				BCAA21E56B57870D77EC2AD7 /* Protocols */,
+				0820CCF82E60ABDD3CE5580C /* Services */,
+				AAEA408FD9FBEE7CC3BCFB7D /* ViewModels */,
+				7B4780125A266B312A6E3815 /* Views */,
+			);
+			path = HealthBridge;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		76E497C4EA2FDA64EEB0C989 /* HealthBridge */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 25290398247119839496DC01 /* Build configuration list for PBXNativeTarget "HealthBridge" */;
+			buildPhases = (
+				427B31C56C5370FADC7D643A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HealthBridge;
+			packageProductDependencies = (
+			);
+			productName = HealthBridge;
+			productReference = 31A759280715F6FBBAB133C7 /* HealthBridge.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F9BA3F44467F02A5CF2A3AD7 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					76E497C4EA2FDA64EEB0C989 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 1A18396240EBD065E0AB9C14 /* Build configuration list for PBXProject "HealthBridge" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 69BA99135CF1D31BE6AC1DCB;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 3A0FCDB3E203A720986930F1 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				76E497C4EA2FDA64EEB0C989 /* HealthBridge */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		427B31C56C5370FADC7D643A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DB58AAA34CE36D4E871C67F0 /* AppleHealthExportBuilder.swift in Sources */,
+				689DA4D927431E461E40CE99 /* BackgroundSyncManager.swift in Sources */,
+				6C7B81E4F3974E85B0E3AB01 /* ContentView.swift in Sources */,
+				D102A771C496E8F0E7CD6F40 /* DebugView.swift in Sources */,
+				ACD58C46D55EA57CDB638B7E /* DebugViewModel.swift in Sources */,
+				9BDF446C96281FFC0DF8A950 /* HealthBridgeApp.swift in Sources */,
+				61D6C4363E93649204C7AC31 /* HealthKitService.swift in Sources */,
+				55349074D7691134BCF2D279 /* HealthKitServiceProtocol.swift in Sources */,
+				C6A4CBF5A6258115FB4FD898 /* HealthMetrics.swift in Sources */,
+				CD587B04C3BCBC28B93B191E /* HealthPayload.swift in Sources */,
+				C91A54FA298EA9ED417F9201 /* HomeView.swift in Sources */,
+				09CDAE3FDBC48E35806CFFAB /* HomeViewModel.swift in Sources */,
+				F413F1C4C86E31C7CDFF7143 /* NetworkService.swift in Sources */,
+				E770C1450B0A0B63200BE6FC /* NetworkServiceProtocol.swift in Sources */,
+				A8A0B1904DAB28B3641EB252 /* ServerConfig.swift in Sources */,
+				3D5ABDCD69955C3576B92F44 /* SettingsView.swift in Sources */,
+				9F1BEAB65306F806F75C28B2 /* SettingsViewModel.swift in Sources */,
+				D247D4E5D260ABFB128EDBAD /* SyncResult.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3EB9E140F86D3A2E9420844F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = HealthBridge/HealthBridge.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = HealthBridge/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cortana.healthbridge;
+				PRODUCT_NAME = HealthBridge;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		96BBA24AA6715DCC2490BDBF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		B88CE5F3499C10352CE29DCB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		D583F3525192D26C4F953C61 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = HealthBridge/HealthBridge.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = HealthBridge/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cortana.healthbridge;
+				PRODUCT_NAME = HealthBridge;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1A18396240EBD065E0AB9C14 /* Build configuration list for PBXProject "HealthBridge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				96BBA24AA6715DCC2490BDBF /* Debug */,
+				B88CE5F3499C10352CE29DCB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		25290398247119839496DC01 /* Build configuration list for PBXNativeTarget "HealthBridge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3EB9E140F86D3A2E9420844F /* Debug */,
+				D583F3525192D26C4F953C61 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = F9BA3F44467F02A5CF2A3AD7 /* Project object */;
+}

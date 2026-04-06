@@ -1,0 +1,38 @@
+name: HealthBridge
+options:
+  minimumXcodeGenVersion: 2.45.3
+targets:
+  HealthBridge:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: HealthBridge
+    entitlements:
+      path: HealthBridge/HealthBridge.entitlements
+    info:
+      path: HealthBridge/Info.plist
+      properties:
+        CFBundleDisplayName: HealthBridge
+        CFBundleShortVersionString: 0.2.0
+        CFBundleVersion: 1
+        LSApplicationCategoryType: public.app-category.healthcare-fitness
+        NSHealthShareUsageDescription: HealthBridge reads Apple Health data and syncs a local export to your private Spartan service.
+        NSLocalNetworkUsageDescription: HealthBridge connects to your private Spartan service on the local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        UIBackgroundModes:
+          - fetch
+        UILaunchScreen: {}
+    settings:
+      base:
+        SWIFT_VERSION: 6.0
+        PRODUCT_BUNDLE_IDENTIFIER: com.cortana.healthbridge
+        PRODUCT_NAME: HealthBridge
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+schemes:
+  HealthBridge:
+    build:
+      targets:
+        HealthBridge: all
