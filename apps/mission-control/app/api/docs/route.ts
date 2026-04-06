@@ -16,20 +16,47 @@ type DocContentResponse =
   | { status: "ok"; name: string; content: string }
   | { status: "error"; message: string };
 
+const getRepoRoot = () => path.resolve(process.cwd(), "..", "..");
 const getBacktesterRoot = () => path.resolve(process.cwd(), "..", "..", "backtester");
+const getExternalDocsRoot = () => path.join(getRepoRoot(), "docs");
 
 const toDocId = (section: string, relativePath: string) => `${section}:${relativePath}`;
 
-async function listDocs(docsRoot: string, section: string): Promise<DocEntry[]> {
+const toPosixPath = (value: string) => value.split(path.sep).join("/");
+const DOC_SECTION_ORDER = ["External Docs", "Backtester Docs", "OpenClaw Docs"] as const;
+
+async function collectDocs(
+  docsRoot: string,
+  section: string,
+  baseRoot = docsRoot,
+): Promise<DocEntry[]> {
   const entries = await fs.readdir(docsRoot, { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map((entry) => ({
-      id: toDocId(section, entry.name),
-      name: entry.name,
-      path: path.join(docsRoot, entry.name),
-      section,
-    }))
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const entryPath = path.join(docsRoot, entry.name);
+
+      if (entry.isDirectory()) {
+        return collectDocs(entryPath, section, baseRoot);
+      }
+
+      if (!entry.isFile() || !entry.name.endsWith(".md")) {
+        return [];
+      }
+
+      const relativePath = toPosixPath(path.relative(baseRoot, entryPath));
+      return [
+        {
+          id: toDocId(section, relativePath),
+          name: relativePath,
+          path: entryPath,
+          section,
+        },
+      ];
+    }),
+  );
+
+  return files
+    .flat()
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -38,7 +65,7 @@ async function listBacktesterDocs(backtesterRoot: string): Promise<DocEntry[]> {
   let files: DocEntry[] = [];
 
   try {
-    files = await listDocs(docsRoot, "Backtester Docs");
+    files = await collectDocs(docsRoot, "Backtester Docs", backtesterRoot);
   } catch {
     return [];
   }
@@ -64,14 +91,17 @@ async function listBacktesterDocs(backtesterRoot: string): Promise<DocEntry[]> {
 
 async function listAllDocs(): Promise<DocEntry[]> {
   const results = await Promise.allSettled([
-    listDocs(getDocsPath(), "OpenClaw Docs"),
+    collectDocs(getExternalDocsRoot(), "External Docs"),
     listBacktesterDocs(getBacktesterRoot()),
+    collectDocs(getDocsPath(), "OpenClaw Docs"),
   ]);
 
   const files = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
 
   return files.sort((a, b) => {
-    const sectionOrder = a.section.localeCompare(b.section);
+    const sectionOrder =
+      DOC_SECTION_ORDER.indexOf(a.section as (typeof DOC_SECTION_ORDER)[number]) -
+      DOC_SECTION_ORDER.indexOf(b.section as (typeof DOC_SECTION_ORDER)[number]);
     if (sectionOrder !== 0) return sectionOrder;
     return a.name.localeCompare(b.name);
   });
