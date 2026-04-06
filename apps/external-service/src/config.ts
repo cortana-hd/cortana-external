@@ -1,4 +1,5 @@
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
@@ -49,6 +50,8 @@ const ConfigSchema = z.object({
   TONAL_PASSWORD: z.string().default(""),
   TONAL_TOKEN_PATH: z.string().default("tonal_tokens.json"),
   TONAL_DATA_PATH: z.string().default("tonal_data.json"),
+  APPLE_HEALTH_DATA_PATH: z.string().default(path.join(os.homedir(), ".openclaw/data/apple-health/latest.json")),
+  APPLE_HEALTH_MAX_AGE_HOURS: z.coerce.number().positive().default(36),
   ALPACA_KEYS_PATH: z.string().default(""),
   ALPACA_TARGET_ENVIRONMENT: z.string().default("live"),
   CORTANA_DATABASE_URL: z.string().default("postgres://localhost:5432/cortana?sslmode=disable"),

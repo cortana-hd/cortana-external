@@ -1,4 +1,5 @@
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 import type { AppConfig } from "../config.js";
@@ -129,6 +130,8 @@ export class MarketDataService {
       TONAL_PASSWORD: "",
       TONAL_TOKEN_PATH: "tonal_tokens.json",
       TONAL_DATA_PATH: "tonal_data.json",
+      APPLE_HEALTH_DATA_PATH: path.join(os.homedir(), ".openclaw/data/apple-health/latest.json"),
+      APPLE_HEALTH_MAX_AGE_HOURS: 36,
       ALPACA_KEYS_PATH: "",
       ALPACA_TARGET_ENVIRONMENT: "live",
       CORTANA_DATABASE_URL: "postgres://localhost:5432/cortana?sslmode=disable",

@@ -6,6 +6,7 @@ describe("buildAggregateHealth", () => {
       whoop: { status: "healthy" },
       tonal: { status: "healthy" },
       alpaca: { status: "healthy" },
+      appleHealth: { status: "healthy" },
       marketData: { status: "healthy" },
     });
 
@@ -18,6 +19,7 @@ describe("buildAggregateHealth", () => {
       whoop: { status: "healthy" },
       tonal: { status: "unhealthy" },
       alpaca: { status: "healthy" },
+      appleHealth: { status: "healthy" },
       marketData: { status: "healthy" },
     });
 
@@ -30,6 +32,7 @@ describe("buildAggregateHealth", () => {
       whoop: { status: "ok" },
       tonal: { status: "unhealthy" },
       alpaca: { status: "unhealthy" },
+      appleHealth: { status: "unhealthy" },
       marketData: { status: "unhealthy" },
     });
 
