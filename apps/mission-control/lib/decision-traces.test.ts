@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import prisma from "@/lib/prisma";
-import { getTaskPrisma } from "@/lib/task-prisma";
+import { getTaskPrisma, isPrimaryDatabaseCortana } from "@/lib/task-prisma";
 import { getDecisionTraces } from "@/lib/decision-traces";
 
 vi.mock("@/lib/task-prisma", () => ({
   getTaskPrisma: vi.fn(),
+  isPrimaryDatabaseCortana: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -17,6 +18,7 @@ describe("lib/decision-traces", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getTaskPrisma).mockReturnValue(null);
+    vi.mocked(isPrimaryDatabaseCortana).mockReturnValue(false);
   });
 
   it("warns when the Cortana DB is not configured", async () => {
@@ -54,7 +56,43 @@ describe("lib/decision-traces", () => {
     expect(result.warning).toContain("CORTANA_DATABASE_URL is not configured");
     expect(result.traces).toHaveLength(1);
     const query = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0][0] as string;
-    expect(query).toContain("INTERVAL '720 hours'");
+    expect(query).toContain("INTERVAL '2160 hours'");
+  });
+
+  it("treats the primary Cortana DB as the canonical source without a warning", async () => {
+    const createdAt = new Date("2026-03-05T18:05:55.451Z");
+    vi.mocked(isPrimaryDatabaseCortana).mockReturnValue(true);
+    vi.mocked(prisma.$queryRawUnsafe).mockResolvedValueOnce([
+      {
+        id: 3,
+        trace_id: "trace-3",
+        event_id: null,
+        task_id: null,
+        run_id: "run-3",
+        trigger_type: "cron",
+        action_type: "email_triage",
+        action_name: "digest",
+        reasoning: "Queued digest",
+        confidence: 0.74,
+        outcome: "success",
+        data_inputs: {},
+        metadata: {},
+        created_at: createdAt,
+        completed_at: createdAt,
+        trigger_timestamp: null,
+        trigger_source: null,
+        trigger_event_type: null,
+        trigger_severity: null,
+        trigger_message: null,
+        trigger_metadata: null,
+      },
+    ]);
+
+    const result = await getDecisionTraces();
+
+    expect(result.source).toBe("cortana");
+    expect(result.warning).toBeUndefined();
+    expect(result.traces[0]?.traceId).toBe("trace-3");
   });
 
   it("falls back to mission-control DB when Cortana query fails", async () => {

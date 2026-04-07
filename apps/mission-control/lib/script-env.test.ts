@@ -30,7 +30,7 @@ describe("script env helpers", () => {
       "DATABASE_URL=postgresql://loaded\nCORTANA_DATABASE_URL=postgresql://cortana\n",
     );
 
-    const env = loadMissionControlScriptEnv(root, { DATABASE_URL: "postgresql://explicit" });
+    const env = loadMissionControlScriptEnv(root, { ...process.env, DATABASE_URL: "postgresql://explicit" });
 
     expect(env.DATABASE_URL).toBe("postgresql://explicit");
     expect(env.CORTANA_DATABASE_URL).toBe("postgresql://cortana");

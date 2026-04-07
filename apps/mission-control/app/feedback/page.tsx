@@ -68,6 +68,15 @@ export default async function FeedbackPage({
     highlightedItem && !items.some((item) => item.id === highlightedItem.id)
       ? [highlightedItem, ...items]
       : items;
+  const hasCustomFilters = Boolean(
+    params.status
+      || params.remediationStatus
+      || params.severity
+      || params.category
+      || params.source
+      || params.rangeHours
+      || params.limit,
+  );
 
   const categories = Array.from(new Set(visibleItems.map((item) => item.category))).sort();
   const maxDaily = Math.max(1, ...metrics.dailyCorrections.map((point) => point.count));
@@ -190,7 +199,9 @@ export default async function FeedbackPage({
           <Card>
             <CardContent className="py-8">
               <p className="text-sm text-muted-foreground">
-                No feedback items match the current filters. Try widening the range or switching the source filter.
+                {hasCustomFilters
+                  ? "No feedback items match the current filters. Try widening the range or switching the source filter."
+                  : "No feedback signals have been recorded yet. This inbox fills when user, system, or evaluator feedback is ingested."}
               </p>
             </CardContent>
           </Card>

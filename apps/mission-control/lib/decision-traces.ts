@@ -1,5 +1,5 @@
 import prisma from "@/lib/prisma";
-import { getTaskPrisma } from "@/lib/task-prisma";
+import { getTaskPrisma, isPrimaryDatabaseCortana } from "@/lib/task-prisma";
 
 export type DecisionFilters = {
   rangeHours?: number;
@@ -71,7 +71,7 @@ const normalizeObject = (value: unknown): Record<string, unknown> => {
 
 const escapeLiteral = (value: string) => value.replaceAll("'", "''");
 const clampDecisionRangeHours = (rangeHours?: number) =>
-  Math.max(1, Math.min(rangeHours ?? 24 * 30, 24 * 90));
+  Math.max(1, Math.min(rangeHours ?? 24 * 90, 24 * 90));
 
 const normalizeOutcome = (value?: string) => {
   const normalized = (value || "").toLowerCase();
@@ -193,6 +193,7 @@ export async function getDecisionTraces(filters: DecisionFilters = {}): Promise<
   warning?: string;
 }> {
   const taskPrisma = getTaskPrisma();
+  const primaryDatabaseIsCortana = !taskPrisma && isPrimaryDatabaseCortana();
   const preferred = taskPrisma ?? prisma;
 
   const limit = Math.max(1, Math.min(filters.limit ?? 100, 500));
@@ -261,8 +262,8 @@ export async function getDecisionTraces(filters: DecisionFilters = {}): Promise<
     client.$queryRawUnsafe<DecisionRow[]>(query);
 
   let rows: DecisionRow[] = [];
-  let source: "cortana" | "app" = taskPrisma ? "cortana" : "app";
-  let warning: string | undefined = taskPrisma
+  let source: "cortana" | "app" = taskPrisma || primaryDatabaseIsCortana ? "cortana" : "app";
+  let warning: string | undefined = taskPrisma || primaryDatabaseIsCortana
     ? undefined
     : "CORTANA_DATABASE_URL is not configured; showing decision traces from the Mission Control fallback database.";
 
