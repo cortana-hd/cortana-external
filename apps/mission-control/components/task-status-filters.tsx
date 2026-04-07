@@ -1,8 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Loader2, Sparkles, Zap } from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Clock, GripVertical, Loader2, Sparkles, Zap } from "lucide-react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  closestCorners,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TaskBoardTask } from "@/lib/data";
@@ -65,6 +77,23 @@ const priorityClass = (p: number) => {
 const formatDue = (date: Date) =>
   new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
 
+/* ── Droppable column wrapper ── */
+
+function DroppableColumn({ id, children }: { id: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "kanban-column min-h-[12rem] transition-shadow",
+        isOver && "ring-2 ring-primary/30 shadow-md",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function TaskStatusFilters({
   activeTasks,
   initialCompletedTasks,
@@ -87,12 +116,120 @@ export function TaskStatusFilters({
   /* mobile: track which column is expanded */
   const [mobileExpanded, setMobileExpanded] = useState<string>("ready");
 
+  /* ── Drag-and-drop state ── */
+  const [localActiveTasks, setLocalActiveTasks] = useState<TaskBoardTask[]>(activeTasks);
+  const [localCompletedTasks, setLocalCompletedTasks] = useState<TaskBoardTask[]>(initialCompletedTasks);
+  const [activeTask, setActiveTask] = useState<TaskBoardTask | null>(null);
+  const [activeColumn, setActiveColumn] = useState<string | null>(null);
+
+  // Keep local state in sync when props change (server revalidation)
+  const prevActiveRef = useRef(activeTasks);
+  const prevCompletedRef = useRef(initialCompletedTasks);
+  if (prevActiveRef.current !== activeTasks) {
+    prevActiveRef.current = activeTasks;
+    setLocalActiveTasks(activeTasks);
+  }
+  if (prevCompletedRef.current !== initialCompletedTasks) {
+    prevCompletedRef.current = initialCompletedTasks;
+    setLocalCompletedTasks(initialCompletedTasks);
+    setCompletedTasks(initialCompletedTasks);
+  }
+
+  const pointerSensor = useSensor(PointerSensor, {
+    activationConstraint: { distance: 8 },
+  });
+  const touchSensor = useSensor(TouchSensor, {
+    activationConstraint: { delay: 250, tolerance: 5 },
+  });
+  const sensors = useSensors(pointerSensor, touchSensor);
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const task = event.active.data.current?.task as TaskBoardTask | undefined;
+    const column = event.active.data.current?.column as string | undefined;
+    setActiveTask(task ?? null);
+    setActiveColumn(column ?? null);
+  }, []);
+
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event;
+      setActiveTask(null);
+      setActiveColumn(null);
+
+      if (!over) return;
+
+      const task = active.data.current?.task as TaskBoardTask;
+      const fromColumn = active.data.current?.column as string;
+      const toColumn = over.id as string;
+
+      if (fromColumn === toColumn || !task) return;
+
+      // ── Optimistic update ──
+      const dbStatus = toColumn === "done" ? "completed" : toColumn;
+      const updatedTask: TaskBoardTask = {
+        ...task,
+        status: dbStatus,
+        completedAt: toColumn === "done" ? new Date() : null,
+      };
+
+      // Remove from source
+      if (fromColumn === "done") {
+        setLocalCompletedTasks((prev) => prev.filter((t) => t.id !== task.id));
+        setCompletedTasks((prev) => prev.filter((t) => t.id !== task.id));
+        setPagination((prev) => ({ ...prev, total: Math.max(0, prev.total - 1) }));
+      } else {
+        setLocalActiveTasks((prev) => prev.filter((t) => t.id !== task.id));
+      }
+
+      // Add to destination
+      if (toColumn === "done") {
+        setLocalCompletedTasks((prev) => [updatedTask, ...prev]);
+        setCompletedTasks((prev) => [updatedTask, ...prev]);
+        setPagination((prev) => ({ ...prev, total: prev.total + 1 }));
+      } else {
+        setLocalActiveTasks((prev) => [...prev, updatedTask]);
+      }
+
+      // ── API call ──
+      try {
+        const res = await fetch("/api/task-board", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId: task.id, status: toColumn }),
+        });
+        if (!res.ok) {
+          throw new Error(`PATCH failed: ${res.status}`);
+        }
+      } catch (error) {
+        console.error("Failed to update task status:", error);
+
+        // ── Revert optimistic update ──
+        if (toColumn === "done") {
+          setLocalCompletedTasks((prev) => prev.filter((t) => t.id !== task.id));
+          setCompletedTasks((prev) => prev.filter((t) => t.id !== task.id));
+          setPagination((prev) => ({ ...prev, total: Math.max(0, prev.total - 1) }));
+        } else {
+          setLocalActiveTasks((prev) => prev.filter((t) => t.id !== task.id));
+        }
+
+        if (fromColumn === "done") {
+          setLocalCompletedTasks((prev) => [task, ...prev]);
+          setCompletedTasks((prev) => [task, ...prev]);
+          setPagination((prev) => ({ ...prev, total: prev.total + 1 }));
+        } else {
+          setLocalActiveTasks((prev) => [...prev, task]);
+        }
+      }
+    },
+    [],
+  );
+
   const columnData = useMemo(() => {
     return COLUMNS.map((col) => {
-      const tasks = col.key === "done" ? completedTasks : activeTasks.filter(col.filter);
+      const tasks = col.key === "done" ? localCompletedTasks : localActiveTasks.filter(col.filter);
       return { ...col, tasks, count: col.key === "done" ? pagination.total : tasks.length };
     });
-  }, [activeTasks, completedTasks, pagination.total]);
+  }, [localActiveTasks, localCompletedTasks, pagination.total]);
 
   const canLoadMore = pagination.hasMore && !loadingMore;
 
@@ -146,65 +283,87 @@ export function TaskStatusFilters({
         </div>
       )}
 
-      {/* Desktop: horizontal kanban columns */}
-      <div className="hidden md:grid md:grid-cols-4 md:gap-3">
-        {columnData.map((col) => (
-          <div key={col.key} className="kanban-column min-h-[12rem]">
-            <div className="kanban-column-header">
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">{col.icon}</span>
-                <span className="text-sm font-semibold">{col.label}</span>
+      {/* Desktop: horizontal kanban columns with drag-and-drop */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="hidden md:grid md:grid-cols-4 md:gap-3">
+          {columnData.map((col) => (
+            <DroppableColumn key={col.key} id={col.key}>
+              <div className="kanban-column-header">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">{col.icon}</span>
+                  <span className="text-sm font-semibold">{col.label}</span>
+                </div>
+                <Badge variant="secondary" className="text-[10px]">{col.count}</Badge>
               </div>
-              <Badge variant="secondary" className="text-[10px]">{col.count}</Badge>
-            </div>
-            <div className="flex-1 space-y-2 p-2">
-              {col.key === "done" ? (
-                <>
-                  {doneCollapsed ? (
-                    <>
-                      {completedTasks.slice(0, 3).map((task) => (
-                        <KanbanCard key={task.id} task={task} compact />
-                      ))}
-                      {pagination.total > 3 && (
+              <div className="flex-1 space-y-2 p-2">
+                {col.key === "done" ? (
+                  <>
+                    {doneCollapsed ? (
+                      <>
+                        {completedTasks.slice(0, 3).map((task) => (
+                          <KanbanCard key={task.id} task={task} compact columnKey={col.key} />
+                        ))}
+                        {pagination.total > 3 && (
+                          <button
+                            type="button"
+                            onClick={() => setDoneCollapsed(false)}
+                            className="w-full rounded-md border border-dashed border-border/50 py-2 text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            Show {pagination.total - 3} more
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {completedTasks.map((task) => (
+                          <KanbanCard key={task.id} task={task} compact columnKey={col.key} />
+                        ))}
+                        {canLoadMore && (
+                          <Button type="button" size="sm" variant="outline" onClick={loadMoreCompleted} disabled={loadingMore} className="w-full text-xs">
+                            {loadingMore ? "Loading..." : `Load more (${completedTasks.length}/${pagination.total})`}
+                          </Button>
+                        )}
+                        {loadError && <p className="text-xs text-destructive">{loadError}</p>}
                         <button
                           type="button"
-                          onClick={() => setDoneCollapsed(false)}
-                          className="w-full rounded-md border border-dashed border-border/50 py-2 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => setDoneCollapsed(true)}
+                          className="w-full rounded-md border border-dashed border-border/50 py-1.5 text-xs text-muted-foreground hover:text-foreground"
                         >
-                          Show {pagination.total - 3} more
+                          Collapse
                         </button>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {completedTasks.map((task) => (
-                        <KanbanCard key={task.id} task={task} compact />
-                      ))}
-                      {canLoadMore && (
-                        <Button type="button" size="sm" variant="outline" onClick={loadMoreCompleted} disabled={loadingMore} className="w-full text-xs">
-                          {loadingMore ? "Loading..." : `Load more (${completedTasks.length}/${pagination.total})`}
-                        </Button>
-                      )}
-                      {loadError && <p className="text-xs text-destructive">{loadError}</p>}
-                      <button
-                        type="button"
-                        onClick={() => setDoneCollapsed(true)}
-                        className="w-full rounded-md border border-dashed border-border/50 py-1.5 text-xs text-muted-foreground hover:text-foreground"
-                      >
-                        Collapse
-                      </button>
-                    </>
-                  )}
-                </>
-              ) : col.tasks.length === 0 ? (
-                <p className="px-1 py-4 text-center text-xs text-muted-foreground">{col.empty}</p>
-              ) : (
-                col.tasks.map((task) => <KanbanCard key={task.id} task={task} />)
+                      </>
+                    )}
+                  </>
+                ) : col.tasks.length === 0 ? (
+                  <p className="px-1 py-4 text-center text-xs text-muted-foreground">{col.empty}</p>
+                ) : (
+                  col.tasks.map((task) => <KanbanCard key={task.id} task={task} columnKey={col.key} />)
+                )}
+              </div>
+            </DroppableColumn>
+          ))}
+        </div>
+
+        {/* Drag overlay: floating card following cursor */}
+        <DragOverlay dropAnimation={null}>
+          {activeTask ? (
+            <div className="kanban-card w-[280px] rotate-2 shadow-xl opacity-90">
+              <p className="truncate text-sm font-medium">{activeTask.title}</p>
+              {activeTask.description && (
+                <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{activeTask.description}</p>
               )}
+              <div className="mt-2 flex items-center gap-1">
+                <Badge variant="secondary" className="text-[10px]">P{activeTask.priority}</Badge>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {/* Mobile: collapsible column sections */}
       <div className="space-y-2 md:hidden">
@@ -254,7 +413,17 @@ export function TaskStatusFilters({
 
 /* ── Kanban card ── */
 
-function KanbanCard({ task, compact }: { task: TaskBoardTask; compact?: boolean }) {
+function KanbanCard({ task, compact, columnKey }: { task: TaskBoardTask; compact?: boolean; columnKey?: string }) {
+  const draggableId = `task-${task.id}`;
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: draggableId,
+    data: { task, column: columnKey },
+  });
+
+  const style: React.CSSProperties | undefined = transform
+    ? { transform: `translate(${transform.x}px, ${transform.y}px)` }
+    : undefined;
+
   const isOverdue = task.dueAt && task.dueAt < new Date();
 
   let pillar: string | null = null;
@@ -267,9 +436,28 @@ function KanbanCard({ task, compact }: { task: TaskBoardTask; compact?: boolean 
 
   if (compact) {
     return (
-      <div className={cn("kanban-card", priorityClass(task.priority))}>
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={cn(
+          "kanban-card group relative",
+          priorityClass(task.priority),
+          isDragging && "opacity-40",
+        )}
+        {...attributes}
+      >
         <div className="flex items-center justify-between gap-2">
-          <p className="min-w-0 truncate text-sm font-medium">{task.title}</p>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <button
+              type="button"
+              className="shrink-0 cursor-grab touch-none text-muted-foreground/50 opacity-0 transition-opacity hover:text-muted-foreground group-hover:opacity-100"
+              aria-label="Drag to move"
+              {...listeners}
+            >
+              <GripVertical className="h-3.5 w-3.5" />
+            </button>
+            <p className="min-w-0 truncate text-sm font-medium">{task.title}</p>
+          </div>
           {task.outcome && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />}
         </div>
         {task.outcome && (
@@ -285,10 +473,29 @@ function KanbanCard({ task, compact }: { task: TaskBoardTask; compact?: boolean 
   }
 
   return (
-    <div className={cn("kanban-card", priorityClass(task.priority))}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "kanban-card group relative",
+        priorityClass(task.priority),
+        isDragging && "opacity-40",
+      )}
+      {...attributes}
+    >
       {/* Title row */}
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 text-sm font-medium leading-tight">{task.title}</p>
+        <div className="flex min-w-0 items-start gap-1.5">
+          <button
+            type="button"
+            className="mt-0.5 shrink-0 cursor-grab touch-none text-muted-foreground/50 opacity-0 transition-opacity hover:text-muted-foreground group-hover:opacity-100"
+            aria-label="Drag to move"
+            {...listeners}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+          <p className="min-w-0 text-sm font-medium leading-tight">{task.title}</p>
+        </div>
         <div className="flex shrink-0 items-center gap-1">
           {task.autoExecutable && (
             <span title="Auto-executable"><Sparkles className="h-3.5 w-3.5 text-amber-500" /></span>

@@ -220,65 +220,55 @@ export function FitnessCard() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-            <div className="rounded-lg border border-border/60 bg-card/50 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Recovery score
-                </p>
-                <Badge variant={recoveryUi.badgeVariant} className="capitalize">
+            <div className="flex flex-col rounded-lg border border-border/60 bg-card/50 p-3">
+              <p className="min-h-[1.5rem] text-xs uppercase tracking-wide text-muted-foreground">Recovery score</p>
+              <p className="font-mono text-2xl font-semibold text-foreground">
+                {hasData ? recovery?.score ?? "—" : "—"}
+              </p>
+              <div className="mt-1 flex items-center gap-2">
+                <Badge variant={recoveryUi.badgeVariant} className="capitalize text-[10px]">
                   <span className={cn("h-1.5 w-1.5 rounded-full", recoveryUi.dotClass)} />
                   {recoveryUi.label}
                 </Badge>
-              </div>
-              <p className="mt-3 text-2xl font-semibold text-foreground">
-                {hasData ? recovery?.score ?? "—" : "—"}
-              </p>
-              <p className={cn("text-xs", recoveryUi.textClass)}>
-                {hasData
-                  ? recovery?.recordedAt
+                <p className={cn("text-[11px]", recoveryUi.textClass)}>
+                  {hasData && recovery?.recordedAt
                     ? `Recorded ${new Date(recovery.recordedAt).toLocaleTimeString()}`
-                    : "No recent recovery"
-                  : "No data yet"}
-              </p>
+                    : ""}
+                </p>
+              </div>
             </div>
 
-            <div className="rounded-lg border border-border/60 bg-card/50 p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Sleep</p>
-              <p className="mt-3 text-2xl font-semibold text-foreground">
+            <div className="flex flex-col rounded-lg border border-border/60 bg-card/50 p-3">
+              <p className="min-h-[1.5rem] text-xs uppercase tracking-wide text-muted-foreground">Sleep</p>
+              <p className="font-mono text-2xl font-semibold text-foreground">
                 {hasData ? formatDuration(sleep?.durationSeconds ?? null) : "—"}
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="mt-1 text-[11px] text-muted-foreground">
                 Performance {hasData ? formatPercent(sleep?.performance ?? null) : "—"}
               </p>
             </div>
 
-            <div className="rounded-lg border border-border/60 bg-card/50 p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Workouts</p>
-              <p className="mt-3 text-2xl font-semibold text-foreground">
-                {hasData ? (todayWorkoutCount > 0 ? todayWorkoutCount : "Rest day") : "—"}
+            <div className="flex flex-col rounded-lg border border-border/60 bg-card/50 p-3">
+              <p className="min-h-[1.5rem] text-xs uppercase tracking-wide text-muted-foreground">Workouts</p>
+              <p className="font-mono text-2xl font-semibold text-foreground">
+                {hasData ? (todayWorkoutCount > 0 ? todayWorkoutCount : "0") : "—"}
               </p>
-              <p className="text-xs text-muted-foreground">Today</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">Today</p>
             </div>
 
-            <div className="rounded-lg border border-border/60 bg-card/50 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Active alerts
-                </p>
+            <div className="flex flex-col rounded-lg border border-border/60 bg-card/50 p-3">
+              <p className="min-h-[1.5rem] text-xs uppercase tracking-wide text-muted-foreground">Active alerts</p>
+              <p className="font-mono text-2xl font-semibold text-foreground">
+                {hasData ? activeAlerts : "—"}
+              </p>
+              <div className="mt-1">
                 <Badge
-                  variant={
-                    hasData ? (topSeverity ? severityVariant(topSeverity) : "success") : "outline"
-                  }
+                  variant={hasData ? (topSeverity ? severityVariant(topSeverity) : "success") : "outline"}
+                  className="text-[10px]"
                 >
                   {hasData ? (topSeverity ? topSeverity : "All clear") : "No data"}
                 </Badge>
               </div>
-              <p className="mt-3 text-2xl font-semibold text-foreground">
-                {hasData ? activeAlerts : "—"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {activeAlerts === 1 ? "Alert" : "Alerts"}
-              </p>
             </div>
           </div>
         )}

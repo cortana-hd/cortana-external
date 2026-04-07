@@ -101,10 +101,10 @@ export default async function Home() {
 
       {/* ── Row 1b: Live Indicators ── */}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <HeartbeatPulse />
-        <ThinkingIndicator />
-        <DbStatus />
-        <AutonomyGauge />
+        <Link href="/services"><HeartbeatPulse /></Link>
+        <Link href="/services"><ThinkingIndicator /></Link>
+        <Link href="/services"><DbStatus /></Link>
+        <Link href="/services"><AutonomyGauge /></Link>
       </div>
 
       {/* ── Row 2: Key Metrics Strip ── */}
@@ -128,6 +128,7 @@ export default async function Home() {
           value={String(openAlerts)}
           detail={`${data.metrics.alerts.total} total logged`}
           tone={openAlerts > 0 ? "red" : "emerald"}
+          href="/services"
         />
         <MetricCard
           label="Failed (24h)"
@@ -140,13 +141,13 @@ export default async function Home() {
 
       {/* ── Row 3: Today Stats + Fitness ── */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr]">
-        <TodayStatsCard />
-        <FitnessCard />
+        <Link href="/services" className="block"><TodayStatsCard /></Link>
+        <Link href="/mjolnir" className="block"><FitnessCard /></Link>
       </div>
 
       {/* ── Row 4: Reliability + Quick Actions ── */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr]">
-        <ReliabilitySloCard />
+        <Link href="/services" className="block"><ReliabilitySloCard /></Link>
         <QuickActionsCard />
       </div>
 
@@ -233,7 +234,10 @@ export default async function Home() {
         {/* Activity Feed */}
         <Card className="flex min-w-0 flex-col gap-3 overflow-hidden py-4">
           <CardHeader className="gap-1 px-5">
-            <CardTitle className="text-sm font-semibold uppercase tracking-wide">Activity Feed</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold uppercase tracking-wide">Activity Feed</CardTitle>
+              <Link href="/services" className="text-xs text-muted-foreground hover:text-foreground hover:underline">View logs</Link>
+            </div>
           </CardHeader>
           <CardContent className="flex min-w-0 flex-1 flex-col px-5">
             <ActivityFeed />

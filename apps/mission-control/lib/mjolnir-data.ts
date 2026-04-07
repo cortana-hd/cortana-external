@@ -57,6 +57,33 @@ export type FitnessSummary = {
   };
   alerts: FitnessAlert[];
   alertHistory: FitnessAlert[];
+  body: {
+    heightM: number | null;
+    weightKg: number | null;
+    maxHeartRate: number | null;
+  };
+  tonal: {
+    available: boolean;
+    workoutCount: number;
+    lastUpdated: string | null;
+    strengthScores: Array<{ label: string; value: number }>;
+    recentWorkouts: Array<{
+      id: string;
+      startTime: string | null;
+      duration: number | null;
+      movementCount: number;
+      totalVolume: number;
+      topMovements: Array<{ name: string; reps: number; weight: number }>;
+    }>;
+  };
+};
+
+type TonalDataLike = {
+  profile?: Record<string, unknown>;
+  workouts?: Record<string, Record<string, unknown>>;
+  workout_count?: number;
+  strength_scores?: { current?: Array<Record<string, unknown>>; history?: Array<Record<string, unknown>> } | null;
+  last_updated?: string;
 };
 
 export type FitnessResponse =
@@ -249,10 +276,88 @@ const toAlert = (
 });
 
 // ---------------------------------------------------------------------------
+// Tonal summary builder
+// ---------------------------------------------------------------------------
+
+function buildTonalSummary(data?: TonalDataLike) {
+  if (!data) return { available: false, workoutCount: 0, lastUpdated: null, strengthScores: [], recentWorkouts: [] };
+
+  // Strength scores: each entry has bodyRegionDisplay + score, with familyActivity for muscle groups
+  const rawScores = data.strength_scores?.current ?? [];
+  const strengthScores: Array<{ label: string; value: number }> = [];
+  for (const region of rawScores) {
+    const regionLabel = pickString(region, ["bodyRegionDisplay", "strengthBodyRegion"]);
+    const regionScore = pickNumber(region, ["score"]);
+    if (regionLabel && regionScore) strengthScores.push({ label: regionLabel, value: Math.round(regionScore) });
+
+    // Also extract per-muscle-group scores from familyActivity
+    const families = Array.isArray(region.familyActivity) ? region.familyActivity as Array<Record<string, unknown>> : [];
+    for (const family of families) {
+      const familyLabel = pickString(family, ["strengthFamily", "name"]);
+      const familyScore = pickNumber(family, ["score"]);
+      if (familyLabel && familyScore) strengthScores.push({ label: familyLabel, value: Math.round(familyScore) });
+    }
+  }
+
+  // Workouts: use beginTime for date, totalMovements/totalVolume/totalReps for stats
+  const workoutEntries = Object.values(data.workouts ?? {});
+  const recentWorkouts = workoutEntries
+    .sort((a, b) => {
+      const aTime = parseDateValue(a.beginTime ?? a.startTime)?.getTime() ?? 0;
+      const bTime = parseDateValue(b.beginTime ?? b.startTime)?.getTime() ?? 0;
+      return bTime - aTime;
+    })
+    .slice(0, 5)
+    .map((w) => {
+      const movementCount = pickNumber(w, ["totalMovements"]) ?? 0;
+      const totalVolume = pickNumber(w, ["totalVolume"]) ?? 0;
+      const totalReps = pickNumber(w, ["totalReps"]) ?? 0;
+
+      // Extract top movements from workoutSetActivity (group by movementId, aggregate)
+      const sets = Array.isArray(w.workoutSetActivity) ? w.workoutSetActivity as Array<Record<string, unknown>> : [];
+      const byMovement = new Map<string, { name: string; reps: number; maxWeight: number; volume: number }>();
+      for (const set of sets) {
+        const movId = pickString(set, ["movementId"]) ?? "unknown";
+        const existing = byMovement.get(movId) ?? { name: movId, reps: 0, maxWeight: 0, volume: 0 };
+        const reps = pickNumber(set, ["prescribedReps", "reps"]) ?? 0;
+        const weight = pickNumber(set, ["weight", "weightPercentage"]) ?? 0;
+        existing.reps += reps;
+        if (weight > existing.maxWeight) existing.maxWeight = weight;
+        existing.volume += reps * weight;
+        byMovement.set(movId, existing);
+      }
+      const topMovements = [...byMovement.values()]
+        .sort((a, b) => b.volume - a.volume)
+        .slice(0, 3)
+        .map((m) => ({ name: m.name, reps: m.reps, weight: m.maxWeight }));
+
+      return {
+        id: pickString(w, ["id"]) ?? String(Math.random()),
+        startTime: pickString(w, ["beginTime", "startTime"]) ?? null,
+        duration: pickNumber(w, ["totalDuration", "activeDuration", "duration"]) ?? null,
+        movementCount,
+        totalVolume: Math.round(totalVolume),
+        topMovements,
+      };
+    });
+
+  // Use profile.totalWorkouts if available, fallback to workout_count
+  const profileWorkouts = data.profile ? pickNumber(data.profile as Record<string, unknown>, ["totalWorkouts"]) : null;
+
+  return {
+    available: true,
+    workoutCount: profileWorkouts ?? data.workout_count ?? workoutEntries.length,
+    lastUpdated: data.last_updated ?? null,
+    strengthScores,
+    recentWorkouts,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // buildFitnessSummary
 // ---------------------------------------------------------------------------
 
-export const buildFitnessSummary = (data: WhoopData): FitnessSummary => {
+export const buildFitnessSummary = (data: WhoopData, tonalData?: TonalDataLike): FitnessSummary => {
   const now = new Date();
   const recoveryRecords = (data.recovery as Record<string, unknown>[]) ?? [];
   const sleepRecords = (data.sleep as Record<string, unknown>[]) ?? [];
@@ -663,6 +768,15 @@ export const buildFitnessSummary = (data: WhoopData): FitnessSummary => {
 
   alertHistory.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
+  const bodyMeasurement = data.body_measurement ?? {};
+  const body = {
+    heightM: pickNumber(bodyMeasurement, ["height_meter", "height"]),
+    weightKg: pickNumber(bodyMeasurement, ["weight_kilogram", "weight"]),
+    maxHeartRate: pickNumber(bodyMeasurement, ["max_heart_rate"]),
+  };
+
+  const tonal = buildTonalSummary(tonalData);
+
   return {
     recovery: {
       score: recoveryScore,
@@ -692,6 +806,8 @@ export const buildFitnessSummary = (data: WhoopData): FitnessSummary => {
     },
     alerts,
     alertHistory,
+    body,
+    tonal,
   };
 };
 
@@ -705,8 +821,11 @@ export async function fetchFitnessData(): Promise<{ payload: FitnessResponse; ca
     return { payload: cachedResponse.payload, cached: true };
   }
 
-  const raw = await fitnessClient.getWhoopData();
-  const summary = buildFitnessSummary(raw);
+  const [whoopData, tonalData] = await Promise.all([
+    fitnessClient.getWhoopData(),
+    fitnessClient.getTonalData().catch(() => null),
+  ]);
+  const summary = buildFitnessSummary(whoopData, tonalData ?? undefined);
   const payload: FitnessResponse = {
     status: "ok",
     generatedAt: new Date().toISOString(),
