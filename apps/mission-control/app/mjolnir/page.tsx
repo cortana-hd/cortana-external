@@ -1,4 +1,4 @@
-import { Activity, BedDouble, Dumbbell, Heart, Moon, Timer, TrendingUp, Zap } from "lucide-react";
+import { Activity, BedDouble, Dumbbell, Heart, Moon, Scale, Timer, TrendingUp, Weight, Zap } from "lucide-react";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,6 +64,25 @@ type FitnessSummary = {
   };
   alerts: FitnessAlert[];
   alertHistory: FitnessAlert[];
+  body: {
+    heightM: number | null;
+    weightKg: number | null;
+    maxHeartRate: number | null;
+  };
+  tonal: {
+    available: boolean;
+    workoutCount: number;
+    lastUpdated: string | null;
+    strengthScores: Array<{ label: string; value: number }>;
+    recentWorkouts: Array<{
+      id: string;
+      startTime: string | null;
+      duration: number | null;
+      movementCount: number;
+      totalVolume: number;
+      topMovements: Array<{ name: string; reps: number; weight: number }>;
+    }>;
+  };
 };
 
 type FitnessResponse =
@@ -247,6 +266,125 @@ export default async function FitnessPage() {
           </div>
         )}
       </section>
+
+      {/* ── Body Metrics + Tonal Strength ── */}
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {/* Body Metrics */}
+        <Card className="gap-3 py-4">
+          <CardHeader className="gap-1 px-5">
+            <div className="flex items-center gap-2">
+              <Scale className="h-4 w-4 text-blue-500 dark:text-blue-400" />
+              <CardTitle className="text-sm font-semibold uppercase tracking-wide">Body Metrics</CardTitle>
+            </div>
+            <p className="text-[11px] text-muted-foreground">From Whoop body measurement</p>
+          </CardHeader>
+          <CardContent className="px-5">
+            <div className="grid grid-cols-3 gap-3">
+              <HealthMetric
+                icon={<Scale className="h-3.5 w-3.5" />}
+                label="Weight"
+                value={data.body?.weightKg != null ? `${Math.round(data.body.weightKg * 2.205)} lbs` : "—"}
+              />
+              <HealthMetric
+                icon={<TrendingUp className="h-3.5 w-3.5" />}
+                label="Height"
+                value={data.body?.heightM != null ? `${Math.round(data.body.heightM * 39.37)}"` : "—"}
+              />
+              <HealthMetric
+                icon={<Heart className="h-3.5 w-3.5" />}
+                label="Max HR"
+                value={formatNumber(data.body?.maxHeartRate ?? null, " bpm")}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Tonal Strength */}
+        <Card className="gap-3 py-4">
+          <CardHeader className="gap-1 px-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Weight className="h-4 w-4 text-purple-500 dark:text-purple-400" />
+                <CardTitle className="text-sm font-semibold uppercase tracking-wide">Tonal Strength</CardTitle>
+              </div>
+              {data.tonal?.available ? (
+                <Badge variant="success" className="text-[10px]">connected</Badge>
+              ) : (
+                <Badge variant="outline" className="text-[10px]">not connected</Badge>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {data.tonal?.available
+                ? `${data.tonal.workoutCount} workouts tracked${data.tonal.lastUpdated ? ` · updated ${formatShortDate(data.tonal.lastUpdated)}` : ""}`
+                : "Connect Tonal in Services → Configuration"}
+            </p>
+          </CardHeader>
+          <CardContent className="px-5">
+            {data.tonal?.available && data.tonal.strengthScores.length > 0 ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {data.tonal.strengthScores.map((s) => (
+                    <div key={s.label} className="rounded-lg border border-purple-200/50 bg-purple-50/30 px-3 py-2 dark:border-purple-900/30 dark:bg-purple-950/20">
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{s.label}</p>
+                      <p className="font-mono text-lg font-bold text-purple-600 dark:text-purple-400">{s.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : data.tonal?.available ? (
+              <p className="py-2 text-xs text-muted-foreground">No strength score data available yet.</p>
+            ) : (
+              <p className="py-2 text-xs text-muted-foreground">Configure Tonal credentials to see strength metrics.</p>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* ── Tonal Recent Workouts ── */}
+      {data.tonal?.available && data.tonal.recentWorkouts.length > 0 && (
+        <section>
+          <div className="mb-3 flex items-center gap-2">
+            <Weight className="h-4 w-4 text-purple-500 dark:text-purple-400" />
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Recent Tonal Workouts</h2>
+            <Badge variant="outline" className="text-[10px]">{data.tonal.recentWorkouts.length}</Badge>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {data.tonal.recentWorkouts.map((w) => (
+              <Card key={w.id} className="gap-2 py-3">
+                <CardHeader className="gap-0 px-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Weight className="h-4 w-4 text-purple-500 dark:text-purple-400" />
+                      <CardTitle className="text-sm">{w.movementCount} movements</CardTitle>
+                    </div>
+                    <Badge variant="outline" className="font-mono text-[10px]">
+                      {w.totalVolume > 0 ? `${w.totalVolume.toLocaleString()} lbs` : "—"}
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {w.startTime ? formatTimestamp(w.startTime) : "Unknown date"}
+                    {w.duration ? ` · ${formatDuration(w.duration)}` : ""}
+                  </p>
+                </CardHeader>
+                <CardContent className="px-4">
+                  {w.topMovements.length > 0 ? (
+                    <div className="space-y-1">
+                      {w.topMovements.map((m, i) => (
+                        <div key={`${m.name}-${i}`} className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">{m.name}</span>
+                          <span className="font-mono font-medium">{m.reps}×{Math.round(m.weight)} lbs</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No movement details</p>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── Trends + Alert History ── */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
