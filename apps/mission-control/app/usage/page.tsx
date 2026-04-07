@@ -1,10 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getUsageAnalytics } from "@/lib/usage-analytics";
+import { formatInt, formatCost } from "@/lib/format-utils";
 
 export const dynamic = "force-dynamic";
-
-const formatInt = (value: number) => new Intl.NumberFormat("en-US").format(Math.round(value));
-const formatMoney = (value: number) => `$${value.toFixed(4)}`;
 
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -32,7 +30,7 @@ export default async function UsagePage({ searchParams }: PageProps) {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Estimated cost</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatMoney(usage.totals.estimatedCost)}</CardContent>
+          <CardContent className="text-2xl font-semibold">{formatCost(usage.totals.estimatedCost)}</CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Sessions</CardTitle></CardHeader>
@@ -59,7 +57,7 @@ export default async function UsagePage({ searchParams }: PageProps) {
                 <div key={row.model} className="rounded-md border p-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-medium">{row.model}</p>
-                    <p className="text-sm font-semibold">{formatMoney(row.estimatedCost)}</p>
+                    <p className="text-sm font-semibold">{formatCost(row.estimatedCost)}</p>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {formatInt(row.sessions)} sessions · {formatInt(row.totalTokens)} tokens
@@ -80,7 +78,7 @@ export default async function UsagePage({ searchParams }: PageProps) {
                 <div key={row.agentId} className="rounded-md border p-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-medium">{row.agentId}</p>
-                    <p className="text-sm font-semibold">{formatMoney(row.estimatedCost)}</p>
+                    <p className="text-sm font-semibold">{formatCost(row.estimatedCost)}</p>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {formatInt(row.sessions)} sessions · {formatInt(row.totalTokens)} tokens

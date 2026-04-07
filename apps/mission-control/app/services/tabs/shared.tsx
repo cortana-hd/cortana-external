@@ -56,8 +56,7 @@ export type Tab = "overview" | "config" | "agents" | "cron" | "sessions" | "logs
 
 /* ── helpers ── */
 
-export const formatInt = (v: number) => new Intl.NumberFormat("en-US").format(Math.round(v));
-export const formatMoney = (v: number) => `$${v.toFixed(4)}`;
+export { formatInt, formatCost as formatMoney } from "@/lib/format-utils";
 
 /* ── shared components ── */
 

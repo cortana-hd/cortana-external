@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { formatPercent, formatDuration } from "@/lib/format-utils";
 
 type TrendPoint = { date: string; value: number | null };
 
@@ -104,16 +105,6 @@ const recoveryTone: Record<
     badgeVariant: "outline",
   },
 };
-
-const formatDuration = (seconds: number | null) => {
-  if (seconds == null) return "—";
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.round((seconds % 3600) / 60);
-  return `${hrs}h ${mins}m`;
-};
-
-const formatPercent = (value: number | null) =>
-  value == null || Number.isNaN(value) ? "—" : `${Math.round(value)}%`;
 
 const severityVariant = (severity: FitnessAlert["severity"]) => {
   if (severity === "critical") return "destructive";
