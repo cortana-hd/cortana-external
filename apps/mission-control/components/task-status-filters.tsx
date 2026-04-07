@@ -161,7 +161,16 @@ export function TaskStatusFilters({
       if (!dragData) return;
 
       const { task, column: fromColumn } = dragData;
-      const toColumn = over.id as string;
+
+      // Resolve drop target to a column key — over.id may be a column id
+      // or a card id (e.g. "task-42") if closestCorners picks a card.
+      const columnKeys = COLUMNS.map((c) => c.key);
+      let toColumn = over.id as string;
+      if (!columnKeys.includes(toColumn)) {
+        const overData = over.data.current as { task?: TaskBoardTask; column?: string } | undefined;
+        toColumn = overData?.column ?? "";
+        if (!toColumn) return;
+      }
 
       if (fromColumn === toColumn) return;
 
@@ -285,7 +294,7 @@ export function TaskStatusFilters({
                     {doneCollapsed ? (
                       <>
                         {localCompletedTasks.slice(0, 3).map((task) => (
-                          <KanbanCard key={task.id} task={task} compact />
+                          <KanbanCard key={task.id} task={task} columnKey="done" compact />
                         ))}
                         {pagination.total > 3 && (
                           <button
@@ -300,7 +309,7 @@ export function TaskStatusFilters({
                     ) : (
                       <>
                         {localCompletedTasks.map((task) => (
-                          <KanbanCard key={task.id} task={task} compact />
+                          <KanbanCard key={task.id} task={task} columnKey="done" compact />
                         ))}
                         {canLoadMore && (
                           <Button type="button" size="sm" variant="outline" onClick={loadMoreCompleted} disabled={loadingMore} className="w-full text-xs">
@@ -374,7 +383,7 @@ export function TaskStatusFilters({
                   {col.key === "done" ? (
                     <>
                       {completedTasks.slice(0, 5).map((task) => (
-                        <KanbanCard key={task.id} task={task} compact />
+                        <KanbanCard key={task.id} task={task} columnKey="done" compact />
                       ))}
                       {canLoadMore && (
                         <Button type="button" size="sm" variant="outline" onClick={loadMoreCompleted} disabled={loadingMore} className="w-full text-xs">
