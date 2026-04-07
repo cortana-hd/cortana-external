@@ -268,7 +268,7 @@ export default async function FitnessPage() {
       </section>
 
       {/* ── Body Metrics + Tonal Strength ── */}
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <section className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
         {/* Body Metrics */}
         <Card className="gap-3 py-4">
           <CardHeader className="gap-1 px-5">
