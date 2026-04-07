@@ -114,9 +114,9 @@ export function ReliabilitySloCard() {
 
 function Metric({ label, value, sample }: { label: string; value: string; sample: string }) {
   return (
-    <div className="rounded-lg border border-border/70 bg-card/40 px-3 py-3">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tracking-tight">{value}</p>
+    <div className="flex flex-col rounded-lg border border-border/70 bg-card/40 px-3 py-3">
+      <p className="min-h-[2rem] text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="font-mono text-2xl font-semibold tracking-tight">{value}</p>
       <p className="mt-1 text-xs text-muted-foreground">{sample}</p>
     </div>
   );
