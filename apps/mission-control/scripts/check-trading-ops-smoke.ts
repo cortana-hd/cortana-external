@@ -1,7 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { loadTradingOpsDashboardData } from "../lib/trading-ops";
-import { getCortanaSourceRepo } from "../lib/runtime-paths";
+import { loadMissionControlScriptEnv } from "../lib/script-env";
 
 type LatestArtifactRun = {
   runId: string;
@@ -15,6 +14,11 @@ type LatestArtifactRun = {
 };
 
 async function main() {
+  loadMissionControlScriptEnv(path.resolve(__dirname, ".."));
+  const [{ loadTradingOpsDashboardData }, { getCortanaSourceRepo }] = await Promise.all([
+    import("../lib/trading-ops"),
+    import("../lib/runtime-paths"),
+  ]);
   const data = await loadTradingOpsDashboardData();
   const latestArtifact = await loadLatestArtifactRun(getCortanaSourceRepo());
   const tradingRun = data.tradingRun.data;
