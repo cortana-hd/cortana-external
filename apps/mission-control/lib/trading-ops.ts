@@ -175,30 +175,7 @@ export function summarizeStateVariant(state: LoadState): "success" | "warning" |
   return "outline";
 }
 
-export function formatRelativeAge(iso: string | null | undefined): string {
-  if (!iso) return "unknown age";
-  const timestamp = Date.parse(iso);
-  if (Number.isNaN(timestamp)) return "unknown age";
-  const deltaMs = Date.now() - timestamp;
-  if (deltaMs < 60_000) return "just now";
-  const minutes = Math.round(deltaMs / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  const remainderMinutes = minutes % 60;
-  if (hours < 48) return remainderMinutes === 0 ? `${hours}h ago` : `${hours}h ${remainderMinutes}m ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-export function formatPercent(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return "n/a";
-  return `${value.toFixed(1)}%`;
-}
-
-export function formatMoney(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return "n/a";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
-}
+export { formatRelativeAge, formatPercentDecimal as formatPercent, formatCurrency as formatMoney } from "@/lib/format-utils";
 
 async function loadMarketOverview(repoPath: string): Promise<ArtifactState<MarketOverview>> {
   const regimePath = path.join(repoPath, ".cache", "market_regime_snapshot_SPY.json");

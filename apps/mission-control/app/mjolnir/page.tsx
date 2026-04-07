@@ -3,6 +3,7 @@ import { AutoRefresh } from "@/components/auto-refresh";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { formatPercent, formatNumber, formatDecimal, formatDuration, formatTimestamp } from "@/lib/format-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -70,24 +71,6 @@ type FitnessResponse =
   | { status: "error"; generatedAt: string; cached: boolean; error: { message: string; detail?: string } };
 
 /* ── formatters ── */
-
-const formatPercent = (v: number | null) => (v == null ? "—" : `${Math.round(v)}%`);
-const formatNumber = (v: number | null, s = "") => (v == null ? "—" : `${Math.round(v)}${s}`);
-const formatDecimal = (v: number | null, s = "") => (v == null ? "—" : `${Math.round(v * 10) / 10}${s}`);
-
-const formatDuration = (seconds: number | null) => {
-  if (seconds == null) return "—";
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.round((seconds % 3600) / 60);
-  return hrs <= 0 ? `${mins}m` : `${hrs}h ${mins}m`;
-};
-
-const formatTimestamp = (value: string | null) => {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString();
-};
 
 const formatShortDate = (value: string) => {
   const d = new Date(value);

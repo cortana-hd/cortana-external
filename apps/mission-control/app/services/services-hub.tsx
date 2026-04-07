@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/status-badge";
 import { cn } from "@/lib/utils";
+import { formatInt, formatCost } from "@/lib/format-utils";
 
 /* ── lazy imports for heavy tab content ── */
 const ServicesClient = React.lazy(() => import("./services-client"));
@@ -90,9 +91,6 @@ const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
 ];
 
 const WORKER_IDS = new Set(["huragok-worker"]);
-
-const formatInt = (v: number) => new Intl.NumberFormat("en-US").format(Math.round(v));
-const formatMoney = (v: number) => `$${v.toFixed(4)}`;
 
 /* ── hub component ── */
 
@@ -335,7 +333,7 @@ function OverviewTab({ agents, councilSessions, usage, onSwitchTab }: { agents: 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard icon={<Bot className="h-4 w-4" />} label="Agents" value={`${activeAgents}/${agents.length}`} sub="active" />
         <StatCard icon={<Clock className="h-4 w-4" />} label="Council" value={String(councilSessions.length)} sub={`${runningCouncil} running`} />
-        <StatCard icon={<DollarSign className="h-4 w-4" />} label="Cost (24h)" value={usage ? formatMoney(usage.totals.estimatedCost) : "—"} sub={usage ? `${formatInt(usage.totals.sessions)} sessions` : ""} />
+        <StatCard icon={<DollarSign className="h-4 w-4" />} label="Cost (24h)" value={usage ? formatCost(usage.totals.estimatedCost) : "—"} sub={usage ? `${formatInt(usage.totals.sessions)} sessions` : ""} />
         <StatCard icon={<LineChart className="h-4 w-4" />} label="Tokens (24h)" value={usage ? formatInt(usage.totals.totalTokens) : "—"} sub={usage ? `in: ${formatInt(usage.totals.inputTokens)}` : ""} />
       </div>
 
@@ -534,7 +532,7 @@ function SessionsTab({
       {usage && (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatCard icon={<DollarSign className="h-4 w-4" />} label="Cost (24h)" value={formatMoney(usage.totals.estimatedCost)} sub={`${formatInt(usage.totals.sessions)} sessions`} />
+            <StatCard icon={<DollarSign className="h-4 w-4" />} label="Cost (24h)" value={formatCost(usage.totals.estimatedCost)} sub={`${formatInt(usage.totals.sessions)} sessions`} />
             <StatCard icon={<LineChart className="h-4 w-4" />} label="Input Tokens" value={formatInt(usage.totals.inputTokens)} sub="24h window" />
             <StatCard icon={<LineChart className="h-4 w-4" />} label="Output Tokens" value={formatInt(usage.totals.outputTokens)} sub="24h window" />
             <StatCard icon={<Timer className="h-4 w-4" />} label="Active Sessions" value={String(sessions.length)} sub={sessionsLoading ? "loading..." : `${formatInt(totalTokens)} tokens`} />
@@ -554,7 +552,7 @@ function SessionsTab({
                       <p className="text-sm font-medium">{row.model}</p>
                       <p className="text-[11px] text-muted-foreground">{formatInt(row.sessions)} sessions · {formatInt(row.totalTokens)} tokens</p>
                     </div>
-                    <span className="font-mono text-sm font-semibold">{formatMoney(row.estimatedCost)}</span>
+                    <span className="font-mono text-sm font-semibold">{formatCost(row.estimatedCost)}</span>
                   </div>
                 ))}
               </CardContent>
@@ -573,7 +571,7 @@ function SessionsTab({
                       <p className="text-sm font-medium">{row.agentId}</p>
                       <p className="text-[11px] text-muted-foreground">{formatInt(row.sessions)} sessions · {formatInt(row.totalTokens)} tokens</p>
                     </div>
-                    <span className="font-mono text-sm font-semibold">{formatMoney(row.estimatedCost)}</span>
+                    <span className="font-mono text-sm font-semibold">{formatCost(row.estimatedCost)}</span>
                   </div>
                 ))}
               </CardContent>
@@ -604,7 +602,7 @@ function SessionsTab({
                     <p className="font-mono text-[11px] text-muted-foreground">{s.model ?? "unknown"}</p>
                   </div>
                   <div className="text-right text-xs text-muted-foreground">
-                    <p className="font-mono font-semibold">{formatMoney(s.estimatedCost)}</p>
+                    <p className="font-mono font-semibold">{formatCost(s.estimatedCost)}</p>
                     <p>{formatInt(s.totalTokens ?? 0)} tokens</p>
                   </div>
                 </div>

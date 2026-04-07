@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatInt, formatCost } from "@/lib/format-utils";
 
 type Session = {
   key: string | null;
@@ -18,9 +19,6 @@ type Session = {
 };
 
 type SessionsResponse = { sessions: Session[]; error?: string };
-
-export const formatInt = (value: number) => new Intl.NumberFormat("en-US").format(Math.round(value));
-export const formatMoney = (value: number) => `$${value.toFixed(4)}`;
 
 export function summarizeSessions(sessions: Session[]) {
   return sessions.reduce(
@@ -113,7 +111,7 @@ export default function SessionsPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Estimated cost</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatMoney(summary.estimatedCost)}</CardContent>
+          <CardContent className="text-2xl font-semibold">{formatCost(summary.estimatedCost)}</CardContent>
         </Card>
       </div>
 
@@ -162,7 +160,7 @@ export default function SessionsPage() {
                     </div>
                     <p className="mt-1 break-all text-xs text-muted-foreground">{session.sessionId ?? session.key ?? "no-session-id"}</p>
                     <p className="mt-2 text-xs text-muted-foreground">
-                      {formatInt(session.totalTokens ?? 0)} tokens · {formatMoney(session.estimatedCost ?? 0)}
+                      {formatInt(session.totalTokens ?? 0)} tokens · {formatCost(session.estimatedCost ?? 0)}
                     </p>
                   </div>
                 ))}
