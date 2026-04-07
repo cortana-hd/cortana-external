@@ -9,6 +9,7 @@ import {
   formatNumber,
   formatDecimal,
   formatTimestamp,
+  formatOperatorTimestamp,
   formatRelativeAge,
   formatShortDate,
 } from "./format-utils";
@@ -114,6 +115,18 @@ describe("format-utils", () => {
       expect(formatTimestamp(null)).toBe("—");
       expect(formatTimestamp(undefined)).toBe("—");
       expect(formatTimestamp("not-a-date")).toBe("—");
+    });
+  });
+
+  describe("formatOperatorTimestamp", () => {
+    it("formats valid ISO strings in operator-friendly ET form", () => {
+      expect(formatOperatorTimestamp("2026-04-06T20:00:00.000Z")).toBe("Apr 6, 4:00 PM");
+    });
+
+    it("returns — for null/invalid", () => {
+      expect(formatOperatorTimestamp(null)).toBe("—");
+      expect(formatOperatorTimestamp(undefined)).toBe("—");
+      expect(formatOperatorTimestamp("not-a-date")).toBe("—");
     });
   });
 

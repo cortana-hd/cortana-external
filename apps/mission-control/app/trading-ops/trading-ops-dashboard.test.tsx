@@ -24,6 +24,9 @@ const fixture: TradingOpsDashboardData = {
       leaderSource: "leader baskets",
       alertSummary: "Summary: scanned 120 | BUY 0 | WATCH 0 | NO_BUY 0",
       nextAction: "Retry after cooldown",
+      isStale: false,
+      referenceRunLabel: null,
+      referenceDecision: null,
     },
   },
   runtime: {
@@ -107,6 +110,7 @@ const fixture: TradingOpsDashboardData = {
     warnings: ["dipbuyer_alert"],
     data: {
       runId: "20260403-231522",
+      runLabel: "Apr 3, 7:16 PM",
       stageCounts: { ok: 2, error: 1 },
       failedStages: ["dipbuyer_alert"],
       stageRows: [
@@ -115,6 +119,8 @@ const fixture: TradingOpsDashboardData = {
       ],
       artifactRows: [{ name: "canslim-alert-json", kind: "strategy_alert", location: "/tmp/canslim-alert.json" }],
       canslimSummary: "Summary: scanned 120 | BUY 0 | WATCH 0 | NO_BUY 0",
+      isStale: false,
+      referenceRunLabel: null,
     },
   },
   opsHighway: {
@@ -139,6 +145,7 @@ const fixture: TradingOpsDashboardData = {
     warnings: [],
     data: {
       runId: "20260403-163103",
+      runLabel: "Apr 3, 12:38 PM",
       decision: "WATCH",
       focusTicker: "ABBV",
       focusAction: "WATCH",
@@ -153,6 +160,9 @@ const fixture: TradingOpsDashboardData = {
       canslimBuy: [],
       canslimNoBuy: ["MSFT"],
       messagePreview: "📈 Trading Advisor — Market Snapshot\n🎯 Decision: WATCH",
+      completedAt: "2026-04-03T16:38:59.979Z",
+      notifiedAt: "2026-04-03T16:40:00.000Z",
+      correctionMode: false,
     },
   },
 };
@@ -169,10 +179,14 @@ describe("TradingOpsDashboard", () => {
     expect(screen.getByRole("tab", { name: "Deep Dive" })).toBeInTheDocument();
     expect(screen.getAllByText("Market posture").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Latest trading run").length).toBeGreaterThan(0);
-    expect(screen.getByText("ABBV · WATCH")).toBeInTheDocument();
+    expect(container).toHaveTextContent("Focus ABBV · WATCH");
     expect(screen.getAllByText("OXY, GEV, FANG").length).toBeGreaterThan(0);
+    expect(container).toHaveTextContent("Apr 3, 12:38 PM");
+    expect(container).toHaveTextContent("Apr 3, 12:40 PM");
+    expect(container).toHaveTextContent("Internal id 20260403-163103");
     expect(screen.getByText(/Dip Buyer currently has/i)).toBeInTheDocument();
     expect(container).toHaveTextContent("Failed stages: dipbuyer_alert");
+    expect(container).toHaveTextContent("Apr 3, 7:16 PM");
 
     const watchlistsTab = screen.getByRole("tab", { name: "Watchlists" });
     fireEvent.mouseDown(watchlistsTab);

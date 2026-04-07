@@ -13,6 +13,15 @@ const currencyFmt = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
+const operatorTimestampFmt = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+  timeZone: "America/New_York",
+});
+
 /** Format a number as a locale-separated integer (e.g. "1,234"). */
 export function formatInt(value: number): string {
   return intFmt.format(Math.round(value));
@@ -68,6 +77,14 @@ export function formatTimestamp(value: string | null | undefined): string {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString();
+}
+
+/** Format an ISO timestamp as the operator-friendly ET label used in Trading Ops. */
+export function formatOperatorTimestamp(value: string | null | undefined): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return operatorTimestampFmt.format(d);
 }
 
 /** Format an ISO timestamp as a relative age string (e.g. "5m ago"). */

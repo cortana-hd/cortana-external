@@ -1,7 +1,7 @@
 import { AlertTriangle, Gauge, Radar, ShieldCheck, Workflow } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TradingOpsDashboardData } from "@/lib/trading-ops";
-import { formatMoney, formatPercent } from "@/lib/trading-ops";
+import { formatMoney, formatOperatorTimestamp, formatPercent } from "@/lib/trading-ops";
 import { Metric, StageChip, StrategyWatchlistSection, ArtifactPanel } from "./trading-ops/shared";
 import { TerminalHeader } from "./trading-ops/terminal-header";
 import { TerminalCell } from "./trading-ops/terminal-cell";
@@ -82,9 +82,21 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <Metric label="Regime" value={data.market.data.regime.toUpperCase()} />
                     <Metric label="Sizing" value={formatPercent(data.market.data.positionSizingPct)} />
-                    <Metric label="Focus" value={data.market.data.focusSymbols.join(", ") || "None yet"} />
+                    <Metric
+                      label={data.market.data.isStale ? "Reference run" : "Focus"}
+                      value={
+                        data.market.data.isStale
+                          ? data.market.data.referenceRunLabel ?? "Latest trading run"
+                          : data.market.data.focusSymbols.join(", ") || "None yet"
+                      }
+                    />
                     <Metric label="Next action" value={data.market.data.nextAction ?? "Wait for fresher data"} />
                   </dl>
+                  {data.market.data.isStale ? (
+                    <p className="text-xs text-muted-foreground">
+                      Cached leader baskets are hidden here because the latest trading run is now the primary source of truth.
+                    </p>
+                  ) : null}
                   <div className="rounded-md border border-border/50 bg-muted/30 p-2">
                     <p className="terminal-metric-label">Latest strategy summary</p>
                     <p className="mt-1 font-mono text-xs">{data.market.data.alertSummary || "No recent alert summary."}</p>
@@ -98,21 +110,23 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
               {data.tradingRun.data ? (
                 <div className="space-y-2 text-sm">
                   <dl className="grid grid-cols-2 gap-2">
-                    <Metric label="Run id" value={data.tradingRun.data.runId} />
+                    <Metric label="Completed" value={data.tradingRun.data.runLabel} />
                     <Metric label="Decision" value={data.tradingRun.data.decision} />
                     <Metric
-                      label="Focus"
-                      value={
-                        data.tradingRun.data.focusTicker
-                          ? `${data.tradingRun.data.focusTicker} · ${data.tradingRun.data.focusAction ?? "n/a"}`
-                          : "No focus name"
-                      }
+                      label="Delivered"
+                      value={data.tradingRun.data.notifiedAt ? formatOperatorTimestamp(data.tradingRun.data.notifiedAt) : "Pending notification"}
                     />
                     <Metric
                       label="Counts"
                       value={`BUY ${data.tradingRun.data.buyCount} · WATCH ${data.tradingRun.data.watchCount} · NO_BUY ${data.tradingRun.data.noBuyCount}`}
                     />
                   </dl>
+                  <p className="text-xs text-muted-foreground">
+                    Internal id {data.tradingRun.data.runId}
+                    {data.tradingRun.data.focusTicker
+                      ? ` · Focus ${data.tradingRun.data.focusTicker} · ${data.tradingRun.data.focusAction ?? "n/a"}`
+                      : ""}
+                  </p>
                   <p className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
                     Open the <span className="font-medium">Watchlists</span> tab to see the full latest run names.
                     Dip Buyer currently has <span className="font-medium">{data.tradingRun.data.dipBuyerWatch.length}</span> watch names.
@@ -135,17 +149,38 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                 {data.workflow.data ? (
                   <div className="space-y-2 text-sm">
                     <dl className="grid grid-cols-2 gap-2">
-                      <Metric label="Run id" value={data.workflow.data.runId} />
+                      <Metric label="Completed" value={data.workflow.data.runLabel} />
                       <Metric
-                        label="Stage counts"
-                        value={Object.entries(data.workflow.data.stageCounts).map(([s, c]) => `${s}:${c}`).join(" · ")}
+                        label={data.workflow.data.isStale ? "Status" : "Stage counts"}
+                        value={
+                          data.workflow.data.isStale
+                            ? `Historical context${data.workflow.data.referenceRunLabel ? ` · superseded by ${data.workflow.data.referenceRunLabel}` : ""}`
+                            : Object.entries(data.workflow.data.stageCounts).map(([s, c]) => `${s}:${c}`).join(" · ")
+                        }
                       />
                     </dl>
-                    <div className="flex flex-wrap gap-1.5">
-                      {data.workflow.data.stageRows.slice(0, 8).map((stage) => (
-                        <StageChip key={`${stage.name}-${stage.startedAt}`} name={stage.name} status={stage.status} />
-                      ))}
-                    </div>
+                    {data.workflow.data.isStale ? (
+                      <details className="rounded-md border border-border/50 bg-muted/20 p-2">
+                        <summary className="cursor-pointer text-xs font-medium">Older workflow details</summary>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Internal id {data.workflow.data.runId}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Stage counts: {Object.entries(data.workflow.data.stageCounts).map(([s, c]) => `${s}:${c}`).join(" · ")}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {data.workflow.data.stageRows.slice(0, 8).map((stage) => (
+                            <StageChip key={`${stage.name}-${stage.startedAt}`} name={stage.name} status={stage.status} />
+                          ))}
+                        </div>
+                      </details>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {data.workflow.data.stageRows.slice(0, 8).map((stage) => (
+                          <StageChip key={`${stage.name}-${stage.startedAt}`} name={stage.name} status={stage.status} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </ArtifactPanel>

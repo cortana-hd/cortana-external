@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { formatOperatorTimestamp } from "@/lib/format-utils";
 import { getBacktesterRepoPath, getCortanaSourceRepo } from "@/lib/runtime-paths";
 
 const execFileAsync = promisify(execFile);
@@ -29,6 +30,9 @@ export type MarketOverview = {
   leaderSource: string;
   alertSummary: string;
   nextAction: string | null;
+  isStale: boolean;
+  referenceRunLabel: string | null;
+  referenceDecision: string | null;
 };
 
 export type RuntimeOverview = {
@@ -70,11 +74,14 @@ export type LifecycleOverview = {
 
 export type WorkflowOverview = {
   runId: string;
+  runLabel: string;
   stageCounts: Record<string, number>;
   failedStages: string[];
   stageRows: Array<{ name: string; status: string; startedAt: string; endedAt: string }>;
   artifactRows: Array<{ name: string; kind: string; location: string }>;
   canslimSummary: string | null;
+  isStale: boolean;
+  referenceRunLabel: string | null;
 };
 
 export type OpsHighwayOverview = {
@@ -85,6 +92,7 @@ export type OpsHighwayOverview = {
 
 export type TradingRunOverview = {
   runId: string;
+  runLabel: string;
   decision: string;
   focusTicker: string | null;
   focusAction: string | null;
@@ -99,15 +107,21 @@ export type TradingRunOverview = {
   canslimBuy: string[];
   canslimNoBuy: string[];
   messagePreview: string | null;
+  completedAt: string | null;
+  notifiedAt: string | null;
+  correctionMode: boolean | null;
 };
 
 type TradingRunSignal = {
   runId: string;
+  runLabel: string;
   updatedAt: string | null;
   decision: string;
   buyCount: number;
   watchCount: number;
   noBuyCount: number;
+  correctionMode: boolean | null;
+  source: string | null;
 };
 
 export type TradingOpsDashboardData = {
@@ -184,7 +198,12 @@ export function summarizeStateVariant(state: LoadState): "success" | "warning" |
   return "outline";
 }
 
-export { formatRelativeAge, formatPercentDecimal as formatPercent, formatCurrency as formatMoney } from "@/lib/format-utils";
+export {
+  formatRelativeAge,
+  formatPercentDecimal as formatPercent,
+  formatCurrency as formatMoney,
+  formatOperatorTimestamp,
+} from "@/lib/format-utils";
 
 async function loadMarketOverview(
   repoPath: string,
@@ -233,20 +252,20 @@ async function loadMarketOverview(
     null;
   const staleAgainstTradingRun = isArtifactOlderThanTradingRun(updatedAt, tradingRunSignal);
   const message = staleAgainstTradingRun && tradingRunSignal
-    ? `Latest trading run ${tradingRunSignal.runId} finished ${tradingRunSignal.decision}; this market brief is older and shown as supporting context only.`
+    ? `Latest trading run ${tradingRunSignal.runLabel} finished ${tradingRunSignal.decision}; this market brief is older and now treated as supporting context only.`
     : notes;
 
   return {
     state: staleAgainstTradingRun || status === "degraded" ? "degraded" : "ok",
     label: regimeLabel.toUpperCase(),
     message,
-    source: latestAlert?.path ?? regimePath,
+    source: staleAgainstTradingRun ? tradingRunSignal?.source ?? latestAlert?.path ?? regimePath : latestAlert?.path ?? regimePath,
     updatedAt,
     warnings: compactStrings([
       stringValue(market?.degraded_reason),
       stringValue(marketStatus?.degraded_reason),
       staleAgainstTradingRun && tradingRunSignal
-        ? `Latest trading run ${tradingRunSignal.runId} is newer than this market brief.`
+        ? `Latest trading run ${tradingRunSignal.runLabel} is newer than this market brief.`
         : null,
     ]),
     data: {
@@ -257,11 +276,16 @@ async function loadMarketOverview(
             ? "Stand aside"
             : "Review",
       reason: message,
-      regime: regimeLabel,
-      regimeStatus: status,
-      positionSizingPct: positionSizing == null ? null : positionSizing * 100,
-      focusSymbols,
-      leaderSource: focusSymbols.length > 0 ? "leader baskets" : "none yet",
+      regime: staleAgainstTradingRun ? regimeFromTradingRunSignal(tradingRunSignal, regimeLabel) : regimeLabel,
+      regimeStatus: staleAgainstTradingRun ? "current_run" : status,
+      positionSizingPct:
+        staleAgainstTradingRun
+          ? positionSizingPctFromTradingDecision(tradingRunSignal?.decision)
+          : positionSizing == null
+            ? null
+            : positionSizing * 100,
+      focusSymbols: staleAgainstTradingRun ? [] : focusSymbols,
+      leaderSource: staleAgainstTradingRun ? "latest trading run" : focusSymbols.length > 0 ? "leader baskets" : "none yet",
       alertSummary:
         (staleAgainstTradingRun && tradingRunSignal ? summarizeTradingRunSignal(tradingRunSignal) : null) ??
         renderLines.find((line) => line.startsWith("Summary:")) ??
@@ -269,10 +293,13 @@ async function loadMarketOverview(
         summaryLineFromCounts(summary),
       nextAction:
         (staleAgainstTradingRun && tradingRunSignal
-          ? "Use the latest trading run until the market brief refreshes."
+          ? "Use the latest trading run and live runtime health until the market brief refreshes."
           : null) ??
         stringValue(market?.next_action) ??
         stringValue(marketStatus?.next_action),
+      isStale: staleAgainstTradingRun,
+      referenceRunLabel: staleAgainstTradingRun ? tradingRunSignal?.runLabel ?? null : null,
+      referenceDecision: staleAgainstTradingRun ? tradingRunSignal?.decision ?? null : null,
     },
   };
 }
@@ -527,19 +554,21 @@ async function loadWorkflowOverview(
   }, {});
   const canslimArtifact = await readJsonFile<Record<string, unknown>>(path.join(latestWorkflow.path, "canslim-alert.json"));
   const updatedAt = stageRows.at(-1)?.endedAt ?? null;
+  const runLabel = formatRunLabel(updatedAt, latestWorkflow.runId);
   const staleAgainstTradingRun = isArtifactOlderThanTradingRun(updatedAt, tradingRunSignal);
   const message = staleAgainstTradingRun && tradingRunSignal
-    ? `Latest trading run ${tradingRunSignal.runId} completed after this workflow artifact; keeping this workflow for historical context only.`
+    ? `Latest trading run ${tradingRunSignal.runLabel} completed after this workflow artifact; keeping this workflow for historical context only.`
     : failedStages.length > 0
       ? `Failed stages: ${failedStages.join(", ")}`
       : "Latest workflow completed without stage failures.";
 
   return {
     state: staleAgainstTradingRun || failedStages.length > 0 ? "degraded" : "ok",
-    label: latestWorkflow.runId,
+    label: runLabel,
     message,
     data: {
       runId: latestWorkflow.runId,
+      runLabel,
       stageCounts,
       failedStages,
       stageRows,
@@ -548,13 +577,15 @@ async function loadWorkflowOverview(
         asArray(canslimArtifact?.data?.render_lines)
           .map(String)
           .find((line) => line.startsWith("Summary:")) ?? null,
+      isStale: staleAgainstTradingRun,
+      referenceRunLabel: staleAgainstTradingRun ? tradingRunSignal?.runLabel ?? null : null,
     },
     source: latestWorkflow.path,
     updatedAt,
     warnings: compactStrings([
       ...failedStages,
       staleAgainstTradingRun && tradingRunSignal
-        ? `Latest trading run ${tradingRunSignal.runId} is newer than this workflow artifact.`
+        ? `Latest trading run ${tradingRunSignal.runLabel} is newer than this workflow artifact.`
         : null,
     ]),
   };
@@ -621,14 +652,21 @@ async function loadTradingRunOverview(cortanaRepoPath: string): Promise<Artifact
 
   const summaryData = summary.data;
   const watchlistData = watchlist.data;
+  const completedAt =
+    stringValue(summaryData?.completedAt) ??
+    stringValue(summaryData?.completed_at) ??
+    stringValue(summaryData?.finalizedAt) ??
+    null;
+  const runLabel = formatRunLabel(completedAt, latestRun.runId);
+  const notifiedAt = stringValue(summaryData?.notifiedAt) ?? stringValue(summaryData?.notified_at) ?? null;
   if (!summaryData || !watchlistData) {
     return {
       state: "degraded",
-      label: latestRun.runId,
+      label: runLabel,
       message: "Latest run is missing summary or watchlist artifacts.",
       data: null,
       source: latestRun.path,
-      updatedAt: stringValue(summaryData?.completedAt) ?? stringValue(summaryData?.completed_at) ?? null,
+      updatedAt: completedAt,
       warnings: compactStrings([summary.message, watchlist.message]),
     };
   }
@@ -646,17 +684,17 @@ async function loadTradingRunOverview(cortanaRepoPath: string): Promise<Artifact
 
   return {
     state: "ok",
-    label: latestRun.runId,
-    message: `Latest trading run finished with ${stringValue(watchlistData.decision) ?? "unknown"} and ${numberValue(asRecord(watchlistData.summary)?.watch) ?? 0} watch names.`,
+    label: runLabel,
+    message: [
+      `Completed ${runLabel} with ${stringValue(watchlistData.decision) ?? "unknown"} and ${numberValue(asRecord(watchlistData.summary)?.watch) ?? 0} watch names.`,
+      notifiedAt ? `Delivered ${formatOperatorTimestamp(notifiedAt)}.` : "Notification pending.",
+    ].join(" "),
     source: latestRun.path,
-    updatedAt:
-      stringValue(summaryData.completedAt) ??
-      stringValue(summaryData.completed_at) ??
-      stringValue(summaryData.finalizedAt) ??
-      null,
+    updatedAt: completedAt,
     warnings: [],
     data: {
       runId: latestRun.runId,
+      runLabel,
       decision: stringValue(watchlistData.decision) ?? "unknown",
       focusTicker: stringValue(focus?.ticker),
       focusAction: stringValue(focus?.action),
@@ -671,6 +709,9 @@ async function loadTradingRunOverview(cortanaRepoPath: string): Promise<Artifact
       canslimBuy,
       canslimNoBuy,
       messagePreview: message ? message.split(/\r?\n/).slice(0, 6).join("\n") : null,
+      completedAt,
+      notifiedAt,
+      correctionMode: booleanValue(asRecord(summaryData.metrics)?.correctionMode),
     },
   };
 }
@@ -766,7 +807,7 @@ function summaryLineFromCounts(summary: Record<string, unknown> | null | undefin
 }
 
 function summarizeTradingRunSignal(signal: TradingRunSignal): string {
-  return `Latest trading run ${signal.runId}: BUY ${signal.buyCount} · WATCH ${signal.watchCount} · NO_BUY ${signal.noBuyCount}`;
+  return `Latest trading run ${signal.runLabel}: BUY ${signal.buyCount} · WATCH ${signal.watchCount} · NO_BUY ${signal.noBuyCount}`;
 }
 
 function postureFromTradingDecision(decision: string): string {
@@ -777,11 +818,14 @@ function asTradingRunSignal(artifact: ArtifactState<TradingRunOverview>): Tradin
   if (!artifact.data) return null;
   return {
     runId: artifact.data.runId,
+    runLabel: artifact.data.runLabel,
     updatedAt: artifact.updatedAt ?? null,
     decision: artifact.data.decision,
     buyCount: artifact.data.buyCount,
     watchCount: artifact.data.watchCount,
     noBuyCount: artifact.data.noBuyCount,
+    correctionMode: artifact.data.correctionMode,
+    source: artifact.source ?? null,
   };
 }
 
@@ -791,6 +835,22 @@ function isArtifactOlderThanTradingRun(updatedAt: string | null | undefined, tra
   const tradingRunMs = Date.parse(tradingRunSignal.updatedAt);
   if (!Number.isFinite(artifactMs) || !Number.isFinite(tradingRunMs)) return false;
   return artifactMs < tradingRunMs;
+}
+
+function formatRunLabel(timestamp: string | null | undefined, fallbackId: string): string {
+  const formatted = formatOperatorTimestamp(timestamp);
+  return formatted === "—" ? fallbackId : formatted;
+}
+
+function regimeFromTradingRunSignal(signal: TradingRunSignal | null, fallback: string): string {
+  if (signal?.correctionMode === true) return "correction";
+  if (signal?.correctionMode === false) return "active";
+  return fallback;
+}
+
+function positionSizingPctFromTradingDecision(decision: string | null | undefined): number | null {
+  if (!decision) return null;
+  return decision.toUpperCase() === "NO_TRADE" ? 0 : null;
 }
 
 function extractTickers(value: unknown): string[] {

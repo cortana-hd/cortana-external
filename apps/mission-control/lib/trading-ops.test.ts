@@ -140,8 +140,12 @@ describe("trading ops loader", () => {
     expect(data.lifecycle.data?.openCount).toBe(1);
     expect(data.workflow.state).toBe("degraded");
     expect(data.workflow.data?.failedStages).toEqual(["dipbuyer_alert"]);
+    expect(data.workflow.data?.runLabel).toBe("Apr 3, 7:16 PM");
+    expect(data.workflow.data?.isStale).toBe(false);
     expect(data.opsHighway.data?.criticalAssetCount).toBe(2);
     expect(data.tradingRun.state).toBe("ok");
+    expect(data.tradingRun.data?.runLabel).toBe("Apr 3, 12:38 PM");
+    expect(data.tradingRun.data?.notifiedAt).toBeNull();
     expect(data.tradingRun.data?.focusTicker).toBe("ABBV");
     expect(data.tradingRun.data?.dipBuyerWatch).toEqual(["ABBV", "ACHV", "AEP", "AEE", "ADM", "AES"]);
     expect(data.tradingRun.data?.dipBuyerBuy).toEqual(["ABC"]);
@@ -203,6 +207,7 @@ describe("trading ops loader", () => {
     await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-144340", "summary.json"), {
       runId: "20260407-144340",
       completedAt: "2026-04-07T14:53:16.745Z",
+      metrics: { correctionMode: false },
     });
     await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260407-144340", "watchlist-full.json"), {
       decision: "NO_TRADE",
@@ -220,13 +225,18 @@ describe("trading ops loader", () => {
     });
 
     expect(data.market.state).toBe("degraded");
-    expect(data.market.message).toContain("Latest trading run 20260407-144340 finished NO_TRADE");
+    expect(data.market.message).toContain("Latest trading run Apr 7, 10:53 AM finished NO_TRADE");
     expect(data.market.data?.posture).toBe("Stand aside");
-    expect(data.market.data?.alertSummary).toBe("Latest trading run 20260407-144340: BUY 0 · WATCH 0 · NO_BUY 96");
-    expect(data.market.warnings).toContain("Latest trading run 20260407-144340 is newer than this market brief.");
+    expect(data.market.data?.regime).toBe("active");
+    expect(data.market.data?.focusSymbols).toEqual([]);
+    expect(data.market.data?.referenceRunLabel).toBe("Apr 7, 10:53 AM");
+    expect(data.market.data?.alertSummary).toBe("Latest trading run Apr 7, 10:53 AM: BUY 0 · WATCH 0 · NO_BUY 96");
+    expect(data.market.warnings).toContain("Latest trading run Apr 7, 10:53 AM is newer than this market brief.");
     expect(data.workflow.state).toBe("degraded");
-    expect(data.workflow.message).toContain("Latest trading run 20260407-144340 completed after this workflow artifact");
-    expect(data.workflow.warnings).toContain("Latest trading run 20260407-144340 is newer than this workflow artifact.");
+    expect(data.workflow.data?.isStale).toBe(true);
+    expect(data.workflow.data?.referenceRunLabel).toBe("Apr 7, 10:53 AM");
+    expect(data.workflow.message).toContain("Latest trading run Apr 7, 10:53 AM completed after this workflow artifact");
+    expect(data.workflow.warnings).toContain("Latest trading run Apr 7, 10:53 AM is newer than this workflow artifact.");
   });
 });
 
