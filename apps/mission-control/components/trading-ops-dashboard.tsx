@@ -189,7 +189,10 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                 {data.runtime.data ? (
                   <div className="space-y-2 text-sm">
                     <Metric label="Operator action" value={data.runtime.data.operatorAction} />
-                    <Metric label="Pre-open gate" value={data.runtime.data.preOpenGateStatus ?? "n/a"} />
+                    <Metric label="Pre-open gate" value={data.runtime.data.preOpenGateStatus ?? "Not reported"} />
+                    {data.runtime.data.preOpenGateDetail ? (
+                      <p className="text-xs text-muted-foreground">{data.runtime.data.preOpenGateDetail}</p>
+                    ) : null}
                     {data.runtime.data.incidents.length > 0 ? (
                       <div className="space-y-1.5">
                         {data.runtime.data.incidents.map((incident) => (
@@ -259,7 +262,10 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
               {data.runtime.data ? (
                 <div className="space-y-2 text-sm">
                   <Metric label="Operator action" value={data.runtime.data.operatorAction} />
-                  <Metric label="Pre-open gate" value={data.runtime.data.preOpenGateStatus ?? "n/a"} />
+                  <Metric label="Pre-open gate" value={data.runtime.data.preOpenGateStatus ?? "Not reported"} />
+                  {data.runtime.data.preOpenGateDetail ? (
+                    <p className="text-xs text-muted-foreground">{data.runtime.data.preOpenGateDetail}</p>
+                  ) : null}
                   {data.runtime.data.incidents.length > 0 ? (
                     <div className="space-y-1.5">
                       {data.runtime.data.incidents.map((incident) => (

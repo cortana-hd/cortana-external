@@ -39,7 +39,8 @@ const fixture: TradingOpsDashboardData = {
     data: {
       operatorState: "provider_cooldown",
       operatorAction: "Wait for cooldown to clear.",
-      preOpenGateStatus: "warn",
+      preOpenGateStatus: "Warn",
+      preOpenGateDetail: null,
       incidents: [{ incidentType: "provider_cooldown", severity: "medium", operatorAction: "Wait." }],
     },
   },
@@ -209,5 +210,44 @@ describe("TradingOpsDashboard", () => {
     expect(container).toHaveTextContent("0.0%");
     expect(container).toHaveTextContent("15.0%");
     expect(container).toHaveTextContent("1 open / 2 closed");
+  });
+
+  it("renders runtime canary-missing language and stale badge text", () => {
+    const staleFixture: TradingOpsDashboardData = {
+      ...fixture,
+      market: {
+        ...fixture.market,
+        badgeText: "stale",
+        data: fixture.market.data
+          ? {
+              ...fixture.market.data,
+              isStale: true,
+              focusSymbols: [],
+              referenceRunLabel: "Apr 7, 12:10 PM",
+            }
+          : fixture.market.data,
+      },
+      runtime: {
+        ...fixture.runtime,
+        data: fixture.runtime.data
+          ? {
+              ...fixture.runtime.data,
+              preOpenGateStatus: "Canary not available",
+              preOpenGateDetail: "Pre-open canary artifact is missing at /tmp/pre-open-canary-latest.json.",
+              incidents: [],
+              operatorState: "healthy",
+              operatorAction: "No operator action required.",
+            }
+          : fixture.runtime.data,
+        state: "ok",
+        warnings: [],
+        message: "No operator action required.",
+      },
+    };
+
+    const { container } = render(<TradingOpsDashboard data={staleFixture} />);
+    expect(container).toHaveTextContent("stale");
+    expect(container).toHaveTextContent("Canary not available");
+    expect(container).toHaveTextContent("Pre-open canary artifact is missing at /tmp/pre-open-canary-latest.json.");
   });
 });

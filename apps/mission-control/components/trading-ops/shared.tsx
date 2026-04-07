@@ -120,7 +120,7 @@ export function ArtifactPanel({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm">{title}</CardTitle>
           <div className="flex items-center gap-2">
-            <Badge variant={summarizeStateVariant(artifact.state)} className="text-[10px]">{artifact.state}</Badge>
+            <Badge variant={summarizeStateVariant(artifact.state)} className="text-[10px]">{artifact.badgeText ?? artifact.state}</Badge>
             <span className="text-[10px] text-muted-foreground">
               {artifact.updatedAt ? formatRelativeAge(artifact.updatedAt) : "—"}
             </span>

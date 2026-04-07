@@ -132,8 +132,11 @@ describe("trading ops loader", () => {
     const data = await loadTradingOpsDashboardData({ backtesterRepoPath: repoPath, cortanaRepoPath, runJsonCommand });
 
     expect(data.market.state).toBe("degraded");
+    expect(data.market.badgeText).toBeUndefined();
     expect(data.market.data?.focusSymbols).toEqual(["OXY", "GEV", "FANG"]);
     expect(data.runtime.data?.operatorState).toBe("provider_cooldown");
+    expect(data.runtime.data?.preOpenGateStatus).toBe("Warn");
+    expect(data.runtime.data?.preOpenGateDetail).toBeNull();
     expect(data.canary.data?.warningCount).toBe(1);
     expect(data.prediction.data?.oneDayMatured).toBe(880);
     expect(data.benchmark.data?.horizonKey).toBe("5d");
@@ -234,9 +237,39 @@ describe("trading ops loader", () => {
     expect(data.market.warnings).toContain("Latest trading run Apr 7, 10:53 AM is newer than this market brief.");
     expect(data.workflow.state).toBe("degraded");
     expect(data.workflow.data?.isStale).toBe(true);
+    expect(data.workflow.badgeText).toBe("stale");
     expect(data.workflow.data?.referenceRunLabel).toBe("Apr 7, 10:53 AM");
     expect(data.workflow.message).toContain("Latest trading run Apr 7, 10:53 AM completed after this workflow artifact");
     expect(data.workflow.warnings).toContain("Latest trading run Apr 7, 10:53 AM is newer than this workflow artifact.");
+  });
+
+  it("renders missing pre-open canary state as not available instead of unknown", async () => {
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-runtime-"));
+    tempDirs.push(repoPath);
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath: repoPath,
+      runJsonCommand: async (scriptPath: string) => {
+        if (scriptPath.endsWith("runtime_health_snapshot.py")) {
+          return {
+            generated_at: "2026-04-07T16:08:10.071538+00:00",
+            pre_open_gate_status: "not_available",
+            pre_open_gate_detail: "Pre-open canary artifact is missing at /tmp/pre-open-canary-latest.json.",
+            service_health: {
+              operator_state: "healthy",
+              operator_action: "No operator action required.",
+            },
+            incident_markers: [],
+          };
+        }
+        throw new Error("script unavailable");
+      },
+    });
+
+    expect(data.runtime.state).toBe("ok");
+    expect(data.runtime.data?.preOpenGateStatus).toBe("Canary not available");
+    expect(data.runtime.data?.preOpenGateDetail).toContain("Pre-open canary artifact is missing");
   });
 });
 

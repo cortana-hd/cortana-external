@@ -46,7 +46,7 @@ def build_runtime_health_snapshot(
     cron_health = {
         "status": "ok" if readiness else "degraded",
         "pre_open_canary_present": bool(readiness),
-        "pre_open_canary_result": str((readiness or {}).get("result") or "unknown"),
+        "pre_open_canary_result": str((readiness or {}).get("result") or "not_available"),
         "pre_open_canary_checked_at": (readiness or {}).get("checked_at"),
     }
     watchdog_health = {
@@ -109,10 +109,18 @@ def build_runtime_health_snapshot(
     if operator_action:
         service_health["operator_action"] = operator_action
 
+    pre_open_gate_status = str((readiness or {}).get("result") or "not_available")
+    pre_open_gate_detail = (
+        None
+        if readiness
+        else f"Pre-open canary artifact is missing at {readiness_path}."
+    )
+
     overall_status = "ok" if not incident_markers and readiness else "degraded"
     return annotate_artifact(
         {
-            "pre_open_gate_status": str((readiness or {}).get("result") or "unknown"),
+            "pre_open_gate_status": pre_open_gate_status,
+            "pre_open_gate_detail": pre_open_gate_detail,
             "service_health": service_health,
             "cron_health": cron_health,
             "watchdog_health": watchdog_health,

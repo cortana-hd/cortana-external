@@ -18,6 +18,7 @@ export type ArtifactState<T> = {
   source?: string;
   updatedAt?: string | null;
   warnings: string[];
+  badgeText?: string;
 };
 
 export type MarketOverview = {
@@ -39,6 +40,7 @@ export type RuntimeOverview = {
   operatorState: string;
   operatorAction: string;
   preOpenGateStatus: string | null;
+  preOpenGateDetail: string | null;
   incidents: Array<{ incidentType: string; severity: string; operatorAction: string }>;
 };
 
@@ -261,6 +263,7 @@ async function loadMarketOverview(
     message,
     source: staleAgainstTradingRun ? tradingRunSignal?.source ?? latestAlert?.path ?? regimePath : latestAlert?.path ?? regimePath,
     updatedAt,
+    badgeText: staleAgainstTradingRun ? "stale" : undefined,
     warnings: compactStrings([
       stringValue(market?.degraded_reason),
       stringValue(marketStatus?.degraded_reason),
@@ -325,15 +328,21 @@ async function loadRuntimeOverview(
       }));
     const operatorState = stringValue(service?.operator_state) ?? "unknown";
     const state: LoadState = operatorState === "healthy" ? "ok" : "degraded";
+    const preOpenGateStatus = normalizePreOpenGateStatus(stringValue(data?.pre_open_gate_status));
+    const preOpenGateDetail = stringValue(data?.pre_open_gate_detail);
 
     return {
       state,
       label: operatorState,
-      message: stringValue(service?.operator_action) ?? "No operator action required.",
+      message:
+        stringValue(service?.operator_action) ??
+        preOpenGateDetail ??
+        "No operator action required.",
       data: {
         operatorState,
         operatorAction: stringValue(service?.operator_action) ?? "No operator action required.",
-        preOpenGateStatus: stringValue(data?.pre_open_gate_status),
+        preOpenGateStatus,
+        preOpenGateDetail,
         incidents,
       },
       source: scriptPath,
@@ -582,6 +591,7 @@ async function loadWorkflowOverview(
     },
     source: latestWorkflow.path,
     updatedAt,
+    badgeText: staleAgainstTradingRun ? "stale" : undefined,
     warnings: compactStrings([
       ...failedStages,
       staleAgainstTradingRun && tradingRunSignal
@@ -851,6 +861,16 @@ function regimeFromTradingRunSignal(signal: TradingRunSignal | null, fallback: s
 function positionSizingPctFromTradingDecision(decision: string | null | undefined): number | null {
   if (!decision) return null;
   return decision.toUpperCase() === "NO_TRADE" ? 0 : null;
+}
+
+function normalizePreOpenGateStatus(status: string | null): string | null {
+  if (!status) return null;
+  if (status === "not_available") return "Canary not available";
+  if (status === "warn") return "Warn";
+  if (status === "fail") return "Fail";
+  if (status === "pass") return "Pass";
+  if (status === "ok") return "OK";
+  return status.replaceAll("_", " ");
 }
 
 function extractTickers(value: unknown): string[] {

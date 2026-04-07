@@ -74,6 +74,8 @@ def test_runtime_health_snapshot_marks_service_incident_when_ready_unreachable(m
 
     assert payload["status"] == "degraded"
     assert payload["incident_markers"][0]["incident_type"] == "market_data_service_unreachable"
+    assert payload["pre_open_gate_status"] == "not_available"
+    assert "Pre-open canary artifact is missing" in payload["pre_open_gate_detail"]
 
 
 def test_runtime_health_snapshot_marks_provider_cooldown_as_incident(monkeypatch, tmp_path):
