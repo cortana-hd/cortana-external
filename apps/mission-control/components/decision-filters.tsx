@@ -27,7 +27,7 @@ export function DecisionFiltersBar({
   filters: DecisionFilters;
   facets: Facets;
 }) {
-  const selectedRange = String(filters.rangeHours ?? 24 * 30);
+  const selectedRange = String(filters.rangeHours ?? 24 * 90);
   const selectedOutcome = filters.outcome ?? "all";
 
   return (

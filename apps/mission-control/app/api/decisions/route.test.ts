@@ -37,7 +37,7 @@ describe("/api/decisions", () => {
     });
   });
 
-  it("uses a 30 day default range", async () => {
+  it("uses a 90 day default range", async () => {
     vi.mocked(getDecisionTraces).mockResolvedValueOnce({
       traces: [],
       facets: { actionTypes: [], triggerTypes: [], outcomes: [] },
@@ -48,7 +48,7 @@ describe("/api/decisions", () => {
     await GET(new Request("http://localhost/api/decisions"));
 
     expect(getDecisionTraces).toHaveBeenCalledWith({
-      rangeHours: 24 * 30,
+      rangeHours: 24 * 90,
       actionType: undefined,
       triggerType: undefined,
       outcome: "all",

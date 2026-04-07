@@ -63,6 +63,7 @@ export default async function ApprovalsPage({
     highlightedApproval && !approvals.some((approval) => approval.id === highlightedApproval.id)
       ? [highlightedApproval, ...approvals]
       : approvals;
+  const hasCustomFilters = Boolean(params.status || params.risk_level || params.rangeHours || params.limit);
 
   const counts = {
     pending: approvals.filter((item) => item.status === "pending").length,
@@ -125,7 +126,9 @@ export default async function ApprovalsPage({
           <Card>
             <CardContent className="py-8">
               <p className="text-sm text-muted-foreground">
-                No approval requests match the current filters. Expand the range or clear the risk filter.
+                {hasCustomFilters
+                  ? "No approval requests match the current filters. Expand the range or clear the risk filter."
+                  : "No approval requests have been recorded yet. This inbox fills when an automation or service requests human approval."}
               </p>
             </CardContent>
           </Card>

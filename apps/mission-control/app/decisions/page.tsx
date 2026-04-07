@@ -21,7 +21,7 @@ export default async function DecisionsPage({
 }) {
   const params = (await searchParams) ?? {};
   const filters: DecisionFilters = {
-    rangeHours: parseNum(params.rangeHours) ?? 24 * 30,
+    rangeHours: parseNum(params.rangeHours) ?? 24 * 90,
     actionType: params.actionType,
     triggerType: params.triggerType,
     outcome: (params.outcome as DecisionFilters["outcome"]) ?? "all",

@@ -5,6 +5,18 @@ const globalForTaskPrisma: typeof globalThis & {
   taskPrismaSourceUrl?: string;
 } = globalThis;
 
+export const isPrimaryDatabaseCortana = () => {
+  const base = process.env.DATABASE_URL?.trim();
+  if (!base) return false;
+
+  try {
+    const parsed = new URL(base);
+    return parsed.pathname === "/cortana";
+  } catch {
+    return false;
+  }
+};
+
 const deriveCortanaUrl = () => {
   const explicit = process.env.CORTANA_DATABASE_URL?.trim();
   if (explicit) return explicit;
