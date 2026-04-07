@@ -24,7 +24,7 @@ export function DbStatus() {
   const lance = status?.lancedb ?? null;
 
   return (
-    <div className="flex h-full flex-col justify-center gap-1.5 rounded-lg border bg-card/60 px-3 py-2 shadow-sm">
+    <div className="flex h-full flex-col justify-center gap-1.5 overflow-hidden rounded-lg border bg-card/60 px-3 py-2 shadow-sm">
       <Badge variant={pg === null ? "outline" : pg ? "secondary" : "destructive"}>
         {pg === null ? "…" : pg ? "●" : "✖"} Postgres
       </Badge>

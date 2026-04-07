@@ -86,17 +86,17 @@ export function HeartbeatPulse() {
   }, [status]);
 
   return (
-    <div className="flex h-full flex-col justify-center rounded-lg border bg-card/60 px-3 py-2 shadow-sm">
+    <div className="flex h-full flex-col justify-center overflow-hidden rounded-lg border bg-card/60 px-3 py-2 shadow-sm">
       <div className="flex items-center gap-2">
         <span
           className={`heartbeat-dot heartbeat-${status}`}
           aria-hidden="true"
         />
-        <p className="text-sm font-medium text-foreground">Cortana heartbeat: {statusLabel}</p>
+        <p className="text-sm font-medium text-foreground">Heartbeat: {statusLabel}</p>
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">
+      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
         {formatLastHeartbeat(data?.ageMs ?? null, status)}
-        {error ? " (reconnecting...)" : ""}
+        {error ? " (reconnecting)" : ""}
       </p>
     </div>
   );

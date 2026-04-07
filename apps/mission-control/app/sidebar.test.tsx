@@ -37,22 +37,16 @@ vi.mock("next/link", () => ({
 
 const NAV_LABELS = [
   "Dashboard",
-  "System Stats",
-  "Task Board",
-  "Memories",
-  "Agents",
-  "Jobs & Runs",
-  "Cron Jobs",
+  "Services",
   "Trading Ops",
+  "Task Board",
+  "Mjolnir",
+  "Memories",
+  "Docs",
+  "Jobs & Runs",
   "Decision Traces",
   "Approvals",
   "Feedback",
-  "Council",
-  "Mjolnir",
-  "Sessions",
-  "Usage",
-  "Logs",
-  "Docs",
 ];
 
 

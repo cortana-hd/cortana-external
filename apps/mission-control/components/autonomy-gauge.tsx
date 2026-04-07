@@ -68,7 +68,7 @@ export function AutonomyGauge() {
     payload.trend.delta === 0 ? "0" : `${payload.trend.delta > 0 ? "+" : ""}${payload.trend.delta.toFixed(1)}`;
 
   return (
-    <div className="flex h-full flex-col justify-center rounded-lg border border-cyan-500/30 bg-gradient-to-br from-cyan-500/5 via-background to-background px-3 py-2 shadow-sm">
+    <div className="flex h-full flex-col justify-center overflow-hidden rounded-lg border border-cyan-500/30 bg-gradient-to-br from-cyan-500/5 via-background to-background px-3 py-2 shadow-sm">
       <div className="flex items-center gap-3">
         <div className="relative shrink-0">
           <svg width={SIZE} height={SIZE} className="rotate-[-90deg]">

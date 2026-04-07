@@ -3,10 +3,22 @@
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import {
+  Calendar,
+  ChevronDown,
+  ChevronRight,
+  List,
+  Menu,
+  Search,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+
+/* ── types ── */
 
 type MemoriesResponse = {
   dates: string[];
@@ -20,6 +32,14 @@ type LongTermResponse = {
   error?: string;
 };
 
+type Heading = {
+  id: string;
+  text: string;
+  level: number;
+};
+
+/* ── pure helpers ── */
+
 const formatDate = (value: string) => {
   const [y, m, d] = value.split("-").map(Number);
   const date = new Date(y, (m ?? 1) - 1, d ?? 1);
@@ -31,6 +51,52 @@ const formatDate = (value: string) => {
     year: "numeric",
   }).format(date);
 };
+
+function extractHeadings(markdown: string): Heading[] {
+  const headingRegex = /^(#{1,6})\s+(.+)$/gm;
+  const headings: Heading[] = [];
+  const usedIds = new Set<string>();
+  let match: RegExpExecArray | null;
+
+  while ((match = headingRegex.exec(markdown)) !== null) {
+    const level = match[1].length;
+    const text = match[2]
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/`(.+?)`/g, "$1")
+      .replace(/\[(.+?)\]\(.+?\)/g, "$1")
+      .trim();
+    let id = text
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-");
+
+    if (usedIds.has(id)) {
+      let n = 2;
+      while (usedIds.has(`${id}-${n}`)) n++;
+      id = `${id}-${n}`;
+    }
+    usedIds.add(id);
+    headings.push({ id, text, level });
+  }
+  return headings;
+}
+
+function getTextContent(children: React.ReactNode): string {
+  if (typeof children === "string") return children;
+  if (typeof children === "number") return String(children);
+  if (!children) return "";
+  if (Array.isArray(children)) return children.map(getTextContent).join("");
+  if (React.isValidElement(children)) {
+    return getTextContent((children.props as { children?: React.ReactNode }).children);
+  }
+  return "";
+}
+
+function slugify(text: string): string {
+  return text.toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-");
+}
+
+/* ── main component ── */
 
 export default function MemoriesPage() {
   const [activeTab, setActiveTab] = React.useState("daily");
@@ -48,9 +114,26 @@ export default function MemoriesPage() {
   const [longTermLoaded, setLongTermLoaded] = React.useState(false);
   const [longTermError, setLongTermError] = React.useState<string | null>(null);
 
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [activeHeadingId, setActiveHeadingId] = React.useState<string | null>(null);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = React.useState(false);
+  const [mobileTocOpen, setMobileTocOpen] = React.useState(false);
+
+  const contentRef = React.useRef<HTMLDivElement>(null);
+
+  /* ── derived ── */
+  const activeContent = activeTab === "daily" ? dailyContent : longTermContent;
+  const headings = React.useMemo(() => extractHeadings(activeContent), [activeContent]);
+
+  const filteredDates = React.useMemo(() => {
+    if (!searchQuery) return dates;
+    const q = searchQuery.toLowerCase();
+    return dates.filter((d) => d.includes(q) || formatDate(d).toLowerCase().includes(q));
+  }, [dates, searchQuery]);
+
+  /* ── data fetching ── */
   React.useEffect(() => {
     let mounted = true;
-
     const loadDates = async () => {
       try {
         setDailyLoading(true);
@@ -59,8 +142,7 @@ export default function MemoriesPage() {
         if (!response.ok) throw new Error(data.error ?? "Failed to load memories");
         if (!mounted) return;
         setDates(data.dates ?? []);
-        const first = data.dates?.[0] ?? null;
-        setSelectedDate(first);
+        setSelectedDate(data.dates?.[0] ?? null);
       } catch (error) {
         if (!mounted) return;
         setDailyError(error instanceof Error ? error.message : "Failed to load memories");
@@ -68,21 +150,13 @@ export default function MemoriesPage() {
         if (mounted) setDailyLoading(false);
       }
     };
-
     void loadDates();
-
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
   React.useEffect(() => {
     let mounted = true;
-    if (!selectedDate) {
-      setDailyContent("");
-      return;
-    }
-
+    if (!selectedDate) { setDailyContent(""); return; }
     const loadContent = async () => {
       try {
         setDailyContentLoading(true);
@@ -98,17 +172,12 @@ export default function MemoriesPage() {
         if (mounted) setDailyContentLoading(false);
       }
     };
-
     void loadContent();
-
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [selectedDate]);
 
   React.useEffect(() => {
     if (activeTab !== "longterm" || longTermLoaded) return;
-
     let mounted = true;
     const loadLongTerm = async () => {
       try {
@@ -127,115 +196,353 @@ export default function MemoriesPage() {
         if (mounted) setLongTermLoading(false);
       }
     };
-
     void loadLongTerm();
-
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [activeTab, longTermLoaded]);
 
-  return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div>
-        <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Memory Vault</p>
-        <h1 className="text-3xl font-semibold tracking-tight">Memories</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Daily notes and long-term memory from OpenClaw.</p>
+  /* reset on content change */
+  React.useEffect(() => {
+    setActiveHeadingId(null);
+    setMobileTocOpen(false);
+  }, [selectedDate, activeTab]);
+
+  /* ── scroll-spy ── */
+  React.useEffect(() => {
+    if (headings.length === 0) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const el = contentRef.current;
+    if (!el) return;
+
+    const headingElements = headings
+      .map((h) => el.querySelector(`[id="${h.id}"]`))
+      .filter(Boolean) as Element[];
+
+    if (headingElements.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible.length > 0) setActiveHeadingId(visible[0].target.id);
+      },
+      { rootMargin: "-80px 0px -70% 0px", threshold: 0 },
+    );
+
+    headingElements.forEach((hEl) => observer.observe(hEl));
+    return () => observer.disconnect();
+  }, [headings, activeContent]);
+
+  /* ── body scroll lock for mobile sidebar ── */
+  React.useEffect(() => {
+    if (mobileSidebarOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileSidebarOpen]);
+
+  /* ── heading components for ReactMarkdown ── */
+  const headingComponents = React.useMemo(() => {
+    const make = (Tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6") => {
+      const Comp = ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => {
+        const text = getTextContent(children);
+        const id = slugify(text);
+        return <Tag id={id} {...props}>{children}</Tag>;
+      };
+      Comp.displayName = Tag;
+      return Comp;
+    };
+    return { h1: make("h1"), h2: make("h2"), h3: make("h3"), h4: make("h4"), h5: make("h5"), h6: make("h6") };
+  }, []);
+
+  /* ── TOC ── */
+  const tocContent = headings.length > 0 ? (
+    <nav className="space-y-0.5">
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        <List className="h-3.5 w-3.5" />
+        On this page
+      </p>
+      {headings.map((h) => (
+        <a
+          key={h.id}
+          href={`#${h.id}`}
+          onClick={(e) => {
+            e.preventDefault();
+            const target = contentRef.current?.querySelector(`[id="${h.id}"]`);
+            if (target) {
+              target.scrollIntoView({ behavior: "smooth", block: "start" });
+              setActiveHeadingId(h.id);
+            }
+          }}
+          className={cn(
+            "docs-toc-link",
+            h.level >= 3 && "pl-6 text-xs",
+            h.level >= 4 && "pl-9",
+            activeHeadingId === h.id && "docs-toc-link-active",
+          )}
+        >
+          {h.text}
+        </a>
+      ))}
+    </nav>
+  ) : null;
+
+  /* ── sidebar content (date picker) ── */
+  const sidebarContent = (
+    <nav className="space-y-3">
+      {/* Search */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Search dates..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="h-8 pl-8 pr-8 text-sm"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <div className="border-b">
-          <TabsList variant="line" className="w-full justify-start">
-            <TabsTrigger value="daily">Daily Memories</TabsTrigger>
-            <TabsTrigger value="longterm">Long-Term Memory</TabsTrigger>
-          </TabsList>
+      {/* Date list */}
+      <div className="space-y-0.5">
+        <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          Daily Memories
+        </p>
+        {dailyLoading ? (
+          <p className="px-2 py-3 text-sm text-muted-foreground">Loading...</p>
+        ) : filteredDates.length === 0 ? (
+          <p className="px-2 py-3 text-sm text-muted-foreground">
+            {searchQuery ? `No results for "${searchQuery}"` : "No memories found."}
+          </p>
+        ) : (
+          filteredDates.map((date) => {
+            const isActive = date === selectedDate && activeTab === "daily";
+            return (
+              <button
+                key={date}
+                type="button"
+                onClick={() => {
+                  setSelectedDate(date);
+                  setActiveTab("daily");
+                  setMobileSidebarOpen(false);
+                }}
+                className={cn("docs-nav-item", isActive && "docs-nav-item-active")}
+              >
+                <Calendar className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{formatDate(date)}</span>
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      {/* Long-term memory link */}
+      <div className="space-y-0.5">
+        <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          Persistent
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab("longterm");
+            setMobileSidebarOpen(false);
+          }}
+          className={cn("docs-nav-item", activeTab === "longterm" && "docs-nav-item-active")}
+        >
+          <List className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">MEMORY.md</span>
+        </button>
+      </div>
+    </nav>
+  );
+
+  /* ── render active content ── */
+  const renderContent = () => {
+    if (activeTab === "longterm") {
+      return (
+        <>
+          <div className="mb-6 space-y-2 border-b border-border/50 pb-4">
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Long-Term Memory</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">MEMORY.md</Badge>
+              {longTermUpdatedAt && (
+                <span className="text-xs text-muted-foreground">
+                  Updated {new Date(longTermUpdatedAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div ref={contentRef}>
+            {longTermError ? (
+              <p className="py-8 text-sm text-muted-foreground">{longTermError}</p>
+            ) : longTermLoading ? (
+              <p className="py-8 text-sm text-muted-foreground">Loading MEMORY.md...</p>
+            ) : longTermContent.trim() ? (
+              <article className="docs-prose pb-16">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={headingComponents}>
+                  {longTermContent}
+                </ReactMarkdown>
+              </article>
+            ) : (
+              <p className="py-8 text-sm text-muted-foreground">No long-term memory content yet.</p>
+            )}
+          </div>
+        </>
+      );
+    }
+
+    // Daily tab
+    return (
+      <>
+        {/* Breadcrumbs */}
+        {selectedDate && (
+          <nav className="mb-3 flex items-center gap-1 text-sm">
+            <span className="text-muted-foreground">Daily Memories</span>
+            <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <span className="font-medium text-foreground">{formatDate(selectedDate)}</span>
+          </nav>
+        )}
+
+        {/* Document title + metadata */}
+        {selectedDate && (
+          <div className="mb-6 space-y-2 border-b border-border/50 pb-4">
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
+              {formatDate(selectedDate)}
+            </h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{selectedDate}</Badge>
+              <span className="text-xs text-muted-foreground">Daily memory</span>
+            </div>
+          </div>
+        )}
+
+        {dailyError ? (
+          <Card className="border-destructive/40 bg-destructive/5">
+            <CardHeader>
+              <CardTitle className="text-base">Error</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">{dailyError}</CardContent>
+          </Card>
+        ) : (
+          <div ref={contentRef}>
+            {dailyContentLoading ? (
+              <p className="py-8 text-sm text-muted-foreground">Loading content...</p>
+            ) : dailyContent.trim() ? (
+              <article className="docs-prose pb-16">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={headingComponents}>
+                  {dailyContent}
+                </ReactMarkdown>
+              </article>
+            ) : (
+              <p className="py-8 text-sm text-muted-foreground">
+                {selectedDate ? "No content for this date." : "Select a date to view memories."}
+              </p>
+            )}
+          </div>
+        )}
+      </>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="space-y-1">
+        <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Memory Vault</p>
+        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Memories</h1>
+        <p className="text-sm text-muted-foreground">
+          Daily notes and long-term memory from OpenClaw.
+        </p>
+      </div>
+
+      {/* Mobile top bar */}
+      <div className="flex items-center gap-2 md:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileSidebarOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/40"
+        >
+          <Menu className="h-4 w-4" />
+          Browse
+        </button>
+        {activeTab === "daily" && selectedDate && (
+          <span className="truncate text-sm text-muted-foreground">{formatDate(selectedDate)}</span>
+        )}
+        {activeTab === "longterm" && (
+          <span className="truncate text-sm text-muted-foreground">MEMORY.md</span>
+        )}
+      </div>
+
+      {/* Mobile sidebar overlay */}
+      {mobileSidebarOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setMobileSidebarOpen(false)} />
+          <div className="fixed inset-y-0 left-0 z-50 w-80 max-w-[calc(100vw-3rem)] overflow-y-auto border-r bg-background shadow-lg">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <span className="text-sm font-semibold">Memories</span>
+              <button
+                type="button"
+                onClick={() => setMobileSidebarOpen(false)}
+                className="rounded-md p-1 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-3">{sidebarContent}</div>
+          </div>
         </div>
+      )}
 
-        <TabsContent value="daily" className="space-y-4">
-          {dailyError ? (
-            <Card>
-              <CardContent className="py-6 text-sm text-muted-foreground">{dailyError}</CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-              <Card className="overflow-hidden">
-                <CardHeader className="border-b py-3">
-                  <CardTitle className="text-base">Dates</CardTitle>
-                </CardHeader>
-                <CardContent className="p-2">
-                  <div className="flex gap-2 overflow-x-auto pb-1 lg:max-h-[620px] lg:flex-col lg:overflow-y-auto lg:overflow-x-visible">
-                    {dailyLoading ? (
-                      <p className="px-2 py-3 text-sm text-muted-foreground">Loading…</p>
-                    ) : dates.length === 0 ? (
-                      <p className="px-2 py-3 text-sm text-muted-foreground">No memories found.</p>
-                    ) : (
-                      dates.map((date) => (
-                        <button
-                          key={date}
-                          type="button"
-                          onClick={() => setSelectedDate(date)}
-                          className={cn(
-                            "shrink-0 rounded-md border px-3 py-2 text-left text-sm transition-colors lg:w-full",
-                            selectedDate === date
-                              ? "border-primary/30 bg-primary/10 text-foreground"
-                              : "border-border/60 bg-background hover:bg-muted/40"
-                          )}
-                        >
-                          {formatDate(date)}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+      {/* Three-column grid */}
+      <div className="md:grid md:grid-cols-[16rem_minmax(0,1fr)] md:gap-6 xl:grid-cols-[16rem_minmax(0,1fr)_14rem] xl:gap-8">
+        {/* Left sidebar (desktop) */}
+        <aside className="hidden md:block">
+          <div className="sticky top-8 max-h-[calc(100vh-4rem)] overflow-y-auto rounded-lg border border-border/50 bg-card/30 p-3">
+            {sidebarContent}
+          </div>
+        </aside>
 
-              <Card>
-                <CardHeader className="border-b">
-                  <CardTitle className="flex items-center justify-between gap-2 text-base">
-                    <span>{selectedDate ? formatDate(selectedDate) : "Daily Memory"}</span>
-                    {selectedDate && <Badge variant="secondary">{selectedDate}</Badge>}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {dailyContentLoading ? (
-                    <p className="text-sm text-muted-foreground">Loading content…</p>
-                  ) : dailyContent.trim() ? (
-                    <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:font-semibold prose-li:marker:text-muted-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:before:content-[''] prose-code:after:content-[''] prose-pre:bg-muted prose-pre:text-foreground prose-a:text-primary">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{dailyContent}</ReactMarkdown>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No content for this date.</p>
-                  )}
-                </CardContent>
-              </Card>
+        {/* Center content */}
+        <div className="min-w-0">
+          {/* Mobile/tablet TOC accordion */}
+          {headings.length > 0 && (
+            <div className="mb-4 xl:hidden">
+              <button
+                type="button"
+                onClick={() => setMobileTocOpen((o) => !o)}
+                className="flex w-full items-center justify-between rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <span className="flex items-center gap-1.5">
+                  <List className="h-3.5 w-3.5" />
+                  On this page
+                </span>
+                <ChevronDown className={cn("h-4 w-4 transition-transform", mobileTocOpen && "rotate-180")} />
+              </button>
+              {mobileTocOpen && (
+                <div className="mt-1 rounded-md border border-border/50 bg-card/40 p-3">
+                  {tocContent}
+                </div>
+              )}
             </div>
           )}
-        </TabsContent>
 
-        <TabsContent value="longterm">
-          <Card>
-            <CardHeader className="border-b">
-              <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-                <span>Long-Term Memory</span>
-                {longTermUpdatedAt && <Badge variant="outline">Updated {new Date(longTermUpdatedAt).toLocaleString()}</Badge>}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {longTermError ? (
-                <p className="text-sm text-muted-foreground">{longTermError}</p>
-              ) : longTermLoading ? (
-                <p className="text-sm text-muted-foreground">Loading MEMORY.md…</p>
-              ) : longTermContent.trim() ? (
-                <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:font-semibold prose-li:marker:text-muted-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:before:content-[''] prose-code:after:content-[''] prose-pre:bg-muted prose-pre:text-foreground prose-a:text-primary">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{longTermContent}</ReactMarkdown>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No long-term memory content yet.</p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+          {renderContent()}
+        </div>
+
+        {/* Right TOC rail (desktop only) */}
+        <aside className="hidden xl:block">
+          <div className="sticky top-8 max-h-[calc(100vh-4rem)] overflow-y-auto">
+            {tocContent}
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }

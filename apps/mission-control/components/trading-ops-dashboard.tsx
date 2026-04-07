@@ -1,8 +1,8 @@
 import { AlertTriangle, ClipboardList, Gauge, Radar, ShieldCheck, Workflow } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { ArtifactState, TradingOpsDashboardData } from "@/lib/trading-ops";
+import type { ArtifactState, LoadState, TradingOpsDashboardData } from "@/lib/trading-ops";
 import {
   formatMoney,
   formatPercent,
@@ -10,140 +10,107 @@ import {
   summarizeStateVariant,
 } from "@/lib/trading-ops";
 
+/* ── helpers ── */
+
+function stateTextClass(state: LoadState) {
+  return `state-text-${state}` as const;
+}
+
+function panelBorderClass(state: LoadState) {
+  return `panel-${state}` as const;
+}
+
+/* ── main component ── */
+
 type TradingOpsDashboardProps = {
   data: TradingOpsDashboardData;
 };
 
 export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
+  const hasIncidents = (data.runtime.data?.incidents.length ?? 0) > 0;
+  const hasErrors = [data.market, data.runtime, data.workflow, data.canary].some((a) => a.state === "error");
+
   return (
-    <div className="space-y-6">
-      <section className="space-y-3">
-        <Badge variant="outline">Trading Ops</Badge>
-        <div className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight">Backtester operator console</h1>
-          <p className="max-w-3xl text-sm text-muted-foreground sm:text-base">
-            This page pulls the live operator surfaces plus the last workflow artifacts into one read-only view.
-            If you are new, read the checklist first. After that, use the tabs to drill into the part you care about.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-          <span>Generated {formatRelativeAge(data.generatedAt)}</span>
-          <span>Backtester root: {data.repoPath}</span>
-        </div>
-      </section>
+    <div className="space-y-3">
+      {/* ── Zone A: Terminal Header Bar ── */}
+      <TerminalHeader data={data} />
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.3fr_1fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">What to read first</CardTitle>
-            <CardDescription>Use this order if you are not sure what matters yet.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <ReadStep title="1. Market posture" body="Read this first. If regime is correction and sizing is 0%, do not force buys." />
-            <ReadStep title="2. Runtime health" body="If you see provider cooldown or auth trouble, trust degraded warnings and expect slower signals." />
-            <ReadStep title="3. Latest workflow" body="Check whether CANSLIM and Dip Buyer actually finished, and whether any stage failed." />
-            <ReadStep title="4. Prediction and lifecycle" body="Use these to judge whether the system is getting better over time, not to override market posture." />
-          </CardContent>
-        </Card>
+      {/* ── Zone B: Alert Banner (conditional) ── */}
+      {(hasIncidents || hasErrors) && <AlertBanner data={data} />}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Quick answer</CardTitle>
-            <CardDescription>If you only want the headline, read this box and stop.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="rounded-lg border border-border/70 bg-card/40 p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Right now</p>
-              <p className="mt-2 text-lg font-semibold">
-                {data.market.data ? `${data.market.data.regime.toUpperCase()} · ${data.market.data.posture}` : data.market.label}
-              </p>
-              <p className="mt-2 text-muted-foreground">{data.market.message}</p>
-            </div>
-            <dl className="grid grid-cols-2 gap-3">
-              <Metric label="Focus names" value={data.market.data?.focusSymbols.join(", ") || "None yet"} />
-              <Metric label="Runtime" value={data.runtime.data?.operatorState ?? data.runtime.label} />
-              <Metric label="Workflow" value={data.workflow.data ? data.workflow.data.runId : data.workflow.label} />
-              <Metric label="Latest trading run" value={data.tradingRun.data ? data.tradingRun.data.decision : data.tradingRun.label} />
-              <Metric label="Open positions" value={String(data.lifecycle.data?.openCount ?? 0)} />
-            </dl>
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard
+      {/* ── Zone C: Four Summary Cells ── */}
+      <section className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <TerminalCell
           title="Market posture"
           value={data.market.data ? `${data.market.data.regime.toUpperCase()} · ${data.market.data.posture}` : data.market.label}
-          subtitle={data.market.message}
-          state={data.market.state}
-          icon={<Gauge className="h-4 w-4" />}
           detail={data.market.data ? `Sizing ${formatPercent(data.market.data.positionSizingPct)}` : "No market data"}
+          state={data.market.state}
+          icon={<Gauge className="h-3.5 w-3.5" />}
         />
-        <SummaryCard
+        <TerminalCell
           title="Runtime health"
           value={data.runtime.data?.operatorState ?? data.runtime.label}
-          subtitle={data.runtime.message}
-          state={data.runtime.state}
-          icon={<ShieldCheck className="h-4 w-4" />}
           detail={data.runtime.data ? `${data.runtime.data.incidents.length} active incidents` : "No runtime snapshot"}
+          state={data.runtime.state}
+          icon={<ShieldCheck className="h-3.5 w-3.5" />}
         />
-        <SummaryCard
+        <TerminalCell
           title="Prediction loop"
           value={data.prediction.data ? `${data.prediction.data.snapshotCount} snapshots` : data.prediction.label}
-          subtitle={data.prediction.message}
-          state={data.prediction.state}
-          icon={<Radar className="h-4 w-4" />}
           detail={data.prediction.data ? `1d matured ${data.prediction.data.oneDayMatured}` : "No accuracy artifact"}
+          state={data.prediction.state}
+          icon={<Radar className="h-3.5 w-3.5" />}
         />
-        <SummaryCard
+        <TerminalCell
           title="Trade lifecycle"
           value={data.lifecycle.data ? `${data.lifecycle.data.openCount} open / ${data.lifecycle.data.closedCount} closed` : data.lifecycle.label}
-          subtitle={data.lifecycle.message}
-          state={data.lifecycle.state}
-          icon={<Workflow className="h-4 w-4" />}
           detail={data.lifecycle.data ? `Exposure ${formatPercent(data.lifecycle.data.grossExposurePct)}` : "No lifecycle artifact"}
+          state={data.lifecycle.state}
+          icon={<Workflow className="h-3.5 w-3.5" />}
         />
       </section>
 
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="w-full justify-start overflow-x-auto">
+      {/* ── Zone D: Collapsible Operator Checklist ── */}
+      <OperatorChecklist />
+
+      {/* ── Zone E: Tabs ── */}
+      <Tabs defaultValue="overview" className="space-y-3">
+        <TabsList className="w-full justify-start overflow-x-auto font-mono text-xs uppercase tracking-wide">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="watchlists">Watchlists</TabsTrigger>
           <TabsTrigger value="health">System Health</TabsTrigger>
           <TabsTrigger value="deep-dive">Deep Dive</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-4">
-          <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr_1fr]">
-            <ArtifactCard title="Market brief" artifact={data.market}>
+        {/* ── Overview ── */}
+        <TabsContent value="overview" className="space-y-3">
+          <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+            {/* Column 1: Market Brief */}
+            <ArtifactPanel title="Market brief" artifact={data.market}>
               {data.market.data ? (
-                <div className="space-y-3 text-sm">
+                <div className="space-y-2 text-sm">
                   <p className="font-medium">{data.market.data.reason}</p>
-                  <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <Metric label="Regime" value={data.market.data.regime.toUpperCase()} />
                     <Metric label="Sizing" value={formatPercent(data.market.data.positionSizingPct)} />
                     <Metric label="Focus" value={data.market.data.focusSymbols.join(", ") || "None yet"} />
                     <Metric label="Next action" value={data.market.data.nextAction ?? "Wait for fresher data"} />
                   </dl>
-                  <div className="rounded-lg border border-border/70 bg-muted/40 p-3">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Latest strategy summary</p>
-                    <p className="mt-1 font-mono text-sm">{data.market.data.alertSummary || "No recent alert summary."}</p>
+                  <div className="rounded-md border border-border/50 bg-muted/30 p-2">
+                    <p className="terminal-metric-label">Latest strategy summary</p>
+                    <p className="mt-1 font-mono text-xs">{data.market.data.alertSummary || "No recent alert summary."}</p>
                   </div>
                 </div>
               ) : null}
-            </ArtifactCard>
+            </ArtifactPanel>
 
-            <ArtifactCard title="Latest trading run" artifact={data.tradingRun}>
+            {/* Column 2: Latest Trading Run */}
+            <ArtifactPanel title="Latest trading run" artifact={data.tradingRun}>
               {data.tradingRun.data ? (
-                <div className="space-y-3 text-sm">
-                  <dl className="grid grid-cols-2 gap-3">
+                <div className="space-y-2 text-sm">
+                  <dl className="grid grid-cols-2 gap-2">
                     <Metric label="Run id" value={data.tradingRun.data.runId} />
-                    <Metric
-                      label="Decision"
-                      value={data.tradingRun.data.decision}
-                    />
-                  </dl>
-                  <dl className="grid grid-cols-2 gap-3">
+                    <Metric label="Decision" value={data.tradingRun.data.decision} />
                     <Metric
                       label="Focus"
                       value={
@@ -157,85 +124,73 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                       value={`BUY ${data.tradingRun.data.buyCount} · WATCH ${data.tradingRun.data.watchCount} · NO_BUY ${data.tradingRun.data.noBuyCount}`}
                     />
                   </dl>
-                  <p className="rounded-lg border border-border/70 bg-card/40 px-3 py-3 text-sm">
+                  <p className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
                     Open the <span className="font-medium">Watchlists</span> tab to see the full latest run names.
                     Dip Buyer currently has <span className="font-medium">{data.tradingRun.data.dipBuyerWatch.length}</span> watch names.
                   </p>
                   {data.tradingRun.data.messagePreview ? (
-                    <details className="rounded-lg border border-border/70 bg-muted/30 p-3">
-                      <summary className="cursor-pointer text-sm font-medium">Telegram preview</summary>
-                      <pre className="mt-3 whitespace-pre-wrap text-xs text-muted-foreground">
+                    <details className="rounded-md border border-border/50 bg-muted/30 p-2">
+                      <summary className="cursor-pointer text-xs font-medium">Telegram preview</summary>
+                      <pre className="mt-2 whitespace-pre-wrap font-mono text-xs text-muted-foreground">
                         {data.tradingRun.data.messagePreview}
                       </pre>
                     </details>
                   ) : null}
                 </div>
               ) : null}
-            </ArtifactCard>
-          </section>
+            </ArtifactPanel>
 
-          <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <ArtifactCard title="Latest workflow" artifact={data.workflow}>
-              {data.workflow.data ? (
-                <div className="space-y-3 text-sm">
-                  <dl className="grid grid-cols-2 gap-3">
-                    <Metric label="Run id" value={data.workflow.data.runId} />
-                    <Metric
-                      label="Stage counts"
-                      value={Object.entries(data.workflow.data.stageCounts).map(([status, count]) => `${status}:${count}`).join(" · ")}
-                    />
-                  </dl>
-                  <div className="space-y-2">
-                    {data.workflow.data.stageRows.slice(0, 6).map((stage) => (
-                      <div key={`${stage.name}-${stage.startedAt}`} className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{stage.name}</p>
-                          <p className="text-xs text-muted-foreground">{stage.endedAt || stage.startedAt}</p>
-                        </div>
-                        <Badge variant={stage.status === "ok" ? "success" : stage.status === "error" ? "destructive" : "outline"}>
-                          {stage.status}
-                        </Badge>
-                      </div>
-                    ))}
+            {/* Column 3: Workflow + Runtime stacked */}
+            <div className="space-y-3">
+              <ArtifactPanel title="Latest workflow" artifact={data.workflow}>
+                {data.workflow.data ? (
+                  <div className="space-y-2 text-sm">
+                    <dl className="grid grid-cols-2 gap-2">
+                      <Metric label="Run id" value={data.workflow.data.runId} />
+                      <Metric
+                        label="Stage counts"
+                        value={Object.entries(data.workflow.data.stageCounts).map(([s, c]) => `${s}:${c}`).join(" · ")}
+                      />
+                    </dl>
+                    <div className="flex flex-wrap gap-1.5">
+                      {data.workflow.data.stageRows.slice(0, 8).map((stage) => (
+                        <StageChip key={`${stage.name}-${stage.startedAt}`} name={stage.name} status={stage.status} />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ) : null}
-            </ArtifactCard>
+                ) : null}
+              </ArtifactPanel>
 
-            <ArtifactCard title="Runtime health" artifact={data.runtime}>
-              {data.runtime.data ? (
-                <div className="space-y-3 text-sm">
-                  <Metric label="Operator action" value={data.runtime.data.operatorAction} />
-                  <Metric label="Pre-open gate" value={data.runtime.data.preOpenGateStatus ?? "n/a"} />
-                  <div className="space-y-2">
+              <ArtifactPanel title="Runtime health" artifact={data.runtime}>
+                {data.runtime.data ? (
+                  <div className="space-y-2 text-sm">
+                    <Metric label="Operator action" value={data.runtime.data.operatorAction} />
+                    <Metric label="Pre-open gate" value={data.runtime.data.preOpenGateStatus ?? "n/a"} />
                     {data.runtime.data.incidents.length > 0 ? (
-                      data.runtime.data.incidents.map((incident) => (
-                        <div key={`${incident.incidentType}-${incident.severity}`} className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-amber-950">
-                          <div className="flex items-center gap-2 text-sm font-medium">
-                            <AlertTriangle className="h-4 w-4" />
-                            {incident.incidentType} · {incident.severity}
+                      <div className="space-y-1.5">
+                        {data.runtime.data.incidents.map((incident) => (
+                          <div key={`${incident.incidentType}-${incident.severity}`} className="terminal-alert-warning flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium">
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                            <span>{incident.incidentType} · {incident.severity}</span>
                           </div>
-                          <p className="mt-1 text-sm">{incident.operatorAction}</p>
-                        </div>
-                      ))
+                        ))}
+                      </div>
                     ) : (
-                      <p className="text-muted-foreground">No active runtime incidents.</p>
+                      <p className="text-xs text-muted-foreground">No active runtime incidents.</p>
                     )}
                   </div>
-                </div>
-              ) : null}
-            </ArtifactCard>
+                ) : null}
+              </ArtifactPanel>
+            </div>
           </section>
         </TabsContent>
 
-        <TabsContent value="watchlists" className="space-y-4">
-          <ArtifactCard title="Latest trading run watchlists" artifact={data.tradingRun}>
+        {/* ── Watchlists ── */}
+        <TabsContent value="watchlists" className="space-y-3">
+          <ArtifactPanel title="Latest trading run watchlists" artifact={data.tradingRun}>
             {data.tradingRun.data ? (
-              <div className="space-y-4 text-sm">
-                <p className="text-muted-foreground">
-                  This tab shows every name from the latest trading run so you can scan the full list without crowding the overview.
-                </p>
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
                   <StrategyWatchlistSection
                     strategy="Dip Buyer"
                     buy={data.tradingRun.data.dipBuyerBuy}
@@ -251,89 +206,99 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                 </div>
               </div>
             ) : null}
-          </ArtifactCard>
+          </ArtifactPanel>
         </TabsContent>
 
-        <TabsContent value="health" className="space-y-4">
-          <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <ArtifactCard title="Pre-open canary" artifact={data.canary}>
+        {/* ── System Health ── */}
+        <TabsContent value="health" className="space-y-3">
+          <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <ArtifactPanel title="Pre-open canary" artifact={data.canary}>
               {data.canary.data ? (
-                <div className="space-y-3 text-sm">
-                  <dl className="grid grid-cols-2 gap-3">
+                <div className="space-y-2 text-sm">
+                  <dl className="grid grid-cols-2 gap-2">
                     <Metric label="Ready for open" value={String(data.canary.data.readyForOpen ?? false)} />
                     <Metric label="Warnings" value={String(data.canary.data.warningCount)} />
                   </dl>
-                  <div className="space-y-2">
+                  <div className="space-y-1">
                     {data.canary.data.checks.map((check) => (
-                      <div key={check.name} className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2">
-                        <span className="text-sm">{check.name}</span>
-                        <Badge variant={check.result === "ok" ? "success" : "warning"}>{check.result}</Badge>
+                      <div key={check.name} className="flex items-center justify-between rounded-md border border-border/50 px-2 py-1.5 text-xs">
+                        <span className="font-mono">{check.name}</span>
+                        <Badge variant={check.result === "ok" ? "success" : "warning"} className="text-[10px]">{check.result}</Badge>
                       </div>
                     ))}
                   </div>
                 </div>
               ) : null}
-            </ArtifactCard>
+            </ArtifactPanel>
+
+            <ArtifactPanel title="Runtime health" artifact={data.runtime}>
+              {data.runtime.data ? (
+                <div className="space-y-2 text-sm">
+                  <Metric label="Operator action" value={data.runtime.data.operatorAction} />
+                  <Metric label="Pre-open gate" value={data.runtime.data.preOpenGateStatus ?? "n/a"} />
+                  {data.runtime.data.incidents.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {data.runtime.data.incidents.map((incident) => (
+                        <div key={`health-${incident.incidentType}-${incident.severity}`} className="terminal-alert-warning flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          <span>{incident.incidentType} · {incident.severity} — {incident.operatorAction}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No active runtime incidents.</p>
+                  )}
+                </div>
+              ) : null}
+            </ArtifactPanel>
           </section>
         </TabsContent>
 
-        <TabsContent value="deep-dive" className="space-y-4">
-          <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <ArtifactCard title="Prediction accuracy" artifact={data.prediction}>
+        {/* ── Deep Dive ── */}
+        <TabsContent value="deep-dive" className="space-y-3">
+          <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+            <ArtifactPanel title="Prediction accuracy" artifact={data.prediction}>
               {data.prediction.data ? (
-                <div className="space-y-3 text-sm">
+                <div className="space-y-2 text-sm">
                   <Metric label="1d matured" value={String(data.prediction.data.oneDayMatured)} />
                   <Metric label="1d pending" value={String(data.prediction.data.oneDayPending)} />
                   <Metric label="Best visible slice" value={data.prediction.data.bestStrategyLabel ?? "Not enough settled data"} />
                   <Metric label="Trade grades" value={data.prediction.data.decisionGradeHeadline ?? "No grade rollup yet"} />
                 </div>
               ) : null}
-            </ArtifactCard>
+            </ArtifactPanel>
 
-            <ArtifactCard title="Benchmark ladder" artifact={data.benchmark}>
+            <ArtifactPanel title="Benchmark ladder" artifact={data.benchmark}>
               {data.benchmark.data ? (
-                <div className="space-y-3 text-sm">
+                <div className="space-y-2 text-sm">
                   <Metric label="Horizon" value={data.benchmark.data.horizonKey ?? "n/a"} />
                   <Metric label="Matured samples" value={String(data.benchmark.data.maturedCount ?? 0)} />
                   <Metric label="Best visible comparison" value={data.benchmark.data.bestComparisonLabel ?? "Still waiting on mature comparisons"} />
                 </div>
               ) : null}
-            </ArtifactCard>
+            </ArtifactPanel>
 
-            <ArtifactCard title="Paper lifecycle" artifact={data.lifecycle}>
+            <ArtifactPanel title="Paper lifecycle" artifact={data.lifecycle}>
               {data.lifecycle.data ? (
-                <div className="space-y-3 text-sm">
+                <div className="space-y-2 text-sm">
                   <Metric label="Total capital" value={formatMoney(data.lifecycle.data.totalCapital)} />
                   <Metric label="Available capital" value={formatMoney(data.lifecycle.data.availableCapital)} />
                   <Metric label="Gross exposure" value={formatPercent(data.lifecycle.data.grossExposurePct)} />
                 </div>
               ) : null}
-            </ArtifactCard>
+            </ArtifactPanel>
           </section>
 
-          <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr]">
-            <ArtifactCard title="Ops highway" artifact={data.opsHighway}>
+          <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <ArtifactPanel title="Ops highway" artifact={data.opsHighway}>
               {data.opsHighway.data ? (
-                <div className="space-y-3 text-sm">
+                <div className="space-y-2 text-sm">
                   <Metric label="Critical assets" value={String(data.opsHighway.data.criticalAssetCount)} />
                   <Metric label="Do not commit paths" value={String(data.opsHighway.data.doNotCommitCount)} />
                   <Metric label="Recovery step 1" value={data.opsHighway.data.firstRecoveryStep ?? "No recovery sequence recorded"} />
                 </div>
               ) : null}
-            </ArtifactCard>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Why this tab exists</CardTitle>
-                <CardDescription>Use this only after the top checklist looks healthy.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <ReadStep title="Prediction accuracy" body="Tells you whether past calls aged well." />
-                <ReadStep title="Benchmark ladder" body="Shows whether a strategy is beating a simple baseline." />
-                <ReadStep title="Paper lifecycle" body="Shows the paper portfolio and risk state." />
-                <ReadStep title="Ops highway" body="Shows recovery and runbook planning, not trading edge." />
-              </CardContent>
-            </Card>
+            </ArtifactPanel>
           </section>
         </TabsContent>
       </Tabs>
@@ -341,7 +306,137 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   );
 }
 
-function ArtifactCard({
+/* ── Zone A: Terminal Header ── */
+
+function TerminalHeader({ data }: { data: TradingOpsDashboardData }) {
+  return (
+    <section className="rounded-lg border border-border/70 bg-card/80 font-mono">
+      {/* Desktop: single row */}
+      <div className="hidden items-center justify-between px-4 py-2.5 md:flex">
+        <div className="flex items-center gap-3">
+          <h1 className="text-sm font-bold uppercase tracking-wider">Cortana Trading Ops</h1>
+          <Badge variant="outline" className="text-[10px]">live</Badge>
+        </div>
+        <div className="flex items-center divide-x divide-border/50">
+          <HeaderMetric label="Regime" value={data.market.data?.regime.toUpperCase() ?? "N/A"} state={data.market.state} />
+          <HeaderMetric label="Sizing" value={formatPercent(data.market.data?.positionSizingPct ?? null)} state={data.market.state} />
+          <HeaderMetric label="Exposure" value={formatPercent(data.lifecycle.data?.grossExposurePct ?? null)} state={data.lifecycle.state} />
+          <HeaderMetric label="Positions" value={`${data.lifecycle.data?.openCount ?? 0} open / ${data.lifecycle.data?.closedCount ?? 0} closed`} state={data.lifecycle.state} />
+          <HeaderMetric label="Decision" value={data.tradingRun.data?.decision ?? "N/A"} state={data.tradingRun.state} />
+        </div>
+        <span className="text-[10px] text-muted-foreground">{formatRelativeAge(data.generatedAt)}</span>
+      </div>
+
+      {/* Mobile: stacked */}
+      <div className="space-y-2 px-3 py-2.5 md:hidden">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xs font-bold uppercase tracking-wider">Cortana Trading Ops</h1>
+            <Badge variant="outline" className="text-[10px]">live</Badge>
+          </div>
+          <span className="text-[10px] text-muted-foreground">{formatRelativeAge(data.generatedAt)}</span>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <HeaderMetricMobile label="Regime" value={data.market.data?.regime.toUpperCase() ?? "N/A"} state={data.market.state} />
+          <HeaderMetricMobile label="Sizing" value={formatPercent(data.market.data?.positionSizingPct ?? null)} state={data.market.state} />
+          <HeaderMetricMobile label="Exposure" value={formatPercent(data.lifecycle.data?.grossExposurePct ?? null)} state={data.lifecycle.state} />
+          <HeaderMetricMobile label="Positions" value={`${data.lifecycle.data?.openCount ?? 0}/${data.lifecycle.data?.closedCount ?? 0}`} state={data.lifecycle.state} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HeaderMetric({ label, value, state }: { label: string; value: string; state: LoadState }) {
+  return (
+    <div className="flex flex-col gap-0.5 px-3 py-0.5">
+      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</span>
+      <span className={`text-sm font-semibold leading-tight ${stateTextClass(state)}`}>{value}</span>
+    </div>
+  );
+}
+
+function HeaderMetricMobile({ label, value, state }: { label: string; value: string; state: LoadState }) {
+  return (
+    <div className="flex items-center justify-between rounded-md border border-border/50 px-2 py-1">
+      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</span>
+      <span className={`text-xs font-semibold ${stateTextClass(state)}`}>{value}</span>
+    </div>
+  );
+}
+
+/* ── Zone B: Alert Banner ── */
+
+function AlertBanner({ data }: { data: TradingOpsDashboardData }) {
+  const incidents = data.runtime.data?.incidents ?? [];
+  const errorArtifacts = [data.market, data.runtime, data.workflow, data.canary].filter((a) => a.state === "error");
+  const isCritical = errorArtifacts.length > 0;
+  const message =
+    isCritical
+      ? `${errorArtifacts.length} artifact(s) in error state — check immediately`
+      : incidents.length > 0
+        ? `${incidents[0].incidentType}: ${incidents[0].operatorAction}`
+        : "";
+
+  return (
+    <div className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium ${isCritical ? "terminal-alert-critical" : "terminal-alert-warning"}`}>
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">{message}</span>
+    </div>
+  );
+}
+
+/* ── Zone C: Terminal Cell (replaces SummaryCard) ── */
+
+function TerminalCell({
+  title,
+  value,
+  detail,
+  state,
+  icon,
+}: {
+  title: string;
+  value: string;
+  detail: string;
+  state: LoadState;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className={`rounded-lg border border-border/70 bg-card/60 p-3 ${panelBorderClass(state)}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="terminal-metric-label">{title}</span>
+        <div className="flex items-center gap-1.5">
+          <Badge variant={summarizeStateVariant(state)} className="text-[10px]">{state}</Badge>
+          <div className="text-muted-foreground">{icon}</div>
+        </div>
+      </div>
+      <p className="mt-1.5 truncate font-mono text-sm font-semibold leading-tight">{value}</p>
+      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{detail}</p>
+    </div>
+  );
+}
+
+/* ── Zone D: Operator Checklist ── */
+
+function OperatorChecklist() {
+  return (
+    <details className="rounded-md border border-border/50 bg-muted/20 px-3 py-2">
+      <summary className="cursor-pointer font-mono text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Operator checklist (4 steps)
+      </summary>
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <ReadStep title="1. Market posture" body="If regime is correction and sizing is 0%, do not force buys." />
+        <ReadStep title="2. Runtime health" body="Provider cooldown or auth trouble means expect slower signals." />
+        <ReadStep title="3. Latest workflow" body="Check whether CANSLIM and Dip Buyer finished without failures." />
+        <ReadStep title="4. Prediction & lifecycle" body="Judge system improvement over time, not to override posture." />
+      </div>
+    </details>
+  );
+}
+
+/* ── Shared sub-components ── */
+
+function ArtifactPanel({
   title,
   artifact,
   children,
@@ -351,71 +446,34 @@ function ArtifactCard({
   children?: React.ReactNode;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <CardTitle className="text-base">{title}</CardTitle>
-            <CardDescription>{artifact.message}</CardDescription>
-          </div>
-          <div className="flex flex-col items-end gap-1">
-            <Badge variant={summarizeStateVariant(artifact.state)}>{artifact.state}</Badge>
-            <span className="text-xs text-muted-foreground">
-              {artifact.updatedAt ? `Updated ${formatRelativeAge(artifact.updatedAt)}` : "No timestamp"}
+    <Card className={`gap-3 py-3 ${panelBorderClass(artifact.state)}`}>
+      <CardHeader className="gap-1.5 px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-sm">{title}</CardTitle>
+          <div className="flex items-center gap-2">
+            <Badge variant={summarizeStateVariant(artifact.state)} className="text-[10px]">{artifact.state}</Badge>
+            <span className="text-[10px] text-muted-foreground">
+              {artifact.updatedAt ? formatRelativeAge(artifact.updatedAt) : "—"}
             </span>
           </div>
         </div>
+        <p className="text-xs text-muted-foreground">{artifact.message}</p>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {children ?? <p className="text-sm text-muted-foreground">No data available.</p>}
+      <CardContent className="space-y-2 px-4">
+        {children ?? <p className="text-xs text-muted-foreground">No data available.</p>}
         {artifact.warnings.length > 0 ? (
-          <details className="rounded-lg border border-border/70 bg-muted/30 p-3">
-            <summary className="cursor-pointer text-sm font-medium">Warnings ({artifact.warnings.length})</summary>
-            <ul className="mt-3 space-y-2 text-xs text-muted-foreground">
-              {artifact.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
+          <details className="rounded-md border border-border/50 bg-muted/20 p-2">
+            <summary className="cursor-pointer text-xs font-medium">Warnings ({artifact.warnings.length})</summary>
+            <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+              {artifact.warnings.map((w) => (
+                <li key={w}>{w}</li>
               ))}
             </ul>
           </details>
         ) : null}
         {artifact.source ? (
-          <p className="text-xs text-muted-foreground">Source: {artifact.source}</p>
+          <p className="truncate text-[10px] text-muted-foreground">Source: {artifact.source}</p>
         ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-function SummaryCard({
-  title,
-  value,
-  subtitle,
-  detail,
-  state,
-  icon,
-}: {
-  title: string;
-  value: string;
-  subtitle: string;
-  detail: string;
-  state: ArtifactState<unknown>["state"];
-  icon: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <CardHeader className="gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <CardDescription>{title}</CardDescription>
-          <div className="rounded-full bg-primary/10 p-2 text-primary">{icon}</div>
-        </div>
-        <div className="space-y-2">
-          <CardTitle className="text-xl tracking-tight">{value}</CardTitle>
-          <Badge variant={summarizeStateVariant(state)}>{state}</Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        <p className="text-sm">{subtitle}</p>
-        <p className="text-xs text-muted-foreground">{detail}</p>
       </CardContent>
     </Card>
   );
@@ -423,19 +481,35 @@ function SummaryCard({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border/70 bg-card/40 px-3 py-3">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm font-medium leading-5">{value}</p>
+    <div className="rounded-md border border-border/50 bg-muted/20 px-2 py-1.5">
+      <p className="terminal-metric-label">{label}</p>
+      <p className="mt-0.5 font-mono text-sm font-medium leading-tight">{value}</p>
     </div>
   );
 }
 
-function Watchline({ title, tickers }: { title: string; tickers: string[] }) {
+function StageChip({ name, status }: { name: string; status: string }) {
+  const dotColor =
+    status === "ok"
+      ? "bg-emerald-500 dark:bg-emerald-400"
+      : status === "error"
+        ? "bg-red-500 dark:bg-red-400"
+        : "bg-muted-foreground";
+
   return (
-    <div className="rounded-lg border border-border/70 bg-card/40 px-3 py-3">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{title}</p>
-      <p className="mt-1 text-sm font-medium leading-5">{tickers.length > 0 ? tickers.join(", ") : "None right now"}</p>
-    </div>
+    <span className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/30 px-2 py-1 font-mono text-xs">
+      <span className={`inline-block h-1.5 w-1.5 rounded-full ${dotColor}`} />
+      {name}
+    </span>
+  );
+}
+
+function TickerChip({ ticker, kind }: { ticker: string; kind: "buy" | "watch" | "no_buy" }) {
+  const cls = kind === "buy" ? "ticker-buy" : kind === "watch" ? "ticker-watch" : "ticker-no-buy";
+  return (
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 font-mono text-xs font-medium ${cls}`}>
+      {ticker}
+    </span>
   );
 }
 
@@ -451,29 +525,44 @@ function StrategyWatchlistSection({
   noBuy: string[];
 }) {
   return (
-    <div className="space-y-3 rounded-lg border border-border/70 bg-card/40 p-4">
+    <div className="space-y-2 rounded-lg border border-border/50 bg-card/40 p-3">
       <div>
-        <p className="text-base font-semibold">{strategy}</p>
+        <p className="font-mono text-sm font-semibold">{strategy}</p>
         <p className="text-xs text-muted-foreground">
           BUY {buy.length} · WATCH {watch.length} · NO_BUY {noBuy.length}
         </p>
       </div>
-      <Watchline title={`${strategy} buy`} tickers={buy} />
-      <Watchline title={`${strategy} watch`} tickers={watch} />
-      <Watchline title={`${strategy} no-buy`} tickers={noBuy} />
+      <WatchlineChips title={`${strategy} buy`} tickers={buy} kind="buy" />
+      <WatchlineChips title={`${strategy} watch`} tickers={watch} kind="watch" />
+      <WatchlineChips title={`${strategy} no-buy`} tickers={noBuy} kind="no_buy" />
+    </div>
+  );
+}
+
+function WatchlineChips({ title, tickers, kind }: { title: string; tickers: string[]; kind: "buy" | "watch" | "no_buy" }) {
+  return (
+    <div>
+      <p className="terminal-metric-label mb-1">{title}</p>
+      {tickers.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {tickers.map((t) => (
+            <TickerChip key={t} ticker={t} kind={kind} />
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">None right now</p>
+      )}
     </div>
   );
 }
 
 function ReadStep({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-lg border border-border/70 bg-card/40 px-3 py-3">
-      <div className="flex items-start gap-3">
-        <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-        <div className="space-y-1">
-          <p className="font-medium">{title}</p>
-          <p className="text-muted-foreground">{body}</p>
-        </div>
+    <div className="flex items-start gap-2 text-xs">
+      <ClipboardList className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <div>
+        <p className="font-medium">{title}</p>
+        <p className="text-muted-foreground">{body}</p>
       </div>
     </div>
   );

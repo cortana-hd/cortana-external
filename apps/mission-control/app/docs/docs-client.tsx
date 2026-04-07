@@ -3,9 +3,23 @@
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import {
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Folder,
+  FolderOpen,
+  List,
+  Menu,
+  Search,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+/* ── types ── */
 
 type DocFile = { id: string; name: string; path: string; section: string };
 
@@ -17,255 +31,597 @@ type DocContentResponse =
   | { status: "ok"; name: string; content: string }
   | { status: "error"; message: string };
 
+type TreeNode = {
+  name: string;
+  fullPath: string;
+  children: TreeNode[];
+  files: DocFile[];
+};
+
+type SectionTree = {
+  section: string;
+  root: TreeNode;
+};
+
+type Heading = {
+  id: string;
+  text: string;
+  level: number;
+};
+
+/* ── pure helpers ── */
+
+function buildFolderTree(files: DocFile[], searchQuery: string): SectionTree[] {
+  const query = searchQuery.toLowerCase();
+  const filtered = query ? files.filter((f) => f.name.toLowerCase().includes(query)) : files;
+
+  const bySection = new Map<string, DocFile[]>();
+  for (const f of filtered) {
+    const arr = bySection.get(f.section) ?? [];
+    arr.push(f);
+    bySection.set(f.section, arr);
+  }
+
+  return Array.from(bySection.entries()).map(([section, sectionFiles]) => {
+    const root: TreeNode = { name: section, fullPath: section, children: [], files: [] };
+
+    for (const file of sectionFiles) {
+      const segments = file.name.split("/");
+      let current = root;
+
+      for (let i = 0; i < segments.length - 1; i++) {
+        const seg = segments[i];
+        let child = current.children.find((c) => c.name === seg);
+        if (!child) {
+          child = { name: seg, fullPath: `${current.fullPath}/${seg}`, children: [], files: [] };
+          current.children.push(child);
+        }
+        current = child;
+      }
+
+      current.files.push(file);
+    }
+
+    return { section, root };
+  });
+}
+
+function extractHeadings(markdown: string): Heading[] {
+  const headingRegex = /^(#{1,6})\s+(.+)$/gm;
+  const headings: Heading[] = [];
+  const usedIds = new Set<string>();
+  let match: RegExpExecArray | null;
+
+  while ((match = headingRegex.exec(markdown)) !== null) {
+    const level = match[1].length;
+    const text = match[2]
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/`(.+?)`/g, "$1")
+      .replace(/\[(.+?)\]\(.+?\)/g, "$1")
+      .trim();
+    let id = text
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-");
+
+    if (usedIds.has(id)) {
+      let n = 2;
+      while (usedIds.has(`${id}-${n}`)) n++;
+      id = `${id}-${n}`;
+    }
+    usedIds.add(id);
+
+    headings.push({ id, text, level });
+  }
+
+  return headings;
+}
+
+function deriveBreadcrumbs(file: DocFile | null): string[] {
+  if (!file) return [];
+  return [file.section, ...file.name.split("/")];
+}
+
+function getTextContent(children: React.ReactNode): string {
+  if (typeof children === "string") return children;
+  if (typeof children === "number") return String(children);
+  if (!children) return "";
+  if (Array.isArray(children)) return children.map(getTextContent).join("");
+  if (React.isValidElement(children)) {
+    return getTextContent((children.props as { children?: React.ReactNode }).children);
+  }
+  return "";
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-");
+}
+
+function basename(name: string): string {
+  const parts = name.split("/");
+  return parts[parts.length - 1].replace(/\.md$/i, "");
+}
+
+/* ── main component ── */
+
 export default function DocsClient() {
   const [files, setFiles] = React.useState<DocFile[]>([]);
   const [selectedFileId, setSelectedFileId] = React.useState<string | null>(null);
   const [content, setContent] = React.useState<string>("");
-  const [mobileBrowseOpen, setMobileBrowseOpen] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [collapsedFolders, setCollapsedFolders] = React.useState<Set<string>>(new Set());
+  const [activeHeadingId, setActiveHeadingId] = React.useState<string | null>(null);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = React.useState(false);
+  const [mobileTocOpen, setMobileTocOpen] = React.useState(false);
   const [listLoading, setListLoading] = React.useState(true);
   const [contentLoading, setContentLoading] = React.useState(false);
   const [listError, setListError] = React.useState<string | null>(null);
   const [contentError, setContentError] = React.useState<string | null>(null);
 
+  const contentRef = React.useRef<HTMLDivElement>(null);
+
+  /* ── derived ── */
+  const selectedFile = React.useMemo(
+    () => files.find((f) => f.id === selectedFileId) ?? null,
+    [files, selectedFileId],
+  );
+  const tree = React.useMemo(() => buildFolderTree(files, searchQuery), [files, searchQuery]);
+  const headings = React.useMemo(() => extractHeadings(content), [content]);
+  const breadcrumbs = React.useMemo(() => deriveBreadcrumbs(selectedFile), [selectedFile]);
+
+  /* ── data fetching ── */
   React.useEffect(() => {
     let active = true;
-
     const loadList = async () => {
       try {
         setListLoading(true);
         const response = await fetch("/api/docs", { cache: "no-store" });
         const payload = (await response.json()) as DocsListResponse;
         if (!response.ok || payload.status !== "ok") {
-          const message =
-            payload.status === "error" ? payload.message : "Failed to load docs.";
+          const message = payload.status === "error" ? payload.message : "Failed to load docs.";
           throw new Error(message);
         }
-
         if (active) {
           setFiles(payload.files);
           setSelectedFileId(payload.files[0]?.id ?? null);
-          setMobileBrowseOpen(false);
           setListError(null);
         }
       } catch (error) {
-        if (active) {
-          setListError(error instanceof Error ? error.message : "Failed to load docs.");
-        }
+        if (active) setListError(error instanceof Error ? error.message : "Failed to load docs.");
       } finally {
         if (active) setListLoading(false);
       }
     };
-
     void loadList();
-
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   React.useEffect(() => {
     let active = true;
-
     const loadDoc = async () => {
       if (!selectedFileId) {
         setContent("");
         setContentError(null);
         return;
       }
-
       try {
         setContentLoading(true);
-        const response = await fetch(`/api/docs?file=${encodeURIComponent(selectedFileId)}`, {
-          cache: "no-store",
-        });
+        const response = await fetch(`/api/docs?file=${encodeURIComponent(selectedFileId)}`, { cache: "no-store" });
         const payload = (await response.json()) as DocContentResponse;
         if (!response.ok || payload.status !== "ok") {
-          const message =
-            payload.status === "error" ? payload.message : "Failed to load doc.";
+          const message = payload.status === "error" ? payload.message : "Failed to load doc.";
           throw new Error(message);
         }
-
         if (active) {
           setContent(payload.content);
           setContentError(null);
         }
       } catch (error) {
-        if (active) {
-          setContentError(error instanceof Error ? error.message : "Failed to load doc.");
-        }
+        if (active) setContentError(error instanceof Error ? error.message : "Failed to load doc.");
       } finally {
         if (active) setContentLoading(false);
       }
     };
-
     void loadDoc();
-
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [selectedFileId]);
 
-  const selectedFile = React.useMemo(
-    () => files.find((file) => file.id === selectedFileId) ?? null,
-    [files, selectedFileId]
-  );
+  /* reset on doc change */
+  React.useEffect(() => {
+    setActiveHeadingId(null);
+    setMobileTocOpen(false);
+  }, [selectedFileId]);
 
-  const filesBySection = React.useMemo(() => {
-    return files.reduce<Record<string, DocFile[]>>((acc, file) => {
-      acc[file.section] ||= [];
-      acc[file.section].push(file);
-      return acc;
-    }, {});
-  }, [files]);
+  /* ── scroll-spy ── */
+  React.useEffect(() => {
+    if (headings.length === 0) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const el = contentRef.current;
+    if (!el) return;
 
-  const sections = React.useMemo(
-    () =>
-      Object.entries(filesBySection).map(([section, sectionFiles]) => ({
-        section,
-        files: sectionFiles,
-      })),
-    [filesBySection]
-  );
+    const headingElements = headings
+      .map((h) => el.querySelector(`[id="${h.id}"]`))
+      .filter(Boolean) as Element[];
 
-  const renderFileList = (options?: { compact?: boolean; onSelect?: () => void }) => (
-    <div className={cn("space-y-3", options?.compact && "space-y-2")}>
+    if (headingElements.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible.length > 0) setActiveHeadingId(visible[0].target.id);
+      },
+      { rootMargin: "-80px 0px -70% 0px", threshold: 0 },
+    );
+
+    headingElements.forEach((hEl) => observer.observe(hEl));
+    return () => observer.disconnect();
+  }, [headings, content]);
+
+  /* ── body scroll lock for mobile sidebar ── */
+  React.useEffect(() => {
+    if (mobileSidebarOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileSidebarOpen]);
+
+  /* ── markdown components for ReactMarkdown ── */
+  const markdownComponents = React.useMemo(() => {
+    const make = (Tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6") => {
+      const Comp = ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => {
+        const text = getTextContent(children);
+        const id = slugify(text);
+        return <Tag id={id} {...props}>{children}</Tag>;
+      };
+      Comp.displayName = Tag;
+      return Comp;
+    };
+
+    /* Intercept relative .md links and navigate within the docs viewer */
+    const DocLink = ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+      if (href && !href.startsWith("http") && !href.startsWith("#") && href.endsWith(".md")) {
+        return (
+          <a
+            {...props}
+            href={href}
+            onClick={(e) => {
+              e.preventDefault();
+              // Resolve relative path against current file
+              const currentDir = selectedFile ? selectedFile.name.split("/").slice(0, -1).join("/") : "";
+              const parts = [...(currentDir ? currentDir.split("/") : []), ...href.split("/")];
+              const resolved: string[] = [];
+              for (const part of parts) {
+                if (part === "..") resolved.pop();
+                else if (part !== "." && part !== "") resolved.push(part);
+              }
+              const targetPath = resolved.join("/");
+
+              // Find matching file across all sections
+              const match = files.find((f) =>
+                f.name === targetPath || f.name.endsWith("/" + targetPath) || f.name.endsWith(targetPath)
+              );
+              if (match) {
+                setSelectedFileId(match.id);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }
+            }}
+          >
+            {children}
+          </a>
+        );
+      }
+      return <a href={href} {...props}>{children}</a>;
+    };
+    DocLink.displayName = "DocLink";
+
+    return {
+      h1: make("h1"), h2: make("h2"), h3: make("h3"), h4: make("h4"), h5: make("h5"), h6: make("h6"),
+      a: DocLink,
+    };
+  }, [selectedFile, files]);
+
+  /* ── folder toggle ── */
+  const toggleFolder = React.useCallback((fullPath: string) => {
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(fullPath)) next.delete(fullPath);
+      else next.add(fullPath);
+      return next;
+    });
+  }, []);
+
+  const selectFile = React.useCallback((id: string) => {
+    setSelectedFileId(id);
+    setMobileSidebarOpen(false);
+  }, []);
+
+  /* ── sidebar nav tree renderer ── */
+  const renderNode = (node: TreeNode, depth: number) => {
+    const isSearching = searchQuery.length > 0;
+
+    return (
+      <div key={node.fullPath}>
+        {/* Folder nodes */}
+        {node.children.map((child) => {
+          const isCollapsed = !isSearching && collapsedFolders.has(child.fullPath);
+          return (
+            <div key={child.fullPath}>
+              <button
+                type="button"
+                onClick={() => toggleFolder(child.fullPath)}
+                className="docs-nav-item"
+                style={{ paddingLeft: `${depth * 12 + 8}px` }}
+              >
+                {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
+                {isCollapsed ? <Folder className="h-3.5 w-3.5 shrink-0" /> : <FolderOpen className="h-3.5 w-3.5 shrink-0" />}
+                <span className="truncate">{child.name}</span>
+              </button>
+              {!isCollapsed && renderNode(child, depth + 1)}
+            </div>
+          );
+        })}
+
+        {/* File leaf nodes */}
+        {node.files.map((file) => {
+          const isActive = file.id === selectedFileId;
+          return (
+            <button
+              key={file.id}
+              type="button"
+              onClick={() => selectFile(file.id)}
+              aria-pressed={isActive}
+              className={cn("docs-nav-item", isActive && "docs-nav-item-active")}
+              style={{ paddingLeft: `${(depth + (node.children.length > 0 || depth > 0 ? 1 : 0)) * 12 + 8}px` }}
+            >
+              <FileText className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{basename(file.name)}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const sidebarContent = (
+    <nav className="space-y-4">
+      {/* Search */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Search docs..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="h-8 pl-8 pr-8 text-sm"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Tree */}
       {listLoading ? (
         <p className="px-2 py-4 text-sm text-muted-foreground">Loading docs...</p>
       ) : files.length === 0 ? (
         <p className="px-2 py-4 text-sm text-muted-foreground">No markdown files found.</p>
+      ) : tree.length === 0 ? (
+        <p className="px-2 py-4 text-sm text-muted-foreground">No results for &ldquo;{searchQuery}&rdquo;</p>
       ) : (
-        sections.map(({ section, files: sectionFiles }) => (
-          <div key={section} className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2 px-2 pt-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                {section}
-              </p>
-              <Badge variant="outline" className="text-[10px]">
-                {sectionFiles.length}
-              </Badge>
-            </div>
-            <div className="space-y-1">
-              {sectionFiles.map((file) => {
-                const isActive = file.id === selectedFileId;
-                return (
-                  <button
-                    key={file.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedFileId(file.id);
-                      options?.onSelect?.();
-                    }}
-                    aria-pressed={isActive}
-                    className={cn(
-                      "flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors",
-                      isActive
-                        ? "border-primary/30 bg-primary/10 text-foreground"
-                        : "border-transparent text-muted-foreground hover:border-border hover:bg-muted/30"
-                    )}
-                  >
-                    <span className="min-w-0 truncate font-medium text-foreground">{file.name}</span>
-                    {isActive ? <span className="text-[10px] uppercase tracking-wide text-primary">Open</span> : null}
-                  </button>
-                );
-              })}
-            </div>
+        tree.map(({ section, root }) => (
+          <div key={section} className="space-y-0.5">
+            <p className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {section}
+            </p>
+            {renderNode(root, 0)}
           </div>
         ))
       )}
-    </div>
+    </nav>
   );
 
-  return (
-    <div className="space-y-4">
-      <div className="space-y-1">
-        <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
-          Docs Library
-        </p>
-        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Docs</h1>
-        <p className="text-sm text-muted-foreground">
-          Browse markdown documentation from the external repo, backtester, and OpenClaw knowledge bases.
-        </p>
-      </div>
+  /* ── TOC component ── */
+  const tocContent = headings.length > 0 ? (
+    <nav className="space-y-0.5">
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        <List className="h-3.5 w-3.5" />
+        On this page
+      </p>
+      {headings.map((h) => (
+        <a
+          key={h.id}
+          href={`#${h.id}`}
+          onClick={(e) => {
+            e.preventDefault();
+            const target = contentRef.current?.querySelector(`[id="${h.id}"]`);
+            if (target) {
+              target.scrollIntoView({ behavior: "smooth", block: "start" });
+              setActiveHeadingId(h.id);
+            }
+          }}
+          className={cn(
+            "docs-toc-link",
+            h.level >= 3 && "pl-6 text-xs",
+            h.level >= 4 && "pl-9",
+            activeHeadingId === h.id && "docs-toc-link-active",
+          )}
+        >
+          {h.text}
+        </a>
+      ))}
+    </nav>
+  ) : null;
 
-      {listError ? (
+  /* ── error state ── */
+  if (listError) {
+    return (
+      <div className="space-y-4">
+        <DocsHeader />
         <Card className="border-destructive/40 bg-destructive/5">
           <CardHeader>
             <CardTitle className="text-base">Docs unavailable</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">{listError}</CardContent>
         </Card>
-      ) : (
-        <div className="space-y-4 md:grid md:grid-cols-[260px_minmax(0,1fr)] md:items-start md:gap-6 md:space-y-0">
-          <Card className="overflow-hidden md:hidden">
-            <CardHeader className="border-b">
-              <CardTitle className="flex items-center justify-between gap-3 text-base">
-                <div className="min-w-0">
-                  <span>Browse docs</span>
-                  <p className="mt-1 truncate text-xs font-normal text-muted-foreground">
-                    {selectedFile?.section ?? "Choose a section"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">{files.length}</Badge>
-                  <button
-                    type="button"
-                    onClick={() => setMobileBrowseOpen((open) => !open)}
-                    aria-controls="mobile-docs-library"
-                    aria-expanded={mobileBrowseOpen}
-                    className="rounded-md border px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted/40"
-                  >
-                    {mobileBrowseOpen ? "Hide" : "Browse"}
-                  </button>
-                </div>
-              </CardTitle>
-            </CardHeader>
-            {mobileBrowseOpen ? (
-              <CardContent id="mobile-docs-library" className="space-y-4 px-3 py-3">
-                {renderFileList({
-                  compact: true,
-                  onSelect: () => setMobileBrowseOpen(false),
-                })}
-              </CardContent>
-            ) : null}
-          </Card>
+      </div>
+    );
+  }
 
-          <div className="hidden md:block md:sticky md:top-8">
-            <Card className="overflow-hidden">
-              <CardHeader className="border-b">
-                <CardTitle className="flex items-center justify-between text-base">
-                  Library
-                  <Badge variant="secondary">{files.length}</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 px-3 py-4">
-                {renderFileList()}
-              </CardContent>
-            </Card>
+  return (
+    <div className="space-y-4">
+      <DocsHeader />
+
+      {/* Mobile top bar */}
+      <div className="flex items-center gap-2 md:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileSidebarOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/40"
+        >
+          <Menu className="h-4 w-4" />
+          Browse
+        </button>
+        {selectedFile && (
+          <span className="truncate text-sm text-muted-foreground">{selectedFile.name}</span>
+        )}
+      </div>
+
+      {/* Mobile sidebar overlay */}
+      {mobileSidebarOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setMobileSidebarOpen(false)} />
+          <div className="fixed inset-y-0 left-0 z-50 w-80 max-w-[calc(100vw-3rem)] overflow-y-auto border-r bg-background shadow-lg">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <span className="text-sm font-semibold">Documentation</span>
+              <button
+                type="button"
+                onClick={() => setMobileSidebarOpen(false)}
+                className="rounded-md p-1 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-3">{sidebarContent}</div>
           </div>
-
-          <Card className="overflow-hidden">
-            <CardHeader className="border-b">
-              <CardTitle className="flex flex-wrap items-center justify-between gap-3 text-base">
-                <span>{selectedFile?.name ?? "Documentation"}</span>
-                {selectedFile ? <Badge variant="outline">{selectedFile.section}</Badge> : null}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {contentLoading ? (
-                <p className="text-sm text-muted-foreground">Loading content...</p>
-              ) : contentError ? (
-                <p className="text-sm text-muted-foreground">{contentError}</p>
-              ) : !content.trim() ? (
-                <p className="text-sm text-muted-foreground">No content available.</p>
-              ) : (
-                <div className="prose prose-slate max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-muted-foreground prose-a:text-primary prose-strong:text-foreground prose-code:text-foreground prose-pre:bg-muted/40">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </div>
       )}
+
+      {/* Three-column grid */}
+      <div className="md:grid md:grid-cols-[16rem_minmax(0,1fr)] md:gap-6 xl:grid-cols-[16rem_minmax(0,1fr)_11rem] xl:gap-10">
+        {/* Left sidebar (desktop) */}
+        <aside className="hidden md:block">
+          <div className="sticky top-8 max-h-[calc(100vh-4rem)] overflow-y-auto rounded-lg border border-border/50 bg-card/30 p-3">
+            {sidebarContent}
+          </div>
+        </aside>
+
+        {/* Center content */}
+        <div className="min-w-0">
+          {/* Mobile/tablet TOC accordion */}
+          {headings.length > 0 && (
+            <div className="mb-4 xl:hidden">
+              <button
+                type="button"
+                onClick={() => setMobileTocOpen((o) => !o)}
+                className="flex w-full items-center justify-between rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <span className="flex items-center gap-1.5">
+                  <List className="h-3.5 w-3.5" />
+                  On this page
+                </span>
+                <ChevronDown className={cn("h-4 w-4 transition-transform", mobileTocOpen && "rotate-180")} />
+              </button>
+              {mobileTocOpen && (
+                <div className="mt-1 rounded-md border border-border/50 bg-card/40 p-3">
+                  {tocContent}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Breadcrumbs */}
+          {breadcrumbs.length > 0 && (
+            <nav className="mb-3 flex items-center gap-1 overflow-x-auto text-sm">
+              {breadcrumbs.map((segment, i) => (
+                <React.Fragment key={i}>
+                  {i > 0 && <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                  <span
+                    className={cn(
+                      "shrink-0",
+                      i === breadcrumbs.length - 1
+                        ? "font-medium text-foreground"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {segment}
+                  </span>
+                </React.Fragment>
+              ))}
+            </nav>
+          )}
+
+          {/* Document title + metadata */}
+          {selectedFile && (
+            <div className="mb-6 space-y-2 border-b border-border/50 pb-4">
+              <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
+                {basename(selectedFile.name)}
+              </h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{selectedFile.section}</Badge>
+                <span className="text-xs text-muted-foreground">{selectedFile.path}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Content */}
+          <div ref={contentRef}>
+            {contentLoading ? (
+              <p className="py-8 text-sm text-muted-foreground">Loading content...</p>
+            ) : contentError ? (
+              <p className="py-8 text-sm text-muted-foreground">{contentError}</p>
+            ) : !content.trim() ? (
+              <p className="py-8 text-sm text-muted-foreground">No content available.</p>
+            ) : (
+              <article className="docs-prose pb-16">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {content}
+                </ReactMarkdown>
+              </article>
+            )}
+          </div>
+        </div>
+
+        {/* Right TOC rail (desktop only) */}
+        <aside className="hidden xl:block">
+          <div className="sticky top-8 max-h-[calc(100vh-4rem)] overflow-y-auto">
+            {tocContent}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+/* ── small sub-components ── */
+
+function DocsHeader() {
+  return (
+    <div className="space-y-1">
+      <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
+        Docs Library
+      </p>
+      <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Documentation</h1>
+      <p className="text-sm text-muted-foreground">
+        Browse markdown documentation from the external repo, backtester, and OpenClaw knowledge bases.
+      </p>
     </div>
   );
 }

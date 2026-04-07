@@ -215,7 +215,7 @@ export function FitnessCard() {
       <CardContent className="space-y-4">
         {error ? <p className="text-xs text-amber-400">{error} Retrying…</p> : null}
         {loading && !data ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
             {Array.from({ length: 4 }).map((_, index) => (
               <div
                 key={`fitness-loading-${index}`}
@@ -228,7 +228,7 @@ export function FitnessCard() {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
             <div className="rounded-lg border border-border/60 bg-card/50 p-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">

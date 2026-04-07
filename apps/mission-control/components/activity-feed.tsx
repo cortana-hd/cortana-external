@@ -89,7 +89,7 @@ export function ActivityFeed() {
   const orderedEvents = useMemo(() => [...events].reverse(), [events]);
 
   return (
-    <div className="rounded-lg border bg-card/50 p-3">
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card/50 p-3">
       <div className="mb-3 flex items-center justify-between">
         <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
           Activity Feed · last {events.length}
@@ -106,7 +106,7 @@ export function ActivityFeed() {
           const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
           shouldStickRef.current = distanceToBottom < BOTTOM_THRESHOLD;
         }}
-        className="h-[360px] overflow-y-auto rounded-md border bg-zinc-950/70 p-2 font-mono text-xs"
+        className="max-h-[600px] overflow-x-hidden overflow-y-auto rounded-md border bg-zinc-950/70 p-2 font-mono text-xs"
       >
         {orderedEvents.length === 0 ? (
           <p className="px-1 py-2 text-muted-foreground">No activity yet.</p>
@@ -130,7 +130,7 @@ export function ActivityFeed() {
                     {event.eventType.replaceAll("_", " ")}
                   </p>
                 </div>
-                <p className="mt-0.5 break-words text-zinc-100/90">{event.message || event.eventType}</p>
+                <p className="mt-0.5 break-all text-zinc-100/90">{event.message || event.eventType}</p>
               </div>
             ))}
           </div>

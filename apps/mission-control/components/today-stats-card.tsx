@@ -92,7 +92,7 @@ export function TodayStatsCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-5">
           {items.map((item) => {
             const Icon = item.icon;
             const highlight = item.emphasizeOnNonZero && item.value > 0;
@@ -100,15 +100,15 @@ export function TodayStatsCard() {
             return (
               <div
                 key={item.key}
-                className={`rounded-lg border px-4 py-3 transition-colors ${
+                className={`rounded-lg border px-3 py-3 transition-colors ${
                   highlight
                     ? "border-emerald-500/40 bg-emerald-500/10"
                     : "border-border bg-card/50"
                 }`}
               >
-                <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                <div className="mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
                   <Icon className={`h-3.5 w-3.5 shrink-0 ${highlight ? "text-emerald-300" : ""}`} />
-                  <span>{item.label}</span>
+                  <span className="leading-tight">{item.label}</span>
                 </div>
                 <p className={`text-2xl font-semibold tracking-tight ${highlight ? "text-emerald-200" : "text-foreground"}`}>
                   {item.value}

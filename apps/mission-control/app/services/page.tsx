@@ -1,7 +1,7 @@
-import ServicesClient from "./services-client";
+import ServicesHub from "./services-hub";
 
 export const dynamic = "force-dynamic";
 
 export default function ServicesPage() {
-  return <ServicesClient />;
+  return <ServicesHub />;
 }

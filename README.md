@@ -211,6 +211,16 @@ tailscale ip -4
 ### Deploy / refresh checklist after UI merges (Mission Control)
 Use this whenever a PR touching `apps/mission-control` is merged and the UI still looks stale.
 
+Quick path:
+```bash
+./apps/mission-control/scripts/restart-mission-control.sh
+```
+
+Skip the rebuild when you only want to bounce the already-built app:
+```bash
+./apps/mission-control/scripts/restart-mission-control.sh --skip-build
+```
+
 1. **Update code to latest main**
 ```bash
 cd ~/Developer/cortana-external

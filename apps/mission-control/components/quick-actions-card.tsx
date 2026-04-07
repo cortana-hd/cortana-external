@@ -208,28 +208,27 @@ export function QuickActionsCard() {
         <CardTitle className="text-base">Quick Actions</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3">
           {ACTIONS.map((action) => {
             const status = statuses[action.key];
             const isLoading = status.state === "loading";
             const Icon = action.icon;
 
             return (
-              <div key={action.key} className="rounded-lg border bg-card/50 p-3">
-                <Button
-                  onClick={() => runAction(action.key)}
-                  disabled={isLoading}
-                  variant="outline"
-                  className="w-full justify-start truncate border-border/70 bg-background/60"
-                >
-                  {isLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Icon className="h-4 w-4" />
-                  )}
-                  {action.label}
-                </Button>
-              </div>
+              <Button
+                key={action.key}
+                onClick={() => runAction(action.key)}
+                disabled={isLoading}
+                variant="outline"
+                className="h-auto justify-start gap-2 border-border/70 bg-card/50 px-3 py-3 text-left"
+              >
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                ) : (
+                  <Icon className="h-4 w-4 shrink-0" />
+                )}
+                <span className="text-sm leading-tight">{action.label}</span>
+              </Button>
             );
           })}
         </div>

@@ -66,20 +66,20 @@ export function ThinkingIndicator() {
   const isIdle = payload?.idle ?? true;
 
   return (
-    <div className="flex h-full flex-col justify-center rounded-lg border bg-card/60 px-3 py-2 shadow-sm">
+    <div className="flex h-full flex-col justify-center overflow-hidden rounded-lg border bg-card/60 px-3 py-2 shadow-sm">
       <div className="flex items-center gap-2">
         <span className={`thinking-dot ${isIdle ? "thinking-idle" : "thinking-active"}`} aria-hidden="true" />
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Cortana processing
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Processing
         </p>
       </div>
 
-      <p className="mt-1 text-sm font-medium text-foreground">
+      <p className="mt-0.5 line-clamp-2 text-sm font-medium leading-tight text-foreground">
         {currentText}
       </p>
 
-      <p className="mt-1 text-xs text-muted-foreground">
-        {error ? "Telemetry reconnecting..." : `Updated ${new Date(payload?.updatedAt ?? Date.now()).toLocaleTimeString()}`}
+      <p className="mt-0.5 text-[11px] text-muted-foreground">
+        {error ? "Reconnecting..." : new Date(payload?.updatedAt ?? Date.now()).toLocaleTimeString()}
       </p>
     </div>
   );

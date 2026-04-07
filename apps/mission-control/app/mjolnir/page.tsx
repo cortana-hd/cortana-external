@@ -1,9 +1,12 @@
+import { Activity, BedDouble, Dumbbell, Heart, Moon, Timer, TrendingUp, Zap } from "lucide-react";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
+
+/* ── types ── */
 
 type TrendPoint = { date: string; value: number | null };
 
@@ -63,96 +66,67 @@ type FitnessSummary = {
 };
 
 type FitnessResponse =
-  | {
-      status: "ok";
-      generatedAt: string;
-      cached: boolean;
-      data: FitnessSummary;
-    }
-  | {
-      status: "error";
-      generatedAt: string;
-      cached: boolean;
-      error: { message: string; detail?: string };
-    };
+  | { status: "ok"; generatedAt: string; cached: boolean; data: FitnessSummary }
+  | { status: "error"; generatedAt: string; cached: boolean; error: { message: string; detail?: string } };
 
-const getBaseUrl = async () => {
-  // Always use localhost for server-side fetches to avoid DNS resolution issues
-  return `http://localhost:${process.env.PORT || "3000"}`;
-};
+/* ── formatters ── */
 
-const formatPercent = (value: number | null) =>
-  value == null ? "—" : `${Math.round(value)}%`;
-
-const formatNumber = (value: number | null, suffix = "") =>
-  value == null ? "—" : `${Math.round(value)}${suffix}`;
-
-const formatDecimal = (value: number | null, suffix = "") =>
-  value == null ? "—" : `${Math.round(value * 10) / 10}${suffix}`;
+const formatPercent = (v: number | null) => (v == null ? "—" : `${Math.round(v)}%`);
+const formatNumber = (v: number | null, s = "") => (v == null ? "—" : `${Math.round(v)}${s}`);
+const formatDecimal = (v: number | null, s = "") => (v == null ? "—" : `${Math.round(v * 10) / 10}${s}`);
 
 const formatDuration = (seconds: number | null) => {
   if (seconds == null) return "—";
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.round((seconds % 3600) / 60);
-  if (hrs <= 0) return `${mins}m`;
-  return `${hrs}h ${mins}m`;
+  return hrs <= 0 ? `${mins}m` : `${hrs}h ${mins}m`;
 };
 
 const formatTimestamp = (value: string | null) => {
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString();
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString();
+};
+
+const formatShortDate = (value: string) => {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
 
 const severityVariant = (severity: FitnessAlert["severity"]) => {
-  if (severity === "critical") return "destructive";
-  if (severity === "warning") return "warning";
-  return "info";
+  if (severity === "critical") return "destructive" as const;
+  if (severity === "warning") return "warning" as const;
+  return "info" as const;
 };
 
-const TrendBars = ({ data, tone }: { data: TrendPoint[]; tone: string }) => {
-  if (!data.length) {
-    return <p className="text-sm text-muted-foreground">No trend data yet.</p>;
-  }
-
-  return (
-    <div className="flex h-16 items-end gap-1">
-      {data.map((point) => {
-        const height = point.value == null ? 12 : Math.max(12, Math.min(100, Math.round(point.value)));
-        const label = point.value == null ? "—" : `${Math.round(point.value)}%`;
-        return (
-          <div
-            key={point.date}
-            className="flex h-full flex-1 items-end rounded-sm bg-muted/40"
-            title={`${point.date}: ${label}`}
-          >
-            <div className={cn("h-full w-full rounded-sm", tone)} style={{ height: `${height}%` }} />
-          </div>
-        );
-      })}
-    </div>
-  );
+const recoveryStatusColor = (status: string) => {
+  if (status === "green") return "text-emerald-600 dark:text-emerald-400";
+  if (status === "yellow") return "text-amber-500 dark:text-amber-400";
+  if (status === "red") return "text-red-500 dark:text-red-400";
+  return "text-muted-foreground";
 };
+
+const recoveryBadgeVariant = (status: string) => {
+  if (status === "green") return "success" as const;
+  if (status === "yellow") return "warning" as const;
+  if (status === "red") return "destructive" as const;
+  return "outline" as const;
+};
+
+/* ── data fetch ── */
 
 async function getFitnessData(): Promise<FitnessResponse> {
-  const baseUrl = await getBaseUrl();
-  const response = await fetch(`${baseUrl}/api/mjolnir`, {
-    method: "GET",
-    cache: "no-store",
-  });
-
+  const baseUrl = `http://localhost:${process.env.PORT || "3000"}`;
+  const response = await fetch(`${baseUrl}/api/mjolnir`, { method: "GET", cache: "no-store" });
   if (!response.ok) {
-    return {
-      status: "error",
-      generatedAt: new Date().toISOString(),
-      cached: false,
-      error: { message: `Request failed (${response.status})` },
-    };
+    return { status: "error", generatedAt: new Date().toISOString(), cached: false, error: { message: `Request failed (${response.status})` } };
   }
-
   return (await response.json()) as FitnessResponse;
 }
+
+/* ── page ── */
 
 export default async function FitnessPage() {
   const response = await getFitnessData();
@@ -169,8 +143,7 @@ export default async function FitnessPage() {
             <p>{response.error.message}</p>
             <p>
               Ensure the Whoop service is running at{" "}
-              <code className="font-mono">http://localhost:3033</code> and that OAuth
-              is authorized.
+              <code className="font-mono">http://localhost:3033</code> and that OAuth is authorized.
             </p>
           </CardContent>
         </Card>
@@ -179,223 +152,191 @@ export default async function FitnessPage() {
   }
 
   const { data } = response;
-  const recoveryScore = data.recovery.score;
-  const recoveryTone =
-    data.recovery.status === "green"
-      ? "text-emerald-600"
-      : data.recovery.status === "yellow"
-        ? "text-amber-500"
-        : data.recovery.status === "red"
-          ? "text-red-500"
-          : "text-muted-foreground";
 
   return (
     <div className="space-y-6">
       <AutoRefresh />
+
+      {/* ── Header ── */}
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
-            Mjolnir
-          </p>
-            <h1 className="text-3xl font-semibold tracking-tight">Mjolnir Dashboard</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Daily recovery, sleep, and workout signals from Whoop.
-          </p>
+        <div className="space-y-1">
+          <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Mjolnir</p>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Health & Recovery</h1>
+          <p className="text-sm text-muted-foreground">Daily recovery, sleep, and workout signals from Whoop.</p>
         </div>
-        <div className="space-y-2 text-right text-xs text-muted-foreground">
-          <p>Updated: {formatTimestamp(response.generatedAt)}</p>
-          <p>Source cache: {response.cached ? "warm" : "fresh"}</p>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Badge variant={response.cached ? "outline" : "success"} className="text-[10px]">
+            {response.cached ? "cached" : "live"}
+          </Badge>
+          <span>{formatTimestamp(response.generatedAt)}</span>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Alert indicators</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          {data.alerts.length === 0 ? (
-            <Badge variant="success">All clear</Badge>
-          ) : (
-            data.alerts.map((alert) => (
-              <Badge key={alert.id} variant={severityVariant(alert.severity)}>
-                {alert.label}
-              </Badge>
-            ))
-          )}
-        </CardContent>
-      </Card>
+      {/* ── Active Alerts ── */}
+      {data.alerts.length > 0 && (
+        <div className="flex flex-wrap gap-2 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 dark:border-amber-900/50 dark:bg-amber-950/20">
+          {data.alerts.map((alert) => (
+            <Badge key={alert.id} variant={severityVariant(alert.severity)}>
+              {alert.label}: {alert.message}
+            </Badge>
+          ))}
+        </div>
+      )}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-base">Recovery</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Recorded: {formatTimestamp(data.recovery.recordedAt)}
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-end justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Today score
-                </p>
-                <p className={cn("text-4xl font-semibold", recoveryTone)}>
-                  {formatNumber(recoveryScore)}
-                </p>
-              </div>
-              <Badge
-                variant={
-                  data.recovery.status === "green"
-                    ? "success"
-                    : data.recovery.status === "yellow"
-                      ? "warning"
-                      : data.recovery.status === "red"
-                        ? "destructive"
-                        : "outline"
-                }
-              >
-                {data.recovery.status}
-              </Badge>
+      {/* ── Hero: Recovery Ring + Sleep Overview ── */}
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {/* Recovery Ring Card */}
+        <Card className="gap-3 py-4">
+          <CardHeader className="gap-1 px-5">
+            <div className="flex items-center gap-2">
+              <Heart className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <CardTitle className="text-sm font-semibold uppercase tracking-wide">Recovery</CardTitle>
             </div>
-            <div className="grid grid-cols-3 gap-3 text-sm">
-              <div>
-                <p className="text-xs text-muted-foreground">HRV</p>
-                <p className="text-lg font-semibold">
-                  {formatDecimal(data.recovery.hrv, " ms")}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">RHR</p>
-                <p className="text-lg font-semibold">
-                  {formatNumber(data.recovery.restingHeartRate, " bpm")}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">SpO₂</p>
-                <p className="text-lg font-semibold">{formatPercent(data.recovery.spo2)}</p>
+            <p className="text-[11px] text-muted-foreground">{formatTimestamp(data.recovery.recordedAt)}</p>
+          </CardHeader>
+          <CardContent className="px-5">
+            <div className="flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
+              {/* Ring */}
+              <RecoveryRing score={data.recovery.score} status={data.recovery.status} />
+
+              {/* Satellite metrics */}
+              <div className="grid flex-1 grid-cols-3 gap-3 sm:grid-cols-1 sm:gap-2">
+                <HealthMetric icon={<Activity className="h-3.5 w-3.5" />} label="HRV" value={formatDecimal(data.recovery.hrv, " ms")} />
+                <HealthMetric icon={<Heart className="h-3.5 w-3.5" />} label="RHR" value={formatNumber(data.recovery.restingHeartRate, " bpm")} />
+                <HealthMetric icon={<Zap className="h-3.5 w-3.5" />} label="SpO₂" value={formatPercent(data.recovery.spo2)} />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-base">Sleep</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Last night: {formatTimestamp(data.sleep.recordedAt)}
-            </p>
+        {/* Sleep Card */}
+        <Card className="gap-3 py-4">
+          <CardHeader className="gap-1 px-5">
+            <div className="flex items-center gap-2">
+              <Moon className="h-4 w-4 text-violet-500 dark:text-violet-400" />
+              <CardTitle className="text-sm font-semibold uppercase tracking-wide">Sleep</CardTitle>
+            </div>
+            <p className="text-[11px] text-muted-foreground">Last night: {formatTimestamp(data.sleep.recordedAt)}</p>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <p className="text-xs text-muted-foreground">Duration</p>
-                <p className="text-lg font-semibold">
-                  {formatDuration(data.sleep.durationSeconds)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Performance</p>
-                <p className="text-lg font-semibold">
-                  {formatPercent(data.sleep.performance)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Efficiency</p>
-                <p className="text-lg font-semibold">
-                  {formatPercent(data.sleep.efficiency)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Consistency</p>
-                <p className="text-lg font-semibold">
-                  {formatPercent(data.sleep.consistency)}
-                </p>
-              </div>
+          <CardContent className="space-y-4 px-5">
+            {/* Key metrics */}
+            <div className="grid grid-cols-2 gap-3">
+              <HealthMetric icon={<BedDouble className="h-3.5 w-3.5" />} label="Duration" value={formatDuration(data.sleep.durationSeconds)} />
+              <HealthMetric icon={<TrendingUp className="h-3.5 w-3.5" />} label="Performance" value={formatPercent(data.sleep.performance)} />
+              <HealthMetric icon={<Zap className="h-3.5 w-3.5" />} label="Efficiency" value={formatPercent(data.sleep.efficiency)} />
+              <HealthMetric icon={<Timer className="h-3.5 w-3.5" />} label="Consistency" value={formatPercent(data.sleep.consistency)} />
             </div>
-            <div className="grid grid-cols-3 gap-3 text-xs text-muted-foreground">
-              <div>
-                <p className="uppercase tracking-wide text-muted-foreground">REM</p>
-                <p className="text-sm font-semibold text-foreground">
-                  {formatDuration(data.sleep.stage.remSeconds)}
-                </p>
-              </div>
-              <div>
-                <p className="uppercase tracking-wide text-muted-foreground">SWS</p>
-                <p className="text-sm font-semibold text-foreground">
-                  {formatDuration(data.sleep.stage.swsSeconds)}
-                </p>
-              </div>
-              <div>
-                <p className="uppercase tracking-wide text-muted-foreground">Light</p>
-                <p className="text-sm font-semibold text-foreground">
-                  {formatDuration(data.sleep.stage.lightSeconds)}
-                </p>
-              </div>
+
+            {/* Sleep stages bar */}
+            <SleepStagesBar
+              rem={data.sleep.stage.remSeconds}
+              deep={data.sleep.stage.swsSeconds}
+              light={data.sleep.stage.lightSeconds}
+            />
+
+            {/* Sleep debt */}
+            <div className="flex items-center justify-between rounded-lg border border-dashed border-muted-foreground/20 bg-muted/10 px-3 py-2">
+              <span className="health-metric-label">Sleep debt</span>
+              <span className="font-mono text-sm font-semibold">{formatDuration(data.sleep.sleepDebtSeconds)}</span>
             </div>
-            <div className="rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20 p-3 text-sm">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Sleep debt
-              </p>
-              <p className="text-lg font-semibold">
-                {formatDuration(data.sleep.sleepDebtSeconds)}
-              </p>
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* ── Workouts ── */}
+      <section>
+        <div className="mb-3 flex items-center gap-2">
+          <Dumbbell className="h-4 w-4 text-orange-500 dark:text-orange-400" />
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Today&apos;s Workouts</h2>
+          <Badge variant="outline" className="text-[10px]">{data.workouts.length}</Badge>
+        </div>
+        {data.workouts.length === 0 ? (
+          <Card className="gap-0 py-4">
+            <CardContent className="px-5">
+              <p className="text-sm text-muted-foreground">No workouts logged yet today.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {data.workouts.map((workout, index) => (
+              <WorkoutCard key={getWorkoutRenderKey(workout, index)} workout={workout} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Trends + Alert History ── */}
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* Trends */}
+        <Card className="gap-3 py-4">
+          <CardHeader className="gap-1 px-5">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-semibold uppercase tracking-wide">14-Day Trends</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5 px-5">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium">Recovery</p>
+                <div className="flex items-center gap-1">
+                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                  <span className="text-[10px] text-muted-foreground">Last 14 days</span>
+                </div>
+              </div>
+              <TrendBars data={data.trends.recovery} tone="bg-emerald-500/80 dark:bg-emerald-400/70" />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium">Sleep Performance</p>
+                <div className="flex items-center gap-1">
+                  <span className="inline-block h-2 w-2 rounded-full bg-violet-500" />
+                  <span className="text-[10px] text-muted-foreground">Last 14 days</span>
+                </div>
+              </div>
+              <TrendBars data={data.trends.sleepPerformance} tone="bg-violet-500/80 dark:bg-violet-400/70" />
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-base">Strain & Workouts</CardTitle>
-            <p className="text-xs text-muted-foreground">Today</p>
+        {/* Alert History */}
+        <Card className="gap-3 py-4">
+          <CardHeader className="gap-1 px-5">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-semibold uppercase tracking-wide">Alert History</CardTitle>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {data.workouts.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-muted-foreground/30 bg-muted/10 p-4 text-sm text-muted-foreground">
-                No workouts logged yet.
+          <CardContent className="px-5">
+            {data.alertHistory.length === 0 ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Badge variant="success" className="text-[10px]">Clear</Badge>
+                <span>No recent threshold breaches.</span>
               </div>
             ) : (
-              <div className="space-y-3">
-                {data.workouts.map((workout, index) => (
+              <div className="space-y-0">
+                {data.alertHistory.slice(0, 10).map((alert, i) => (
                   <div
-                    key={getWorkoutRenderKey(workout, index)}
-                    className="rounded-lg border border-muted/40 bg-muted/10 p-3 text-sm"
+                    key={alert.id}
+                    className={cn(
+                      "flex items-start gap-3 py-2.5",
+                      i < data.alertHistory.slice(0, 10).length - 1 && "border-b border-border/40",
+                    )}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">{workout.sport}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Start: {formatTimestamp(workout.start)}
-                        </p>
-                      </div>
-                      <Badge variant="outline">
-                        Strain {formatDecimal(workout.strain)}
-                      </Badge>
+                    {/* Timeline dot */}
+                    <div className="mt-1.5 flex flex-col items-center">
+                      <span className={cn(
+                        "inline-block h-2 w-2 rounded-full",
+                        alert.severity === "critical" ? "bg-red-500" : alert.severity === "warning" ? "bg-amber-500" : "bg-blue-500",
+                      )} />
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                      <div>
-                        <p className="uppercase tracking-wide">Duration</p>
-                        <p className="text-sm font-semibold text-foreground">
-                          {formatDuration(workout.durationSeconds)}
-                        </p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-sm font-medium">{alert.label}</span>
+                        <Badge variant={severityVariant(alert.severity)} className="text-[10px]">{alert.severity}</Badge>
                       </div>
-                      <div>
-                        <p className="uppercase tracking-wide">Kilojoules</p>
-                        <p className="text-sm font-semibold text-foreground">
-                          {formatNumber(workout.kilojoules, " kJ")}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="uppercase tracking-wide">Avg HR</p>
-                        <p className="text-sm font-semibold text-foreground">
-                          {formatNumber(workout.avgHeartRate, " bpm")}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="uppercase tracking-wide">Max HR</p>
-                        <p className="text-sm font-semibold text-foreground">
-                          {formatNumber(workout.maxHeartRate, " bpm")}
-                        </p>
-                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{alert.message}</p>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">{formatShortDate(alert.timestamp)}</p>
                     </div>
                   </div>
                 ))}
@@ -403,58 +344,161 @@ export default async function FitnessPage() {
             )}
           </CardContent>
         </Card>
-      </div>
+      </section>
+    </div>
+  );
+}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">14-day trends</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <p className="font-medium text-foreground">Recovery</p>
-                <p className="text-xs text-muted-foreground">Last 14 days</p>
-              </div>
-              <TrendBars data={data.trends.recovery} tone="bg-emerald-500/70" />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <p className="font-medium text-foreground">Sleep performance</p>
-                <p className="text-xs text-muted-foreground">Last 14 days</p>
-              </div>
-              <TrendBars data={data.trends.sleepPerformance} tone="bg-sky-500/70" />
-            </div>
-          </CardContent>
-        </Card>
+/* ── sub-components ── */
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Alert history</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {data.alertHistory.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No recent threshold breaches.</p>
-            ) : (
-              data.alertHistory.slice(0, 10).map((alert) => (
-                <div
-                  key={alert.id}
-                  className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-muted/40 bg-muted/5 p-3 text-sm"
-                >
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{alert.label}</p>
-                    <p className="text-xs text-muted-foreground">{alert.message}</p>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Badge variant={severityVariant(alert.severity)}>{alert.severity}</Badge>
-                    <span>{formatTimestamp(alert.timestamp)}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
+function RecoveryRing({ score, status }: { score: number | null; status: string }) {
+  const pct = score != null ? Math.max(0, Math.min(100, score)) : 0;
+  const r = 42;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference - (pct / 100) * circumference;
+  const ringClass = `recovery-ring-${status}`;
+
+  return (
+    <div className="recovery-ring">
+      <svg viewBox="0 0 100 100">
+        <circle className="recovery-ring-track" cx="50" cy="50" r={r} />
+        <circle
+          className={`recovery-ring-fill ${ringClass}`}
+          cx="50"
+          cy="50"
+          r={r}
+          strokeDasharray={circumference}
+          strokeDashoffset={score != null ? offset : circumference}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className={cn("text-3xl font-bold", recoveryStatusColor(status))}>
+          {score != null ? Math.round(score) : "—"}
+        </span>
+        <Badge variant={recoveryBadgeVariant(status)} className="mt-1 text-[10px]">
+          {status}
+        </Badge>
       </div>
+    </div>
+  );
+}
+
+function SleepStagesBar({ rem, deep, light }: { rem: number | null; deep: number | null; light: number | null }) {
+  const total = (rem ?? 0) + (deep ?? 0) + (light ?? 0);
+  if (total === 0) return <p className="text-xs text-muted-foreground">No sleep stage data.</p>;
+
+  const remPct = ((rem ?? 0) / total) * 100;
+  const deepPct = ((deep ?? 0) / total) * 100;
+  const lightPct = ((light ?? 0) / total) * 100;
+
+  return (
+    <div className="space-y-2">
+      {/* Stacked bar */}
+      <div className="flex h-3 overflow-hidden rounded-full">
+        <div className="sleep-bar-rem transition-all" style={{ width: `${remPct}%` }} title={`REM: ${formatDuration(rem)}`} />
+        <div className="sleep-bar-deep transition-all" style={{ width: `${deepPct}%` }} title={`Deep: ${formatDuration(deep)}`} />
+        <div className="sleep-bar-light transition-all" style={{ width: `${lightPct}%` }} title={`Light: ${formatDuration(light)}`} />
+      </div>
+      {/* Legend */}
+      <div className="flex flex-wrap gap-3 text-xs">
+        <SleepLegendItem color="bg-violet-500 dark:bg-violet-400" label="REM" value={formatDuration(rem)} />
+        <SleepLegendItem color="bg-blue-500 dark:bg-blue-400" label="Deep" value={formatDuration(deep)} />
+        <SleepLegendItem color="bg-cyan-400 dark:bg-cyan-300" label="Light" value={formatDuration(light)} />
+      </div>
+    </div>
+  );
+}
+
+function SleepLegendItem({ color, label, value }: { color: string; label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className={cn("inline-block h-2 w-2 rounded-full", color)} />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
+    </div>
+  );
+}
+
+function HealthMetric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-muted/10 px-3 py-2">
+      <div className="text-muted-foreground">{icon}</div>
+      <div className="min-w-0">
+        <p className="health-metric-label">{label}</p>
+        <p className="font-mono text-sm font-semibold leading-tight">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function WorkoutCard({ workout }: { workout: WorkoutSummary }) {
+  const strainPct = workout.strain != null ? Math.min(100, (workout.strain / 21) * 100) : 0;
+
+  return (
+    <Card className="gap-2 py-3">
+      <CardHeader className="gap-0 px-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Dumbbell className="h-4 w-4 text-orange-500 dark:text-orange-400" />
+            <CardTitle className="text-sm">{workout.sport}</CardTitle>
+          </div>
+          <Badge variant="outline" className="font-mono text-[10px]">
+            {formatDecimal(workout.strain)} strain
+          </Badge>
+        </div>
+        <p className="text-[11px] text-muted-foreground">{formatTimestamp(workout.start)}</p>
+      </CardHeader>
+      <CardContent className="space-y-2.5 px-4">
+        {/* Strain bar */}
+        <div className="h-1.5 w-full overflow-hidden rounded-full strain-bar-bg">
+          <div className="h-full rounded-full strain-bar-fill transition-all" style={{ width: `${strainPct}%` }} />
+        </div>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div>
+            <p className="health-metric-label">Duration</p>
+            <p className="font-mono text-sm font-semibold">{formatDuration(workout.durationSeconds)}</p>
+          </div>
+          <div>
+            <p className="health-metric-label">Energy</p>
+            <p className="font-mono text-sm font-semibold">{formatNumber(workout.kilojoules, " kJ")}</p>
+          </div>
+          <div>
+            <p className="health-metric-label">Avg HR</p>
+            <p className="font-mono text-sm font-semibold">{formatNumber(workout.avgHeartRate, " bpm")}</p>
+          </div>
+          <div>
+            <p className="health-metric-label">Max HR</p>
+            <p className="font-mono text-sm font-semibold">{formatNumber(workout.maxHeartRate, " bpm")}</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TrendBars({ data, tone }: { data: TrendPoint[]; tone: string }) {
+  if (!data.length) return <p className="text-xs text-muted-foreground">No trend data yet.</p>;
+
+  return (
+    <div className="flex h-20 items-end gap-0.5">
+      {data.map((point) => {
+        const height = point.value == null ? 8 : Math.max(8, Math.min(100, Math.round(point.value)));
+        const label = point.value == null ? "—" : `${Math.round(point.value)}%`;
+        return (
+          <div
+            key={point.date}
+            className="group relative flex h-full flex-1 items-end"
+            title={`${point.date}: ${label}`}
+          >
+            <div className="absolute inset-0 rounded-sm bg-muted/20" />
+            <div
+              className={cn("relative w-full rounded-sm transition-all", tone)}
+              style={{ height: `${height}%` }}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }

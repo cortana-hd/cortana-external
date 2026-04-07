@@ -60,7 +60,7 @@ export function ReliabilitySloCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-5">
           <Metric label="Cron on-time" value={`${metrics?.cronOnTimePct ?? 0}%`} sample={`n=${metrics?.samples.cronJobs ?? 0}`} />
           <Metric
             label="Aborted run rate"

@@ -158,17 +158,16 @@ const fixture: TradingOpsDashboardData = {
 };
 
 describe("TradingOpsDashboard", () => {
-  it("renders the operator overview and key sections", () => {
+  it("renders the terminal header and key sections", () => {
     const { container } = render(<TradingOpsDashboard data={fixture} />);
 
-    expect(screen.getByText("Backtester operator console")).toBeInTheDocument();
-    expect(screen.getByText("What to read first")).toBeInTheDocument();
-    expect(screen.getByText("Quick answer")).toBeInTheDocument();
+    expect(screen.getAllByText("Cortana Trading Ops").length).toBeGreaterThan(0);
+    expect(screen.getByText("Operator checklist (4 steps)")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Overview" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Watchlists" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "System Health" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Deep Dive" })).toBeInTheDocument();
-    expect(screen.getByText("Market posture")).toBeInTheDocument();
+    expect(screen.getAllByText("Market posture").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Latest trading run").length).toBeGreaterThan(0);
     expect(screen.getByText("ABBV · WATCH")).toBeInTheDocument();
     expect(screen.getAllByText("OXY, GEV, FANG").length).toBeGreaterThan(0);
@@ -180,6 +179,21 @@ describe("TradingOpsDashboard", () => {
     fireEvent.click(watchlistsTab);
     expect(container).toHaveTextContent("Latest trading run watchlists");
     expect(container).toHaveTextContent("BUY 0 · WATCH 6 · NO_BUY 2");
-    expect(container).toHaveTextContent("ABBV, ACHV, AEP, AEE, ADM, AES");
+    expect(container).toHaveTextContent("ABBV");
+    expect(container).toHaveTextContent("ACHV");
+    expect(container).toHaveTextContent("AEP");
+  });
+
+  it("renders alert banner when incidents exist", () => {
+    render(<TradingOpsDashboard data={fixture} />);
+    expect(screen.getByText(/provider_cooldown: Wait\./)).toBeInTheDocument();
+  });
+
+  it("renders terminal header metrics", () => {
+    const { container } = render(<TradingOpsDashboard data={fixture} />);
+    expect(container).toHaveTextContent("CORRECTION");
+    expect(container).toHaveTextContent("0.0%");
+    expect(container).toHaveTextContent("15.0%");
+    expect(container).toHaveTextContent("1 open / 2 closed");
   });
 });

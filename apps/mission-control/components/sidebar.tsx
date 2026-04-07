@@ -4,26 +4,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  Activity,
-  Bot,
   Brain,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
-  Clock,
   PlugZap,
   Dumbbell,
   FileText,
   GitBranch,
   Landmark,
   LayoutDashboard,
-  LineChart,
   MessageCircle,
   Play,
-  ScrollText,
   ShieldCheck,
-  Timer,
-  Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -32,23 +25,16 @@ const STORAGE_KEY = "mc-sidebar-collapsed";
 
 const links = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/system-stats", label: "System Stats", icon: Activity },
-  { href: "/task-board", label: "Task Board", icon: ClipboardList },
-  { href: "/memories", label: "Memories", icon: Brain },
-  { href: "/agents", label: "Agents", icon: Bot },
-  { href: "/jobs", label: "Jobs & Runs", icon: Play },
-  { href: "/cron", label: "Cron Jobs", icon: Clock },
   { href: "/services", label: "Services", icon: PlugZap },
   { href: "/trading-ops", label: "Trading Ops", icon: Landmark },
+  { href: "/task-board", label: "Task Board", icon: ClipboardList },
+  { href: "/mjolnir", label: "Mjolnir", icon: Dumbbell },
+  { href: "/memories", label: "Memories", icon: Brain },
+  { href: "/docs", label: "Docs", icon: FileText },
+  { href: "/jobs", label: "Jobs & Runs", icon: Play },
   { href: "/decisions", label: "Decision Traces", icon: GitBranch },
   { href: "/approvals", label: "Approvals", icon: ShieldCheck },
   { href: "/feedback", label: "Feedback", icon: MessageCircle },
-  { href: "/council", label: "Council", icon: Users },
-  { href: "/mjolnir", label: "Mjolnir", icon: Dumbbell },
-  { href: "/sessions", label: "Sessions", icon: Timer },
-  { href: "/usage", label: "Usage", icon: LineChart },
-  { href: "/logs", label: "Logs", icon: ScrollText },
-  { href: "/docs", label: "Docs", icon: FileText },
 ];
 
 export function Sidebar() {

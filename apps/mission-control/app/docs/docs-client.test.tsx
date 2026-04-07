@@ -14,13 +14,14 @@ describe("DocsClient", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders OpenClaw Docs header text", async () => {
+  it("renders header text", async () => {
     vi.spyOn(global, "fetch")
       .mockResolvedValueOnce(jsonResponse({ status: "ok", files: [] }))
       .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "", content: "" }));
 
     render(<DocsClient />);
     expect(screen.getByText("Docs Library")).toBeInTheDocument();
+    expect(screen.getByText("Documentation")).toBeInTheDocument();
     expect(await screen.findByText("No markdown files found.")).toBeInTheDocument();
   });
 
@@ -46,8 +47,8 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    expect(await screen.findByRole("button", { name: /a\.md/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /b\.md/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /\ba\b/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /\bb\b/i })).toBeInTheDocument();
   });
 
   it("clicking a file updates selection and fetches content", async () => {
@@ -67,7 +68,7 @@ describe("DocsClient", () => {
 
     render(<DocsClient />);
 
-    const secondFile = await screen.findByRole("button", { name: /b\.md/i });
+    const secondFile = await screen.findByRole("button", { name: /\bb\b/i });
     fireEvent.click(secondFile);
 
     await waitFor(() => {
@@ -75,7 +76,7 @@ describe("DocsClient", () => {
     });
 
     await screen.findByText("B content");
-    expect(secondFile.className).toContain("bg-primary/10");
+    expect(secondFile).toHaveAttribute("aria-pressed", "true");
   });
 
   it("shows error state when API returns error", async () => {
@@ -117,5 +118,47 @@ describe("DocsClient", () => {
 
     expect((await screen.findAllByText("OpenClaw Docs")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Backtester Docs").length).toBeGreaterThan(0);
+  });
+
+  it("renders search input", async () => {
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            { id: "OpenClaw Docs:a.md", name: "a.md", path: "/docs/a.md", section: "OpenClaw Docs" },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "a.md", content: "# A" }));
+
+    render(<DocsClient />);
+
+    await screen.findByRole("button", { name: /\ba\b/i });
+    expect(screen.getAllByPlaceholderText("Search docs...").length).toBeGreaterThan(0);
+  });
+
+  it("renders breadcrumbs for selected file", async () => {
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            { id: "External Docs:source/arch/design.md", name: "source/arch/design.md", path: "/docs/source/arch/design.md", section: "External Docs" },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "design.md", content: "# Design" }));
+
+    const { container } = render(<DocsClient />);
+
+    // Wait for file to appear in sidebar (file button shows basename without .md)
+    await screen.findByRole("button", { name: /design/i });
+
+    // Breadcrumbs should contain path segments
+    expect(container).toHaveTextContent("External Docs");
+    expect(container).toHaveTextContent("source");
+    expect(container).toHaveTextContent("arch");
+    expect(container).toHaveTextContent("design.md");
   });
 });
