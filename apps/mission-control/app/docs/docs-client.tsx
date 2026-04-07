@@ -18,6 +18,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { extractHeadings, getTextContent, slugify } from "@/lib/markdown-utils";
+import type { Heading } from "@/lib/markdown-utils";
 
 /* ── types ── */
 
@@ -41,12 +43,6 @@ type TreeNode = {
 type SectionTree = {
   section: string;
   root: TreeNode;
-};
-
-type Heading = {
-  id: string;
-  text: string;
-  level: number;
 };
 
 /* ── pure helpers ── */
@@ -86,58 +82,9 @@ function buildFolderTree(files: DocFile[], searchQuery: string): SectionTree[] {
   });
 }
 
-function extractHeadings(markdown: string): Heading[] {
-  const headingRegex = /^(#{1,6})\s+(.+)$/gm;
-  const headings: Heading[] = [];
-  const usedIds = new Set<string>();
-  let match: RegExpExecArray | null;
-
-  while ((match = headingRegex.exec(markdown)) !== null) {
-    const level = match[1].length;
-    const text = match[2]
-      .replace(/\*\*(.+?)\*\*/g, "$1")
-      .replace(/`(.+?)`/g, "$1")
-      .replace(/\[(.+?)\]\(.+?\)/g, "$1")
-      .trim();
-    let id = text
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/\s+/g, "-");
-
-    if (usedIds.has(id)) {
-      let n = 2;
-      while (usedIds.has(`${id}-${n}`)) n++;
-      id = `${id}-${n}`;
-    }
-    usedIds.add(id);
-
-    headings.push({ id, text, level });
-  }
-
-  return headings;
-}
-
 function deriveBreadcrumbs(file: DocFile | null): string[] {
   if (!file) return [];
   return [file.section, ...file.name.split("/")];
-}
-
-function getTextContent(children: React.ReactNode): string {
-  if (typeof children === "string") return children;
-  if (typeof children === "number") return String(children);
-  if (!children) return "";
-  if (Array.isArray(children)) return children.map(getTextContent).join("");
-  if (React.isValidElement(children)) {
-    return getTextContent((children.props as { children?: React.ReactNode }).children);
-  }
-  return "";
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/\s+/g, "-");
 }
 
 function basename(name: string): string {
