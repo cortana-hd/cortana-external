@@ -355,30 +355,34 @@ export default async function FitnessPage() {
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <Weight className="h-4 w-4 text-purple-500 dark:text-purple-400" />
-                      <CardTitle className="text-sm">{w.movementCount} movements</CardTitle>
+                      <CardTitle className="text-sm">
+                        {w.startTime ? new Date(w.startTime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "Workout"}
+                      </CardTitle>
                     </div>
                     <Badge variant="outline" className="font-mono text-[10px]">
                       {w.totalVolume > 0 ? `${w.totalVolume.toLocaleString()} lbs` : "—"}
                     </Badge>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    {w.startTime ? formatTimestamp(w.startTime) : "Unknown date"}
-                    {w.duration ? ` · ${formatDuration(w.duration)}` : ""}
+                    {w.duration ? `${Math.round(w.duration / 60)} min` : ""}
+                    {w.movementCount > 0 ? ` · ${w.movementCount} exercises` : ""}
                   </p>
                 </CardHeader>
                 <CardContent className="px-4">
-                  {w.topMovements.length > 0 ? (
-                    <div className="space-y-1">
-                      {w.topMovements.map((m, i) => (
-                        <div key={`${m.name}-${i}`} className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">{m.name}</span>
-                          <span className="font-mono font-medium">{m.reps}×{Math.round(m.weight)} lbs</span>
-                        </div>
-                      ))}
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="health-metric-label">Exercises</p>
+                      <p className="font-mono text-sm font-semibold">{w.movementCount}</p>
                     </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">No movement details</p>
-                  )}
+                    <div>
+                      <p className="health-metric-label">Volume</p>
+                      <p className="font-mono text-sm font-semibold">{w.totalVolume > 0 ? `${(w.totalVolume / 1000).toFixed(1)}k` : "—"}</p>
+                    </div>
+                    <div>
+                      <p className="health-metric-label">Duration</p>
+                      <p className="font-mono text-sm font-semibold">{w.duration ? `${Math.round(w.duration / 60)}m` : "—"}</p>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             ))}

@@ -282,45 +282,71 @@ const toAlert = (
 function buildTonalSummary(data?: TonalDataLike) {
   if (!data) return { available: false, workoutCount: 0, lastUpdated: null, strengthScores: [], recentWorkouts: [] };
 
-  const strengthScores = (data.strength_scores?.current ?? []).map((s) => ({
-    label: pickString(s, ["name", "label", "muscle_group"]) ?? "Overall",
-    value: pickNumber(s, ["score", "value"]) ?? 0,
-  })).filter((s) => s.value > 0);
+  // Strength scores: each entry has bodyRegionDisplay + score, with familyActivity for muscle groups
+  const rawScores = data.strength_scores?.current ?? [];
+  const strengthScores: Array<{ label: string; value: number }> = [];
+  for (const region of rawScores) {
+    const regionLabel = pickString(region, ["bodyRegionDisplay", "strengthBodyRegion"]);
+    const regionScore = pickNumber(region, ["score"]);
+    if (regionLabel && regionScore) strengthScores.push({ label: regionLabel, value: Math.round(regionScore) });
 
+    // Also extract per-muscle-group scores from familyActivity
+    const families = Array.isArray(region.familyActivity) ? region.familyActivity as Array<Record<string, unknown>> : [];
+    for (const family of families) {
+      const familyLabel = pickString(family, ["strengthFamily", "name"]);
+      const familyScore = pickNumber(family, ["score"]);
+      if (familyLabel && familyScore) strengthScores.push({ label: familyLabel, value: Math.round(familyScore) });
+    }
+  }
+
+  // Workouts: use beginTime for date, totalMovements/totalVolume/totalReps for stats
   const workoutEntries = Object.values(data.workouts ?? {});
   const recentWorkouts = workoutEntries
     .sort((a, b) => {
-      const aTime = parseDateValue(a.startTime ?? a.start_time)?.getTime() ?? 0;
-      const bTime = parseDateValue(b.startTime ?? b.start_time)?.getTime() ?? 0;
+      const aTime = parseDateValue(a.beginTime ?? a.startTime)?.getTime() ?? 0;
+      const bTime = parseDateValue(b.beginTime ?? b.startTime)?.getTime() ?? 0;
       return bTime - aTime;
     })
     .slice(0, 5)
     .map((w) => {
-      const movements = Array.isArray(w.movements) ? w.movements as Array<Record<string, unknown>> : [];
-      const totalVolume = movements.reduce((sum, m) => sum + (pickNumber(m, ["volume"]) ?? 0), 0);
-      const topMovements = movements
-        .filter((m) => pickString(m, ["name"]) && (pickNumber(m, ["weight"]) ?? 0) > 0)
-        .sort((a, b) => (pickNumber(b, ["volume"]) ?? 0) - (pickNumber(a, ["volume"]) ?? 0))
+      const movementCount = pickNumber(w, ["totalMovements"]) ?? 0;
+      const totalVolume = pickNumber(w, ["totalVolume"]) ?? 0;
+      const totalReps = pickNumber(w, ["totalReps"]) ?? 0;
+
+      // Extract top movements from workoutSetActivity (group by movementId, aggregate)
+      const sets = Array.isArray(w.workoutSetActivity) ? w.workoutSetActivity as Array<Record<string, unknown>> : [];
+      const byMovement = new Map<string, { name: string; reps: number; maxWeight: number; volume: number }>();
+      for (const set of sets) {
+        const movId = pickString(set, ["movementId"]) ?? "unknown";
+        const existing = byMovement.get(movId) ?? { name: movId, reps: 0, maxWeight: 0, volume: 0 };
+        const reps = pickNumber(set, ["prescribedReps", "reps"]) ?? 0;
+        const weight = pickNumber(set, ["weight", "weightPercentage"]) ?? 0;
+        existing.reps += reps;
+        if (weight > existing.maxWeight) existing.maxWeight = weight;
+        existing.volume += reps * weight;
+        byMovement.set(movId, existing);
+      }
+      const topMovements = [...byMovement.values()]
+        .sort((a, b) => b.volume - a.volume)
         .slice(0, 3)
-        .map((m) => ({
-          name: pickString(m, ["name"]) ?? "Unknown",
-          reps: pickNumber(m, ["reps"]) ?? 0,
-          weight: pickNumber(m, ["weight"]) ?? 0,
-        }));
+        .map((m) => ({ name: m.name, reps: m.reps, weight: m.maxWeight }));
 
       return {
         id: pickString(w, ["id"]) ?? String(Math.random()),
-        startTime: pickString(w, ["startTime"]) ?? pickString(w, ["start_time"]) ?? null,
-        duration: pickNumber(w, ["duration"]) ?? null,
-        movementCount: movements.length,
+        startTime: pickString(w, ["beginTime", "startTime"]) ?? null,
+        duration: pickNumber(w, ["totalDuration", "activeDuration", "duration"]) ?? null,
+        movementCount,
         totalVolume: Math.round(totalVolume),
         topMovements,
       };
     });
 
+  // Use profile.totalWorkouts if available, fallback to workout_count
+  const profileWorkouts = data.profile ? pickNumber(data.profile as Record<string, unknown>, ["totalWorkouts"]) : null;
+
   return {
     available: true,
-    workoutCount: data.workout_count ?? workoutEntries.length,
+    workoutCount: profileWorkouts ?? data.workout_count ?? workoutEntries.length,
     lastUpdated: data.last_updated ?? null,
     strengthScores,
     recentWorkouts,
