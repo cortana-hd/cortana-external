@@ -38,13 +38,31 @@ if [[ ! -f "$HEARTBEAT_STATE_FILE" && -f "$LEGACY_HEARTBEAT_STATE_FILE" ]]; then
   HEARTBEAT_STATE_FILE="$LEGACY_HEARTBEAT_STATE_FILE"
 fi
 OPENCLAW_GATEWAY_PLIST="${OPENCLAW_GATEWAY_PLIST:-$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist}"
+OPENCLAW_GATEWAY_ENV_STATE_PATH="${OPENCLAW_GATEWAY_ENV_STATE_PATH:-$HOME/.openclaw/state/gateway-env.json}"
 
-if [[ -z "${GOG_KEYRING_PASSWORD:-}" && -f "$OPENCLAW_GATEWAY_PLIST" ]]; then
-  GOG_KEYRING_PASSWORD="$(plutil -extract EnvironmentVariables.GOG_KEYRING_PASSWORD raw -o - "$OPENCLAW_GATEWAY_PLIST" 2>/dev/null || true)"
+load_gog_keyring_password_from_openclaw_runtime() {
   if [[ -n "${GOG_KEYRING_PASSWORD:-}" ]]; then
     export GOG_KEYRING_PASSWORD
+    return 0
   fi
-fi
+
+  if [[ -f "$OPENCLAW_GATEWAY_ENV_STATE_PATH" ]]; then
+    GOG_KEYRING_PASSWORD="$(jq -r '.GOG_KEYRING_PASSWORD // empty' "$OPENCLAW_GATEWAY_ENV_STATE_PATH" 2>/dev/null || true)"
+  fi
+
+  if [[ -z "${GOG_KEYRING_PASSWORD:-}" && -f "$OPENCLAW_GATEWAY_PLIST" ]]; then
+    GOG_KEYRING_PASSWORD="$(plutil -extract EnvironmentVariables.GOG_KEYRING_PASSWORD raw -o - "$OPENCLAW_GATEWAY_PLIST" 2>/dev/null || true)"
+  fi
+
+  if [[ -n "${GOG_KEYRING_PASSWORD:-}" ]]; then
+    export GOG_KEYRING_PASSWORD
+    return 0
+  fi
+
+  return 1
+}
+
+load_gog_keyring_password_from_openclaw_runtime || true
 
 # ── State Management ──
 load_state() {
