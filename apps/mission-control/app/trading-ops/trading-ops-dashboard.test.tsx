@@ -1,7 +1,48 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TradingOpsDashboard } from "@/components/trading-ops-dashboard";
 import type { TradingOpsDashboardData } from "@/lib/trading-ops";
+
+class MockEventSource {
+  static instances: MockEventSource[] = [];
+
+  readonly url: string;
+  readonly listeners = new Map<string, Set<(event: MessageEvent) => void>>();
+  onerror: ((event: Event) => void) | null = null;
+  closed = false;
+
+  constructor(url: string) {
+    this.url = url;
+    MockEventSource.instances.push(this);
+  }
+
+  addEventListener(event: string, handler: (event: MessageEvent) => void) {
+    const existing = this.listeners.get(event) ?? new Set<(event: MessageEvent) => void>();
+    existing.add(handler);
+    this.listeners.set(event, existing);
+  }
+
+  close() {
+    this.closed = true;
+  }
+
+  emit(event: string, data: unknown) {
+    const handlers = this.listeners.get(event);
+    if (!handlers) return;
+    const payload = { data: JSON.stringify(data) } as MessageEvent;
+    for (const handler of handlers) {
+      handler(payload);
+    }
+  }
+
+  fail() {
+    this.onerror?.(new Event("error"));
+  }
+
+  static reset() {
+    MockEventSource.instances = [];
+  }
+}
 
 const fixture: TradingOpsDashboardData = {
   generatedAt: "2026-04-03T23:30:00.000Z",
@@ -178,12 +219,14 @@ const fixture: TradingOpsDashboardData = {
 
 describe("TradingOpsDashboard", () => {
   beforeEach(() => {
+    MockEventSource.reset();
     vi.stubGlobal(
       "fetch",
       vi.fn(() => new Promise<Response>(() => {
         // Keep live polling dormant unless a test explicitly resolves it.
       })) as typeof fetch,
     );
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
   });
 
   afterEach(() => {
@@ -225,51 +268,51 @@ describe("TradingOpsDashboard", () => {
   });
 
   it("renders compact live summary and live tab data", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          generatedAt: "2026-04-08T20:00:00.000Z",
-          streamer: {
-            connected: true,
-            operatorState: "healthy",
-            lastLoginAt: "2026-04-08T19:55:00.000Z",
-            activeEquitySubscriptions: 8,
-            activeAcctActivitySubscriptions: 1,
-            cooldownSummary: null,
-            warnings: [],
-          },
-          tape: {
-            freshnessMessage: "Quotes are fresh from the Schwab streamer.",
-            rows: [
-              liveRow("SPY", "SPY", "SPY", 510.12, 1.25),
-              liveRow("QQQ", "QQQ", "QQQ", 441.18, 2.1),
-              liveRow("IWM", "IWM", "IWM", 206.45, 1.05),
-              liveRow("DOW", "DOW", "DIA", 389.45, 2.55),
-              liveRow("NASDAQ", "NASDAQ", "QQQ", 441.18, 2.1),
-              liveRow("GLD", "GLD", "GLD", 232.2, -0.33),
-            ],
-          },
-          watchlists: {
-            dipBuyer: {
-              buy: [liveRow("ABBV", "ABBV", "ABBV", 179.1, 0.42)],
-              watch: [liveRow("ACHV", "ACHV", "ACHV", 6.18, 4.5), liveRow("ADM", "ADM", "ADM", 63.77, 0.65)],
-            },
-            canslim: {
-              buy: [liveRow("NVDA", "NVDA", "NVDA", 122.5, 3.22)],
-              watch: [liveRow("MSFT", "MSFT", "MSFT", 427.9, 1.98)],
-            },
-          },
-          meta: {
-            runId: "20260403-163103",
-            decision: "WATCH",
-            focusTicker: "ABBV",
-            isAfterHours: false,
-          },
-          warnings: [],
-        }),
-      )) as typeof fetch);
-
     const { container } = render(<TradingOpsDashboard data={fixture} />);
+
+    expect(MockEventSource.instances[0]?.url).toBe("/api/trading-ops/live/stream");
+    await act(async () => {
+      MockEventSource.instances[0]?.emit("snapshot", {
+        generatedAt: "2026-04-08T20:00:00.000Z",
+        streamer: {
+          connected: true,
+          operatorState: "healthy",
+          lastLoginAt: "2026-04-08T19:55:00.000Z",
+          activeEquitySubscriptions: 8,
+          activeAcctActivitySubscriptions: 1,
+          cooldownSummary: null,
+          warnings: [],
+        },
+        tape: {
+          freshnessMessage: "Quotes are fresh from the Schwab streamer.",
+          rows: [
+            liveRow("SPY", "SPY", "SPY", 510.12, 1.25),
+            liveRow("QQQ", "QQQ", "QQQ", 441.18, 2.1),
+            liveRow("IWM", "IWM", "IWM", 206.45, 1.05),
+            liveRow("DOW", "DOW", "DIA", 389.45, 2.55),
+            liveRow("NASDAQ", "NASDAQ", "QQQ", 441.18, 2.1),
+            liveRow("GLD", "GLD", "GLD", 232.2, -0.33),
+          ],
+        },
+        watchlists: {
+          dipBuyer: {
+            buy: [liveRow("ABBV", "ABBV", "ABBV", 179.1, 0.42)],
+            watch: [liveRow("ACHV", "ACHV", "ACHV", 6.18, 4.5), liveRow("ADM", "ADM", "ADM", 63.77, 0.65)],
+          },
+          canslim: {
+            buy: [liveRow("NVDA", "NVDA", "NVDA", 122.5, 3.22)],
+            watch: [liveRow("MSFT", "MSFT", "MSFT", 427.9, 1.98)],
+          },
+        },
+        meta: {
+          runId: "20260403-163103",
+          decision: "WATCH",
+          focusTicker: "ABBV",
+          isAfterHours: false,
+        },
+        warnings: [],
+      });
+    });
 
     await waitFor(() => {
       expect(container).toHaveTextContent("Streamer connected");
@@ -287,6 +330,51 @@ describe("TradingOpsDashboard", () => {
       expect(container).toHaveTextContent("CANSLIM live watchlist");
       expect(container).toHaveTextContent("NVDA");
       expect(container).toHaveTextContent("MSFT");
+    });
+  });
+
+  it("falls back cleanly when the live stream errors", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          generatedAt: "2026-04-08T20:01:00.000Z",
+          streamer: {
+            connected: false,
+            operatorState: "reconnecting",
+            lastLoginAt: "2026-04-08T19:55:00.000Z",
+            activeEquitySubscriptions: 0,
+            activeAcctActivitySubscriptions: 0,
+            cooldownSummary: "REST cooldown is active.",
+            warnings: ["streamer:reconnecting"],
+          },
+          tape: {
+            freshnessMessage: "Using REST fallback while streamer reconnects.",
+            rows: [
+              { ...liveRow("SPY", "SPY", "SPY", 510.12, 1.25), source: "schwab", state: "ok" },
+            ],
+          },
+          watchlists: {
+            dipBuyer: { buy: [], watch: [] },
+            canslim: { buy: [], watch: [] },
+          },
+          meta: {
+            runId: "20260403-163103",
+            decision: "WATCH",
+            focusTicker: "ABBV",
+            isAfterHours: false,
+          },
+          warnings: [],
+        }),
+      )) as typeof fetch);
+
+    const { container } = render(<TradingOpsDashboard data={fixture} />);
+    await act(async () => {
+      MockEventSource.instances[0]?.fail();
+    });
+
+    await waitFor(() => {
+      expect(container).toHaveTextContent("REST fallback");
+      expect(container).toHaveTextContent("Using REST fallback while streamer reconnects.");
     });
   });
 

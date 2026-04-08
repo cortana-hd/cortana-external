@@ -13,6 +13,7 @@ import { OperatorChecklist } from "./trading-ops/operator-checklist";
 import { Badge } from "@/components/ui/badge";
 
 const LIVE_POLL_MS = 15_000;
+const LIVE_STREAM_RETRY_MS = 2_000;
 const COMPACT_TAPE_ORDER = ["SPY", "QQQ", "IWM", "DOW", "NASDAQ"];
 
 /* ── main component ── */
@@ -29,6 +30,12 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   const [liveError, setLiveError] = useState<string | null>(null);
   const [lastSuccessfulAt, setLastSuccessfulAt] = useState<string | null>(null);
 
+  const applyLiveData = useCallback((payload: TradingOpsLiveData) => {
+    setLiveData(payload);
+    setLiveError(null);
+    setLastSuccessfulAt(payload.generatedAt);
+  }, []);
+
   const fetchLiveData = useCallback(async () => {
     try {
       const response = await fetch("/api/trading-ops/live", {
@@ -40,34 +47,109 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
       }
 
       const payload = (await response.json()) as TradingOpsLiveData;
-      setLiveData(payload);
-      setLiveError(null);
-      setLastSuccessfulAt(new Date().toISOString());
+      applyLiveData(payload);
     } catch (error) {
       setLiveError(error instanceof Error ? error.message : "Live route failed");
     }
-  }, []);
+  }, [applyLiveData]);
 
   useEffect(() => {
-    void fetchLiveData();
-    const interval = window.setInterval(() => {
-      if (!document.hidden) {
-        void fetchLiveData();
+    let stopped = false;
+    let source: EventSource | null = null;
+    let fallbackInterval: number | null = null;
+    let reconnectTimeout: number | null = null;
+
+    const disconnect = () => {
+      source?.close();
+      source = null;
+    };
+
+    const stopFallback = () => {
+      if (fallbackInterval !== null) {
+        window.clearInterval(fallbackInterval);
+        fallbackInterval = null;
       }
-    }, LIVE_POLL_MS);
+    };
+
+    const startFallback = () => {
+      if (fallbackInterval !== null || document.hidden) return;
+      fallbackInterval = window.setInterval(() => {
+        void fetchLiveData();
+      }, LIVE_POLL_MS);
+    };
+
+    const scheduleReconnect = () => {
+      if (stopped || reconnectTimeout !== null || document.hidden) return;
+      reconnectTimeout = window.setTimeout(() => {
+        reconnectTimeout = null;
+        connect();
+      }, LIVE_STREAM_RETRY_MS);
+    };
+
+    const connect = () => {
+      if (stopped || source || document.hidden || typeof EventSource === "undefined") return;
+
+      try {
+        source = new EventSource("/api/trading-ops/live/stream");
+        source.addEventListener("snapshot", (event) => {
+          try {
+            const payload = JSON.parse((event as MessageEvent).data) as TradingOpsLiveData;
+            applyLiveData(payload);
+            stopFallback();
+          } catch {
+            setLiveError("Live stream payload could not be parsed.");
+          }
+        });
+        source.addEventListener("warning", (event) => {
+          try {
+            const payload = JSON.parse((event as MessageEvent).data) as { message?: string };
+            setLiveError(payload.message ?? "Live stream warning");
+          } catch {
+            setLiveError("Live stream warning");
+          }
+        });
+        source.onerror = () => {
+          disconnect();
+          setLiveError((current) => current ?? "Live stream reconnecting. Falling back to snapshots.");
+          void fetchLiveData();
+          startFallback();
+          scheduleReconnect();
+        };
+      } catch {
+        startFallback();
+      }
+    };
+
+    void fetchLiveData();
+    connect();
 
     const handleVisibility = () => {
       if (!document.hidden) {
+        stopFallback();
         void fetchLiveData();
+        connect();
+        return;
+      }
+
+      disconnect();
+      stopFallback();
+      if (reconnectTimeout !== null) {
+        window.clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
       }
     };
 
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
-      window.clearInterval(interval);
+      stopped = true;
+      disconnect();
+      stopFallback();
+      if (reconnectTimeout !== null) {
+        window.clearTimeout(reconnectTimeout);
+      }
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [fetchLiveData]);
+  }, [applyLiveData, fetchLiveData]);
 
   const liveArtifact = buildLiveArtifact(liveData, liveError, lastSuccessfulAt);
 
@@ -512,10 +594,10 @@ function buildLiveArtifact(
     return {
       state: liveError ? "error" : "missing",
       label: liveError ? "Live unavailable" : "Loading live data",
-      message: liveError ?? "Polling live tape and streamer health.",
+      message: liveError ?? "Streaming live tape and streamer health.",
       data: null,
       updatedAt: lastSuccessfulAt,
-      source: "/api/trading-ops/live",
+      source: "/api/trading-ops/live/stream",
       warnings: liveError ? [liveError] : [],
     };
   }
@@ -532,7 +614,7 @@ function buildLiveArtifact(
       : liveData.tape.freshnessMessage,
     data: liveData,
     updatedAt: lastSuccessfulAt ?? liveData.generatedAt,
-    source: "/api/trading-ops/live",
+    source: "/api/trading-ops/live/stream",
     warnings: liveError ? [liveError, ...liveData.warnings] : liveData.warnings,
   };
 }
