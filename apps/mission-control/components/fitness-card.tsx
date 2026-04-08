@@ -122,7 +122,7 @@ const isSameDay = (value: string, now: Date) => {
   );
 };
 
-export function FitnessCard() {
+export function FitnessCard({ className }: { className?: string } = {}) {
   const [data, setData] = useState<FitnessSummary | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -188,7 +188,7 @@ export function FitnessCard() {
   const recoveryUi = recoveryTone[recoveryStatus];
 
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader className="gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">Mjolnir snapshot</CardTitle>

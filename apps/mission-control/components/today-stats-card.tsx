@@ -19,7 +19,7 @@ type TodayStatsResponse = {
 
 const POLL_MS = 45_000;
 
-export function TodayStatsCard() {
+export function TodayStatsCard({ className }: { className?: string } = {}) {
   const [data, setData] = useState<TodayStatsResponse | null>(null);
   const [error, setError] = useState(false);
 
@@ -84,7 +84,7 @@ export function TodayStatsCard() {
   }, [data]);
 
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader>
         <CardTitle className="flex items-center justify-between text-base">
           Today&apos;s stats

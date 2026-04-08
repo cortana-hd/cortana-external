@@ -1,4 +1,4 @@
-import { Activity, BedDouble, Dumbbell, Heart, Moon, Scale, Timer, TrendingUp, Weight, Zap } from "lucide-react";
+import { Activity, Dumbbell, Moon, Scale, TrendingUp, Weight } from "lucide-react";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -89,6 +89,74 @@ type FitnessResponse =
   | { status: "ok"; generatedAt: string; cached: boolean; data: FitnessSummary }
   | { status: "error"; generatedAt: string; cached: boolean; error: { message: string; detail?: string } };
 
+type PPLMovement = {
+  slot: string;
+  title: string;
+  movementId: string;
+  canonicalKey: string;
+  muscleGroup: string;
+  pattern: string;
+  validationSources: string[];
+  publicUrls: string[];
+  recentHistory: {
+    setCount: number;
+    workoutCount: number;
+    avgLoad: number | null;
+    avgReps: number | null;
+    avgVolume: number | null;
+  } | null;
+  programming: {
+    sets: string;
+    reps: string;
+    rir: string;
+    note: string;
+  };
+  alternates: string[];
+  selectionReason: string;
+};
+
+type PPLDay = {
+  theme: string;
+  whyThisFits: string;
+  movements: PPLMovement[];
+};
+
+type ProgramData = {
+  ppl: {
+    schema: string;
+    generatedAt: string;
+    summary: {
+      workoutsSeen: number;
+      mappedMovementsSeen: number;
+      latestWorkoutAt: string | null;
+      publicMovementCount: number;
+      metricReadyPublicMovementCount: number;
+      observedPublicMovementCount: number;
+    };
+    notes: string[];
+    days: {
+      push: PPLDay;
+      pull: PPLDay;
+      legs: PPLDay;
+    };
+  };
+  coverage: {
+    publicMovementCount: number;
+    metricReadyCount: number;
+    mappedInPpl: number;
+    workoutsSeen: number;
+    lastRefreshed: string;
+  };
+  block: {
+    raw: string;
+    status: "planned" | "active" | "completed";
+  };
+};
+
+type ProgramResponse =
+  | { status: "ok"; generatedAt: string; data: ProgramData }
+  | { status: "error"; error: { message: string } };
+
 /* ── formatters ── */
 
 const formatShortDate = (value: string) => {
@@ -128,10 +196,26 @@ async function getFitnessData(): Promise<FitnessResponse> {
   return (await response.json()) as FitnessResponse;
 }
 
+async function getProgramData(): Promise<ProgramResponse> {
+  try {
+    const baseUrl = `http://localhost:${process.env.PORT || "3000"}`;
+    const response = await fetch(`${baseUrl}/api/mjolnir/program`, { method: "GET", cache: "no-store" });
+    if (!response.ok) {
+      return { status: "error", error: { message: `Request failed (${response.status})` } };
+    }
+    return (await response.json()) as ProgramResponse;
+  } catch {
+    return { status: "error", error: { message: "Program data unavailable" } };
+  }
+}
+
 /* ── page ── */
 
 export default async function FitnessPage() {
-  const response = await getFitnessData();
+  const [response, programResponse] = await Promise.all([
+    getFitnessData(),
+    getProgramData(),
+  ]);
 
   if (response.status !== "ok") {
     return (
@@ -155,232 +239,343 @@ export default async function FitnessPage() {
 
   const { data } = response;
 
+  /* Compute PPL max load for bar scaling */
+  const allPplMovements: PPLMovement[] = programResponse.status === "ok"
+    ? [
+        ...programResponse.data.ppl.days.push.movements,
+        ...programResponse.data.ppl.days.pull.movements,
+        ...programResponse.data.ppl.days.legs.movements,
+      ]
+    : [];
+  const pplMaxLoad = allPplMovements.reduce(
+    (max, m) => Math.max(max, m.recentHistory?.avgLoad ?? 0),
+    0,
+  );
+
+  /* Tonal recent workouts max volume */
+  const tonalMaxVolume = data.tonal?.available
+    ? data.tonal.recentWorkouts.reduce((max, w) => Math.max(max, w.totalVolume), 0)
+    : 0;
+
+
+  /* Trend current values */
+  const currentRecovery = data.trends.recovery.length > 0
+    ? data.trends.recovery[data.trends.recovery.length - 1]?.value ?? null
+    : null;
+  const currentSleep = data.trends.sleepPerformance.length > 0
+    ? data.trends.sleepPerformance[data.trends.sleepPerformance.length - 1]?.value ?? null
+    : null;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AutoRefresh />
 
       {/* ── Header ── */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Mjolnir</p>
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Health & Recovery</h1>
-          <p className="text-sm text-muted-foreground">Daily recovery, sleep, and workout signals from Whoop.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-0.5">
+          <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Mjolnir</p>
+          <h1 className="text-xl font-bold tracking-tight md:text-2xl">Training Command Center</h1>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Badge variant={response.cached ? "outline" : "success"} className="text-[10px]">
             {response.cached ? "cached" : "live"}
           </Badge>
-          <span>{formatTimestamp(response.generatedAt)}</span>
+          <span className="font-mono text-[10px]">{formatTimestamp(response.generatedAt)}</span>
         </div>
       </div>
 
-      {/* ── Active Alerts ── */}
-      {data.alerts.length > 0 && (
-        <div className="flex flex-wrap gap-2 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 dark:border-amber-900/50 dark:bg-amber-950/20">
-          {data.alerts.map((alert) => (
-            <Badge key={alert.id} variant={severityVariant(alert.severity)}>
-              {alert.label}: {alert.message}
-            </Badge>
-          ))}
-        </div>
-      )}
-
-      {/* ── Hero: Recovery Ring + Sleep Overview ── */}
+      {/* ═══ VITALS ROW ═══ */}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {/* Recovery Ring Card */}
-        <Card className="gap-3 py-4">
-          <CardHeader className="gap-1 px-5">
-            <div className="flex items-center gap-2">
-              <Heart className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              <CardTitle className="text-sm font-semibold uppercase tracking-wide">Recovery</CardTitle>
-            </div>
-            <p className="text-[11px] text-muted-foreground">{formatTimestamp(data.recovery.recordedAt)}</p>
-          </CardHeader>
-          <CardContent className="px-5">
-            <div className="flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
-              {/* Ring */}
-              <RecoveryRing score={data.recovery.score} status={data.recovery.status} />
+        {/* Left: Recovery + Sleep Combined */}
+        <VitalsCard recovery={data.recovery} sleep={data.sleep} />
 
-              {/* Satellite metrics */}
-              <div className="grid flex-1 grid-cols-3 gap-3 sm:grid-cols-1 sm:gap-2">
-                <HealthMetric icon={<Activity className="h-3.5 w-3.5" />} label="HRV" value={formatDecimal(data.recovery.hrv, " ms")} />
-                <HealthMetric icon={<Heart className="h-3.5 w-3.5" />} label="RHR" value={formatNumber(data.recovery.restingHeartRate, " bpm")} />
-                <HealthMetric icon={<Zap className="h-3.5 w-3.5" />} label="SpO₂" value={formatPercent(data.recovery.spo2)} />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Sleep Card */}
-        <Card className="gap-3 py-4">
-          <CardHeader className="gap-1 px-5">
-            <div className="flex items-center gap-2">
-              <Moon className="h-4 w-4 text-violet-500 dark:text-violet-400" />
-              <CardTitle className="text-sm font-semibold uppercase tracking-wide">Sleep</CardTitle>
-            </div>
-            <p className="text-[11px] text-muted-foreground">Last night: {formatTimestamp(data.sleep.recordedAt)}</p>
-          </CardHeader>
-          <CardContent className="space-y-4 px-5">
-            {/* Key metrics */}
-            <div className="grid grid-cols-2 gap-3">
-              <HealthMetric icon={<BedDouble className="h-3.5 w-3.5" />} label="Duration" value={formatDuration(data.sleep.durationSeconds)} />
-              <HealthMetric icon={<TrendingUp className="h-3.5 w-3.5" />} label="Performance" value={formatPercent(data.sleep.performance)} />
-              <HealthMetric icon={<Zap className="h-3.5 w-3.5" />} label="Efficiency" value={formatPercent(data.sleep.efficiency)} />
-              <HealthMetric icon={<Timer className="h-3.5 w-3.5" />} label="Consistency" value={formatPercent(data.sleep.consistency)} />
-            </div>
-
-            {/* Sleep stages bar */}
-            <SleepStagesBar
-              rem={data.sleep.stage.remSeconds}
-              deep={data.sleep.stage.swsSeconds}
-              light={data.sleep.stage.lightSeconds}
-            />
-
-            {/* Sleep debt */}
-            <div className="flex items-center justify-between rounded-lg border border-dashed border-muted-foreground/20 bg-muted/10 px-3 py-2">
-              <span className="health-metric-label">Sleep debt</span>
-              <span className="font-mono text-sm font-semibold">{formatDuration(data.sleep.sleepDebtSeconds)}</span>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Right: Today's Activity */}
+        <ActivityCard workouts={data.workouts} />
       </section>
 
-      {/* ── Workouts ── */}
-      <section>
-        <div className="mb-3 flex items-center gap-2">
-          <Dumbbell className="h-4 w-4 text-orange-500 dark:text-orange-400" />
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Today&apos;s Workouts</h2>
-          <Badge variant="outline" className="text-[10px]">{data.workouts.length}</Badge>
-        </div>
-        {data.workouts.length === 0 ? (
-          <Card className="gap-0 py-4">
-            <CardContent className="px-5">
-              <p className="text-sm text-muted-foreground">No workouts logged yet today.</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {data.workouts.map((workout, index) => (
-              <WorkoutCard key={getWorkoutRenderKey(workout, index)} workout={workout} />
-            ))}
-          </div>
-        )}
-      </section>
+      {/* ═══ 3. TRAINING BLOCK ═══ */}
+      {programResponse.status === "ok" && (() => {
+        const program = programResponse.data;
+        const blockDays = [
+          { label: "Day 1", activity: "Push A", type: "lift", dayKey: "push" as const },
+          { label: "Day 2", activity: "Run+Rec", type: "run", dayKey: null },
+          { label: "Day 3", activity: "Pull A", type: "lift", dayKey: "pull" as const },
+          { label: "Day 4", activity: "Run+Rec", type: "run", dayKey: null },
+          { label: "Day 5", activity: "Legs A", type: "lift", dayKey: "legs" as const },
+          { label: "Day 6", activity: "Push B", type: "lift", dayKey: "push" as const },
+          { label: "Day 7", activity: "Recovery", type: "recovery", dayKey: null },
+        ] as const;
 
-      {/* ── Body Metrics + Tonal Strength ── */}
-      <section className="grid grid-cols-1 gap-4">
-        {/* Body Metrics */}
-        <Card className="gap-3 py-4">
-          <CardHeader className="gap-1 px-5">
-            <div className="flex items-center gap-2">
-              <Scale className="h-4 w-4 text-blue-500 dark:text-blue-400" />
-              <CardTitle className="text-sm font-semibold uppercase tracking-wide">Body Metrics</CardTitle>
-            </div>
-            <p className="text-[11px] text-muted-foreground">From Whoop body measurement</p>
-          </CardHeader>
-          <CardContent className="px-5">
-            <div className="grid grid-cols-3 gap-3">
-              <HealthMetric
-                icon={<Scale className="h-3.5 w-3.5" />}
-                label="Weight"
-                value={data.body?.weightKg != null ? `${Math.round(data.body.weightKg * 2.205)} lbs` : "—"}
-              />
-              <HealthMetric
-                icon={<TrendingUp className="h-3.5 w-3.5" />}
-                label="Height"
-                value={data.body?.heightM != null ? `${Math.round(data.body.heightM * 39.37)}"` : "—"}
-              />
-              <HealthMetric
-                icon={<Heart className="h-3.5 w-3.5" />}
-                label="Max HR"
-                value={formatNumber(data.body?.maxHeartRate ?? null, " bpm")}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Tonal Strength */}
-        <Card className="gap-3 py-4">
-          <CardHeader className="gap-1 px-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Weight className="h-4 w-4 text-purple-500 dark:text-purple-400" />
-                <CardTitle className="text-sm font-semibold uppercase tracking-wide">Tonal Strength</CardTitle>
-              </div>
-              {data.tonal?.available ? (
-                <Badge variant="success" className="text-[10px]">connected</Badge>
-              ) : (
-                <Badge variant="outline" className="text-[10px]">not connected</Badge>
-              )}
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              {data.tonal?.available
-                ? `${data.tonal.workoutCount} workouts tracked${data.tonal.lastUpdated ? ` · updated ${formatShortDate(data.tonal.lastUpdated)}` : ""}`
-                : "Connect Tonal in Services → Configuration"}
-            </p>
-          </CardHeader>
-          <CardContent className="px-5">
-            {data.tonal?.available && data.tonal.strengthScores.length > 0 ? (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-                {data.tonal.strengthScores.map((s) => (
-                  <div key={s.label} className="rounded-lg border border-purple-200/50 bg-purple-50/30 px-3 py-2 dark:border-purple-900/30 dark:bg-purple-950/20">
-                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{s.label}</p>
-                    <p className="font-mono text-lg font-bold text-purple-600 dark:text-purple-400">{s.value}</p>
+        return (
+          <>
+            <section>
+              <Card className={cn(
+                "gap-2 py-4 transition-colors hover:border-sky-300/50 dark:hover:border-sky-600/40 cursor-pointer",
+                "bg-gradient-to-br from-sky-500/[0.03] to-transparent",
+                program.block.status === "planned" && "border-dashed border-sky-200/50 dark:border-sky-900/30",
+              )}>
+                <CardHeader className="gap-1 px-5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Dumbbell className="h-4 w-4 text-sky-500 dark:text-sky-400" />
+                      <CardTitle className="text-sm font-semibold uppercase tracking-wide">Training Block</CardTitle>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {program.block.status === "active" && (
+                        <span className="text-[10px] text-muted-foreground">Week 1</span>
+                      )}
+                      <Badge
+                        variant={program.block.status === "active" ? "success" : "outline"}
+                        className="text-[10px]"
+                      >
+                        {program.block.status}
+                      </Badge>
+                    </div>
                   </div>
-                ))}
-              </div>
-            ) : data.tonal?.available ? (
-              <p className="py-2 text-xs text-muted-foreground">No strength score data available yet.</p>
-            ) : (
-              <p className="py-2 text-xs text-muted-foreground">Configure Tonal credentials to see strength metrics.</p>
-            )}
-          </CardContent>
-        </Card>
-      </section>
+                </CardHeader>
+                <CardContent className="px-5">
+                  <div className="flex gap-1.5 overflow-x-auto">
+                    {blockDays.map((day) => {
+                      const pplAnchor = day.dayKey ? `#ppl-${day.dayKey}` : null;
+                      const movementCount = day.dayKey ? program.ppl.days[day.dayKey].movements.length : 0;
 
-      {/* ── Tonal Recent Workouts ── */}
+                      const sharedClassName = cn(
+                        "flex min-w-[72px] flex-1 flex-col items-center rounded-lg border px-2 py-3 text-center relative",
+                        day.type === "lift" && "border-sky-300/40 bg-sky-50/40 dark:border-sky-800/40 dark:bg-sky-950/30",
+                        day.type === "run" && "border-emerald-300/40 bg-emerald-50/40 dark:border-emerald-800/40 dark:bg-emerald-950/30",
+                        day.type === "recovery" && "border-border/30 bg-muted/10",
+                        program.block.status === "planned" && "border-dashed",
+                        pplAnchor ? "hover:scale-[1.05] hover:shadow-md transition-all cursor-pointer" : "cursor-default",
+                      );
+
+                      const inner = (
+                        <>
+                          <p className="text-[9px] font-medium uppercase tracking-[0.15em] text-muted-foreground">{day.label}</p>
+                          <p className={cn(
+                            "mt-1 text-xs font-bold",
+                            day.type === "lift" && "text-sky-600 dark:text-sky-400",
+                            day.type === "run" && "text-emerald-600 dark:text-emerald-400",
+                            day.type === "recovery" && "text-muted-foreground",
+                          )}>
+                            {day.activity}
+                          </p>
+                          {day.type === "lift" && movementCount > 0 && (
+                            <span className="mt-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-sky-500/10 text-[9px] font-bold text-sky-600 dark:text-sky-400">
+                              {movementCount}
+                            </span>
+                          )}
+                        </>
+                      );
+
+                      return pplAnchor ? (
+                        <a key={day.label} href={pplAnchor} className={sharedClassName}>
+                          {inner}
+                        </a>
+                      ) : (
+                        <div key={day.label} className={sharedClassName}>
+                          {inner}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
+
+            {/* ═══ 4. STRENGTH BARS + BODY ═══ */}
+            <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {/* Left: Strength Bars */}
+              <Card className="gap-2 py-4 transition-colors hover:border-sky-300/50 dark:hover:border-sky-600/40 cursor-pointer">
+                <CardHeader className="gap-1 px-5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Weight className="h-4 w-4 text-sky-500 dark:text-sky-400" />
+                      <CardTitle className="text-sm font-semibold uppercase tracking-wide">Strength Profile</CardTitle>
+                    </div>
+                    {data.tonal?.available ? (
+                      <Badge variant="success" className="text-[10px]">connected</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px]">offline</Badge>
+                    )}
+                  </div>
+                  {data.tonal?.available && (
+                    <p className="text-[10px] text-muted-foreground">
+                      {data.tonal.workoutCount} workouts{data.tonal.lastUpdated ? ` · ${formatShortDate(data.tonal.lastUpdated)}` : ""}
+                    </p>
+                  )}
+                </CardHeader>
+                <CardContent className="px-5">
+                  {data.tonal?.available && data.tonal.strengthScores.length > 0 ? (
+                    <StrengthBars scores={data.tonal.strengthScores} />
+                  ) : data.tonal?.available ? (
+                    <p className="py-4 text-xs text-muted-foreground">No strength score data available yet.</p>
+                  ) : (
+                    <p className="py-4 text-xs text-muted-foreground">Configure Tonal credentials to see strength metrics.</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Right: Body + Coverage */}
+              <Card className="gap-2 py-4 transition-colors hover:border-border/60 cursor-pointer">
+                <CardHeader className="gap-1 px-5">
+                  <div className="flex items-center gap-2">
+                    <Scale className="h-4 w-4 text-blue-500 dark:text-blue-400" />
+                    <CardTitle className="text-sm font-semibold uppercase tracking-wide">Body + Coverage</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4 px-5">
+                  {/* Body metrics row */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-center">
+                      <p className="health-metric-label">Weight</p>
+                      <p className="font-mono text-sm font-bold">
+                        {data.body?.weightKg != null ? `${Math.round(data.body.weightKg * 2.205)} lbs` : "—"}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-center">
+                      <p className="health-metric-label">Height</p>
+                      <p className="font-mono text-sm font-bold">
+                        {data.body?.heightM != null ? `${Math.round(data.body.heightM * 39.37)}"` : "—"}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-center">
+                      <p className="health-metric-label">Max HR</p>
+                      <p className="font-mono text-sm font-bold">
+                        {formatNumber(data.body?.maxHeartRate ?? null, " bpm")}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Movement Coverage */}
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Movement Coverage</p>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-muted/30">
+                      <div
+                        className="h-full rounded-full bg-sky-500 dark:bg-sky-400 transition-all"
+                        style={{ width: `${program.coverage.publicMovementCount > 0 ? (program.coverage.metricReadyCount / program.coverage.publicMovementCount) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      <span className="font-mono font-semibold text-foreground">{program.coverage.metricReadyCount}/{program.coverage.publicMovementCount}</span>
+                      {" metric-ready "}
+                      <span className="text-muted-foreground/60">·</span>
+                      {" "}<span className="font-mono font-semibold text-foreground">{program.coverage.mappedInPpl}</span> in PPL
+                      {" "}<span className="text-muted-foreground/60">·</span>
+                      {" "}<span className="font-mono font-semibold text-foreground">{program.coverage.workoutsSeen}</span> workouts
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
+
+            {/* ═══ 5. PPL PROGRAM ═══ */}
+            <section>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Weight className="h-4 w-4 text-sky-500 dark:text-sky-400" />
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">PPL Program</h2>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] font-mono">
+                    {program.ppl.summary.workoutsSeen} seen
+                  </Badge>
+                  <span className="text-[10px] text-muted-foreground">{formatTimestamp(program.ppl.generatedAt)}</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                {(["push", "pull", "legs"] as const).map((dayKey) => {
+                  const day = program.ppl.days[dayKey];
+                  return (
+                    <Card
+                      key={dayKey}
+                      className="gap-0 py-0 overflow-hidden transition-colors hover:border-sky-300/50 dark:hover:border-sky-600/40 cursor-pointer"
+                    >
+                      {/* Day header */}
+                      <div
+                        id={`ppl-${dayKey}`}
+                        className="scroll-mt-4 border-b border-sky-200/30 bg-sky-500/[0.04] px-4 py-3 dark:border-sky-900/30 dark:bg-sky-950/20"
+                      >
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-bold capitalize text-sky-600 dark:text-sky-400">
+                            {dayKey}
+                          </h3>
+                          <Badge variant="outline" className="text-[10px] font-mono bg-sky-500/5 border-sky-300/30 dark:border-sky-700/30">
+                            {day.movements.length} moves
+                          </Badge>
+                        </div>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">{day.theme}</p>
+                      </div>
+
+                      {/* Movements */}
+                      <CardContent className="space-y-1 px-3 py-2">
+                        {day.movements.map((movement) => (
+                          <MovementRow key={movement.movementId} movement={movement} maxLoad={pplMaxLoad} />
+                        ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+
+              {/* Notes */}
+              {program.ppl.notes.length > 0 && (
+                <div className="mt-3 rounded-lg border border-border/30 bg-muted/5 px-4 py-3">
+                  <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground mb-1.5">Programming Notes</p>
+                  <ul className="space-y-0.5">
+                    {program.ppl.notes.map((note, i) => (
+                      <li key={i} className="text-[11px] text-muted-foreground">
+                        <span className="text-muted-foreground/40 mr-1">-</span>
+                        {note}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          </>
+        );
+      })()}
+
+      {/* ═══ 6. RECENT TONAL SESSIONS ═══ */}
       {data.tonal?.available && data.tonal.recentWorkouts.length > 0 && (
         <section>
           <div className="mb-3 flex items-center gap-2">
-            <Weight className="h-4 w-4 text-purple-500 dark:text-purple-400" />
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Recent Tonal Workouts</h2>
-            <Badge variant="outline" className="text-[10px]">{data.tonal.recentWorkouts.length}</Badge>
+            <Weight className="h-4 w-4 text-sky-500 dark:text-sky-400" />
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Recent Tonal Sessions</h2>
+            <Badge variant="outline" className="text-[10px] font-mono">{data.tonal.recentWorkouts.length}</Badge>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {data.tonal.recentWorkouts.map((w) => (
-              <Card key={w.id} className="gap-2 py-3">
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {data.tonal.recentWorkouts.slice(0, 5).map((w) => (
+              <Card
+                key={w.id}
+                className="min-w-[200px] max-w-[240px] flex-shrink-0 gap-1 py-3 transition-colors hover:border-sky-300/50 dark:hover:border-sky-600/40 cursor-pointer"
+              >
                 <CardHeader className="gap-0 px-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Weight className="h-4 w-4 text-purple-500 dark:text-purple-400" />
-                      <CardTitle className="text-sm">
-                        {w.startTime ? new Date(w.startTime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "Workout"}
-                      </CardTitle>
-                    </div>
-                    <Badge variant="outline" className="font-mono text-[10px]">
-                      {w.totalVolume > 0 ? `${w.totalVolume.toLocaleString()} lbs` : "—"}
-                    </Badge>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    {w.duration ? `${Math.round(w.duration / 60)} min` : ""}
-                    {w.movementCount > 0 ? ` · ${w.movementCount} exercises` : ""}
+                  <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                    {w.startTime
+                      ? new Date(w.startTime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+                      : "Workout"
+                    }
+                  </p>
+                  <p className="font-mono text-xl font-bold text-sky-600 dark:text-sky-400">
+                    {w.totalVolume > 0 ? `${(w.totalVolume / 1000).toFixed(1)}k` : "—"}
+                    <span className="ml-1 text-[10px] font-normal text-muted-foreground">lbs</span>
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {w.duration ? `${Math.round(w.duration / 60)} min` : "—"}
+                    {w.movementCount > 0 ? ` · ${w.movementCount} moves` : ""}
                   </p>
                 </CardHeader>
-                <CardContent className="px-4">
-                  <div className="grid grid-cols-3 gap-2 text-center">
-                    <div>
-                      <p className="health-metric-label">Exercises</p>
-                      <p className="font-mono text-sm font-semibold">{w.movementCount}</p>
+                <CardContent className="space-y-2 px-4">
+                  {/* Top movements */}
+                  {w.topMovements.slice(0, 3).map((m, i) => (
+                    <div key={i} className="flex items-center justify-between text-[10px]">
+                      <span className="truncate text-muted-foreground">{m.name}</span>
+                      <span className="ml-2 flex-shrink-0 font-mono font-semibold">{m.weight} lbs</span>
                     </div>
-                    <div>
-                      <p className="health-metric-label">Volume</p>
-                      <p className="font-mono text-sm font-semibold">{w.totalVolume > 0 ? `${(w.totalVolume / 1000).toFixed(1)}k` : "—"}</p>
-                    </div>
-                    <div>
-                      <p className="health-metric-label">Duration</p>
-                      <p className="font-mono text-sm font-semibold">{w.duration ? `${Math.round(w.duration / 60)}m` : "—"}</p>
-                    </div>
-                  </div>
+                  ))}
+                  {/* Mini volume bar */}
+                  <VolumeBar value={w.totalVolume} max={tonalMaxVolume} />
                 </CardContent>
               </Card>
             ))}
@@ -388,92 +583,305 @@ export default async function FitnessPage() {
         </section>
       )}
 
-      {/* ── Trends + Alert History ── */}
+      {/* ═══ 7. TRENDS ═══ */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Trends */}
-        <Card className="gap-3 py-4">
-          <CardHeader className="gap-1 px-5">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-sm font-semibold uppercase tracking-wide">14-Day Trends</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-5 px-5">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium">Recovery</p>
-                <div className="flex items-center gap-1">
-                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-                  <span className="text-[10px] text-muted-foreground">Last 14 days</span>
-                </div>
-              </div>
-              <TrendBars data={data.trends.recovery} tone="bg-emerald-500/80 dark:bg-emerald-400/70" />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium">Sleep Performance</p>
-                <div className="flex items-center gap-1">
-                  <span className="inline-block h-2 w-2 rounded-full bg-violet-500" />
-                  <span className="text-[10px] text-muted-foreground">Last 14 days</span>
-                </div>
-              </div>
-              <TrendBars data={data.trends.sleepPerformance} tone="bg-violet-500/80 dark:bg-violet-400/70" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Alert History */}
-        <Card className="gap-3 py-4">
-          <CardHeader className="gap-1 px-5">
-            <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-sm font-semibold uppercase tracking-wide">Alert History</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="px-5">
-            {data.alertHistory.length === 0 ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Badge variant="success" className="text-[10px]">Clear</Badge>
-                <span>No recent threshold breaches.</span>
-              </div>
-            ) : (
-              <div className="space-y-0">
-                {data.alertHistory.slice(0, 10).map((alert, i) => (
-                  <div
-                    key={alert.id}
-                    className={cn(
-                      "flex items-start gap-3 py-2.5",
-                      i < data.alertHistory.slice(0, 10).length - 1 && "border-b border-border/40",
-                    )}
-                  >
-                    {/* Timeline dot */}
-                    <div className="mt-1.5 flex flex-col items-center">
-                      <span className={cn(
-                        "inline-block h-2 w-2 rounded-full",
-                        alert.severity === "critical" ? "bg-red-500" : alert.severity === "warning" ? "bg-amber-500" : "bg-blue-500",
-                      )} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-sm font-medium">{alert.label}</span>
-                        <Badge variant={severityVariant(alert.severity)} className="text-[10px]">{alert.severity}</Badge>
-                      </div>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{alert.message}</p>
-                      <p className="mt-0.5 text-[10px] text-muted-foreground">{formatShortDate(alert.timestamp)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <TrendChart
+          data={data.trends.recovery}
+          tone="bg-emerald-500/80 dark:bg-emerald-400/70"
+          colorByValue={(v) =>
+            v >= 67 ? "bg-emerald-500/80 dark:bg-emerald-400/70"
+            : v >= 34 ? "bg-amber-500/80 dark:bg-amber-400/70"
+            : "bg-red-500/80 dark:bg-red-400/70"
+          }
+          threshold={67}
+          label="Recovery"
+          currentValue={currentRecovery}
+        />
+        <TrendChart
+          data={data.trends.sleepPerformance}
+          tone="bg-violet-500/80 dark:bg-violet-400/70"
+          threshold={70}
+          label="Sleep Performance"
+          currentValue={currentSleep}
+        />
       </section>
+
+      {/* ═══ 8. ALERT TIMELINE ═══ */}
+      <AlertTimeline alerts={data.alerts} history={data.alertHistory} />
     </div>
   );
 }
 
-/* ── sub-components ── */
+/* ══════════════════════════════════════════════════
+   HELPER COMPONENTS
+   ══════════════════════════════════════════════════ */
 
+/* ── VitalsCard (Recovery + Sleep Combined) ── */
+function VitalsCard({
+  recovery,
+  sleep,
+}: {
+  recovery: FitnessSummary["recovery"];
+  sleep: FitnessSummary["sleep"];
+}) {
+  return (
+    <Card className="gap-0 py-0 overflow-hidden transition-colors hover:border-emerald-200/50 dark:hover:border-emerald-700/30 cursor-pointer">
+      {/* Top half: Recovery */}
+      <div className="flex flex-col gap-4 border-b border-border/30 px-5 py-4 sm:flex-row sm:items-center">
+        <RecoveryRing score={recovery.score} status={recovery.status} />
+        <div className="flex flex-1 flex-col gap-2">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <div className="flex items-baseline gap-1">
+              <span className="font-mono text-sm font-bold">{formatDecimal(recovery.hrv, "")}</span>
+              <span className="text-[10px] text-muted-foreground">HRV</span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="font-mono text-sm font-bold">{formatNumber(recovery.restingHeartRate, "")}</span>
+              <span className="text-[10px] text-muted-foreground">RHR</span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="font-mono text-sm font-bold">{formatPercent(recovery.spo2)}</span>
+              <span className="text-[10px] text-muted-foreground">SpO&#8322;</span>
+            </div>
+          </div>
+          <p className="text-[10px] text-muted-foreground">{formatTimestamp(recovery.recordedAt)}</p>
+        </div>
+      </div>
+
+      {/* Bottom half: Sleep */}
+      <div className="space-y-3 px-5 py-4">
+        <div className="flex items-center gap-2">
+          <Moon className="h-3.5 w-3.5 text-violet-500 dark:text-violet-400" />
+          <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Sleep</span>
+        </div>
+        <SleepStagesBar
+          rem={sleep.stage.remSeconds}
+          deep={sleep.stage.swsSeconds}
+          light={sleep.stage.lightSeconds}
+        />
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+          <div className="flex items-baseline gap-1">
+            <span className="font-mono text-xs font-semibold">{formatDuration(sleep.durationSeconds)}</span>
+            <span className="text-[10px] text-muted-foreground">dur</span>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className="font-mono text-xs font-semibold">{formatPercent(sleep.performance)}</span>
+            <span className="text-[10px] text-muted-foreground">perf</span>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className="font-mono text-xs font-semibold">{formatPercent(sleep.efficiency)}</span>
+            <span className="text-[10px] text-muted-foreground">eff</span>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className="font-mono text-xs font-semibold">{formatDuration(sleep.sleepDebtSeconds)}</span>
+            <span className="text-[10px] text-muted-foreground">debt</span>
+          </div>
+        </div>
+        <p className="text-[10px] text-muted-foreground">{formatTimestamp(sleep.recordedAt)}</p>
+      </div>
+    </Card>
+  );
+}
+
+/* ── ActivityCard ── */
+function ActivityCard({ workouts }: { workouts: WorkoutSummary[] }) {
+  if (workouts.length === 0) {
+    return (
+      <Card className="flex items-center justify-center gap-2 py-4 transition-colors hover:border-orange-200/50 dark:hover:border-orange-700/30 cursor-pointer">
+        <CardContent className="flex flex-col items-center gap-3 px-5 py-6">
+          <div className="animate-pulse">
+            <Dumbbell className="h-8 w-8 text-muted-foreground/30" />
+          </div>
+          <p className="text-sm text-muted-foreground">No activity logged yet</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="gap-0 py-0 overflow-hidden transition-colors hover:border-orange-200/50 dark:hover:border-orange-700/30 cursor-pointer">
+      <div className="border-b border-border/30 px-5 py-3">
+        <div className="flex items-center gap-2">
+          <Dumbbell className="h-3.5 w-3.5 text-orange-500 dark:text-orange-400" />
+          <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Today&apos;s Activity</span>
+          <Badge variant="outline" className="text-[10px] font-mono">{workouts.length}</Badge>
+        </div>
+      </div>
+      <CardContent className="space-y-0 px-0 py-0">
+        {workouts.map((workout, index) => (
+          <div
+            key={getWorkoutRenderKey(workout, index)}
+            className={cn(
+              "flex items-center gap-3 px-5 py-3",
+              index < workouts.length - 1 && "border-b border-border/20",
+            )}
+          >
+            {/* Strain gauge */}
+            <StrainGauge strain={workout.strain} />
+
+            {/* Workout info */}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold truncate">{workout.sport}</p>
+                <span className="flex-shrink-0 font-mono text-[10px] text-muted-foreground">
+                  {formatDuration(workout.durationSeconds)}
+                </span>
+              </div>
+              <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                <span className="font-mono">{formatNumber(workout.kilojoules, " kJ")}</span>
+                <span className="text-muted-foreground/40">·</span>
+                <span className="font-mono">
+                  {formatNumber(workout.avgHeartRate, "")}
+                  {workout.maxHeartRate != null ? `–${workout.maxHeartRate}` : ""}
+                  {" bpm"}
+                </span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ── StrainGauge (mini semi-circle SVG) ── */
+function StrainGauge({ strain }: { strain: number | null }) {
+  const pct = strain != null ? Math.min(1, strain / 21) : 0;
+  /* Simple horizontal bar gauge — clean and reliable */
+  return (
+    <div className="flex flex-col items-center gap-0.5" style={{ width: 56 }}>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/30 dark:bg-muted/20">
+        <div
+          className="h-full rounded-full bg-orange-500 dark:bg-orange-400 transition-all"
+          style={{ width: `${Math.round(pct * 100)}%` }}
+        />
+      </div>
+      <span className="font-mono text-xs font-bold">
+        {strain != null ? strain.toFixed(1) : "—"}
+      </span>
+    </div>
+  );
+}
+
+/* ── StrengthBars ── */
+function StrengthBars({ scores }: { scores: Array<{ label: string; value: number }> }) {
+  const maxScore = scores.reduce((max, s) => Math.max(max, s.value), 0);
+
+  return (
+    <div className="space-y-1.5">
+      {scores.map((s) => {
+        const pct = maxScore > 0 ? (s.value / maxScore) * 100 : 0;
+        return (
+          <div key={s.label} className="flex items-center gap-3">
+            <span className="w-20 text-right text-[10px] font-medium uppercase tracking-widest text-muted-foreground truncate">
+              {s.label}
+            </span>
+            <div className="relative h-4 flex-1 overflow-hidden rounded bg-sky-500/10 dark:bg-sky-900/20">
+              <div
+                className="absolute inset-y-0 left-0 rounded bg-gradient-to-r from-sky-600 to-sky-400 dark:from-sky-500 dark:to-sky-300 transition-all"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <span className="w-10 text-right font-mono text-xs font-bold text-sky-600 dark:text-sky-400">
+              {s.value}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── MovementRow ── */
+function MovementRow({ movement, maxLoad }: { movement: PPLMovement; maxLoad: number }) {
+  const url = movement.publicUrls?.[0] ?? null;
+  const content = (
+    <div className="rounded-lg border border-sky-200/30 bg-sky-50/10 px-3 py-2 dark:border-sky-900/20 dark:bg-sky-950/10 transition-all hover:scale-[1.02]">
+      {/* Title + prescription */}
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-xs font-semibold leading-tight">{movement.title}</span>
+        <span className="flex-shrink-0 font-mono text-[10px] text-muted-foreground">
+          {movement.programming.sets}&times;{movement.programming.reps}
+          {" "}R{movement.programming.rir}
+        </span>
+      </div>
+
+      {/* Load bar */}
+      <div className="mt-1.5">
+        <LoadBar value={movement.recentHistory?.avgLoad ?? null} max={maxLoad} />
+      </div>
+      <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        {movement.recentHistory?.avgLoad != null ? (
+          <span className="font-mono font-semibold text-foreground">{Math.round(movement.recentHistory.avgLoad)} lbs avg</span>
+        ) : (
+          <span>—</span>
+        )}
+        {movement.recentHistory?.setCount != null && (
+          <>
+            <span className="text-muted-foreground/40">·</span>
+            <span className="font-mono">{movement.recentHistory.setCount} sets</span>
+          </>
+        )}
+      </div>
+
+      {/* Badges */}
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        {movement.validationSources.map((src) => (
+          <span
+            key={src}
+            className={cn(
+              "inline-block h-1.5 w-1.5 rounded-full",
+              src === "public_library" ? "bg-emerald-500" : "bg-blue-400",
+            )}
+            title={src === "public_library" ? "public" : src === "observed_history" ? "observed" : src}
+          />
+        ))}
+        {movement.alternates.length > 0 && (
+          <span className="text-[9px] text-muted-foreground/60 ml-1">
+            +{movement.alternates.length} alt
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  if (url) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className="block">
+        {content}
+      </a>
+    );
+  }
+  return content;
+}
+
+/* ── LoadBar ── */
+function LoadBar({ value, max }: { value: number | null; max: number }) {
+  const pct = value != null && max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-sky-500/10 dark:bg-sky-900/20">
+      <div
+        className="h-full rounded-full bg-sky-500 dark:bg-sky-400 transition-all"
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
+/* ── VolumeBar ── */
+function VolumeBar({ value, max }: { value: number; max: number }) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  return (
+    <div className="h-1 w-full overflow-hidden rounded-full bg-sky-500/10 dark:bg-sky-900/20">
+      <div
+        className="h-full rounded-full bg-sky-500/60 dark:bg-sky-400/60 transition-all"
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
+/* ── RecoveryRing (smaller, inline style for size) ── */
 function RecoveryRing({ score, status }: { score: number | null; status: string }) {
   const pct = score != null ? Math.max(0, Math.min(100, score)) : 0;
   const r = 42;
@@ -482,7 +890,7 @@ function RecoveryRing({ score, status }: { score: number | null; status: string 
   const ringClass = `recovery-ring-${status}`;
 
   return (
-    <div className="recovery-ring">
+    <div className="recovery-ring" style={{ "--ring-size": "7rem" } as React.CSSProperties}>
       <svg viewBox="0 0 100 100">
         <circle className="recovery-ring-track" cx="50" cy="50" r={r} />
         <circle
@@ -495,10 +903,10 @@ function RecoveryRing({ score, status }: { score: number | null; status: string 
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={cn("text-3xl font-bold", recoveryStatusColor(status))}>
+        <span className={cn("text-2xl font-bold font-mono", recoveryStatusColor(status))}>
           {score != null ? Math.round(score) : "—"}
         </span>
-        <Badge variant={recoveryBadgeVariant(status)} className="mt-1 text-[10px]">
+        <Badge variant={recoveryBadgeVariant(status)} className="mt-0.5 text-[9px]">
           {status}
         </Badge>
       </div>
@@ -506,6 +914,7 @@ function RecoveryRing({ score, status }: { score: number | null; status: string 
   );
 }
 
+/* ── SleepStagesBar ── */
 function SleepStagesBar({ rem, deep, light }: { rem: number | null; deep: number | null; light: number | null }) {
   const total = (rem ?? 0) + (deep ?? 0) + (light ?? 0);
   if (total === 0) return <p className="text-xs text-muted-foreground">No sleep stage data.</p>;
@@ -515,18 +924,16 @@ function SleepStagesBar({ rem, deep, light }: { rem: number | null; deep: number
   const lightPct = ((light ?? 0) / total) * 100;
 
   return (
-    <div className="space-y-2">
-      {/* Stacked bar */}
-      <div className="flex h-3 overflow-hidden rounded-full">
+    <div className="space-y-1.5">
+      <div className="flex h-2.5 overflow-hidden rounded-full">
         <div className="sleep-bar-rem transition-all" style={{ width: `${remPct}%` }} title={`REM: ${formatDuration(rem)}`} />
         <div className="sleep-bar-deep transition-all" style={{ width: `${deepPct}%` }} title={`Deep: ${formatDuration(deep)}`} />
         <div className="sleep-bar-light transition-all" style={{ width: `${lightPct}%` }} title={`Light: ${formatDuration(light)}`} />
       </div>
-      {/* Legend */}
-      <div className="flex flex-wrap gap-3 text-xs">
+      <div className="flex flex-wrap gap-3 text-[10px]">
         <SleepLegendItem color="bg-violet-500 dark:bg-violet-400" label="REM" value={formatDuration(rem)} />
         <SleepLegendItem color="bg-blue-500 dark:bg-blue-400" label="Deep" value={formatDuration(deep)} />
-        <SleepLegendItem color="bg-cyan-400 dark:bg-cyan-300" label="Light" value={formatDuration(light)} />
+        <SleepLegendItem color="bg-sky-400 dark:bg-sky-300" label="Light" value={formatDuration(light)} />
       </div>
     </div>
   );
@@ -534,94 +941,169 @@ function SleepStagesBar({ rem, deep, light }: { rem: number | null; deep: number
 
 function SleepLegendItem({ color, label, value }: { color: string; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className={cn("inline-block h-2 w-2 rounded-full", color)} />
+    <div className="flex items-center gap-1">
+      <span className={cn("inline-block h-1.5 w-1.5 rounded-full", color)} />
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium text-foreground">{value}</span>
+      <span className="font-mono font-medium text-foreground">{value}</span>
     </div>
   );
 }
 
-function HealthMetric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-muted/10 px-3 py-2">
-      <div className="text-muted-foreground">{icon}</div>
-      <div className="min-w-0">
-        <p className="health-metric-label">{label}</p>
-        <p className="font-mono text-sm font-semibold leading-tight">{value}</p>
-      </div>
-    </div>
-  );
-}
-
-function WorkoutCard({ workout }: { workout: WorkoutSummary }) {
-  const strainPct = workout.strain != null ? Math.min(100, (workout.strain / 21) * 100) : 0;
-
-  return (
-    <Card className="gap-2 py-3">
-      <CardHeader className="gap-0 px-4">
-        <div className="flex items-center justify-between gap-2">
+/* ── TrendChart ── */
+function TrendChart({
+  data,
+  tone,
+  colorByValue,
+  threshold,
+  label,
+  currentValue,
+}: {
+  data: TrendPoint[];
+  tone: string;
+  colorByValue?: (value: number) => string;
+  threshold?: number;
+  label: string;
+  currentValue: number | null;
+}) {
+  if (!data.length) {
+    return (
+      <Card className="gap-3 py-4 transition-colors hover:border-border/60 cursor-pointer">
+        <CardHeader className="px-5">
           <div className="flex items-center gap-2">
-            <Dumbbell className="h-4 w-4 text-orange-500 dark:text-orange-400" />
-            <CardTitle className="text-sm">{workout.sport}</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-semibold uppercase tracking-wide">{label}</CardTitle>
           </div>
-          <Badge variant="outline" className="font-mono text-[10px]">
-            {formatDecimal(workout.strain)} strain
-          </Badge>
+        </CardHeader>
+        <CardContent className="px-5">
+          <p className="text-xs text-muted-foreground">No trend data yet.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="gap-3 py-4 transition-colors hover:border-border/60 cursor-pointer">
+      <CardHeader className="gap-1 px-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-semibold uppercase tracking-wide">{label}</CardTitle>
+          </div>
+          {currentValue != null && (
+            <Badge variant="outline" className="font-mono text-[10px]">
+              {Math.round(currentValue)}%
+            </Badge>
+          )}
         </div>
-        <p className="text-[11px] text-muted-foreground">{formatTimestamp(workout.start)}</p>
+        <p className="text-[10px] text-muted-foreground">Last 14 days</p>
       </CardHeader>
-      <CardContent className="space-y-2.5 px-4">
-        {/* Strain bar */}
-        <div className="h-1.5 w-full overflow-hidden rounded-full strain-bar-bg">
-          <div className="h-full rounded-full strain-bar-fill transition-all" style={{ width: `${strainPct}%` }} />
-        </div>
-        {/* Stats */}
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div>
-            <p className="health-metric-label">Duration</p>
-            <p className="font-mono text-sm font-semibold">{formatDuration(workout.durationSeconds)}</p>
-          </div>
-          <div>
-            <p className="health-metric-label">Energy</p>
-            <p className="font-mono text-sm font-semibold">{formatNumber(workout.kilojoules, " kJ")}</p>
-          </div>
-          <div>
-            <p className="health-metric-label">Avg HR</p>
-            <p className="font-mono text-sm font-semibold">{formatNumber(workout.avgHeartRate, " bpm")}</p>
-          </div>
-          <div>
-            <p className="health-metric-label">Max HR</p>
-            <p className="font-mono text-sm font-semibold">{formatNumber(workout.maxHeartRate, " bpm")}</p>
-          </div>
+      <CardContent className="px-5">
+        <div className="relative flex h-28 items-end gap-0.5">
+          {/* Threshold line */}
+          {threshold != null && (
+            <div
+              className="absolute left-0 right-0 border-t border-dashed border-muted-foreground/20"
+              style={{ bottom: `${threshold}%` }}
+            >
+              <span className="absolute -top-3 right-0 text-[9px] text-muted-foreground/40 font-mono">{threshold}%</span>
+            </div>
+          )}
+          {data.map((point, i) => {
+            const height = point.value == null ? 8 : Math.max(8, Math.min(100, Math.round(point.value)));
+            const tooltipLabel = point.value == null ? "—" : `${Math.round(point.value)}%`;
+            const showDate = i % 3 === 0;
+            return (
+              <div
+                key={point.date}
+                className="group relative flex h-full flex-1 flex-col items-center justify-end"
+                title={`${point.date}: ${tooltipLabel}`}
+              >
+                <div className="relative flex h-full w-full items-end">
+                  <div className="absolute inset-0 rounded-sm bg-muted/15" />
+                  <div
+                    className={cn("relative w-full rounded-sm transition-all", colorByValue && point.value != null ? colorByValue(point.value) : tone)}
+                    style={{ height: `${height}%` }}
+                  />
+                </div>
+                {showDate && (
+                  <span className="mt-1 text-[8px] text-muted-foreground/50 font-mono">
+                    {formatShortDate(point.date).replace(/\s/g, "")}
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function TrendBars({ data, tone }: { data: TrendPoint[]; tone: string }) {
-  if (!data.length) return <p className="text-xs text-muted-foreground">No trend data yet.</p>;
+/* ── AlertTimeline ── */
+function AlertTimeline({ alerts, history }: { alerts: FitnessAlert[]; history: FitnessAlert[] }) {
+  const allAlerts = [...alerts, ...history];
 
   return (
-    <div className="flex h-20 items-end gap-0.5">
-      {data.map((point) => {
-        const height = point.value == null ? 8 : Math.max(8, Math.min(100, Math.round(point.value)));
-        const label = point.value == null ? "—" : `${Math.round(point.value)}%`;
-        return (
-          <div
-            key={point.date}
-            className="group relative flex h-full flex-1 items-end"
-            title={`${point.date}: ${label}`}
-          >
-            <div className="absolute inset-0 rounded-sm bg-muted/20" />
-            <div
-              className={cn("relative w-full rounded-sm transition-all", tone)}
-              style={{ height: `${height}%` }}
-            />
+    <Card className="gap-3 py-4 transition-colors hover:border-border/60 cursor-pointer">
+      <CardHeader className="gap-1 px-5">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-semibold uppercase tracking-wide">Alert Timeline</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="px-5">
+        {allAlerts.length === 0 ? (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <Activity className="h-3 w-3" />
+            </span>
+            <span className="text-muted-foreground">All clear — no threshold breaches in 14 days</span>
           </div>
-        );
-      })}
-    </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Dot timeline */}
+            <div className="flex items-center gap-1 overflow-x-auto py-1">
+              {allAlerts.slice(0, 20).map((alert) => (
+                <span
+                  key={alert.id}
+                  className={cn(
+                    "inline-block h-2.5 w-2.5 rounded-full flex-shrink-0",
+                    alert.severity === "critical" && "bg-red-500",
+                    alert.severity === "warning" && "bg-amber-500",
+                    alert.severity === "info" && "bg-blue-400",
+                  )}
+                  title={`${alert.label}: ${alert.message} (${formatShortDate(alert.timestamp)})`}
+                />
+              ))}
+            </div>
+
+            {/* Recent 3 with detail */}
+            <div className="space-y-1.5">
+              {allAlerts.slice(0, 3).map((alert) => (
+                <div
+                  key={alert.id}
+                  className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted/20 transition-colors"
+                >
+                  <span className={cn(
+                    "mt-1 inline-block h-1.5 w-1.5 rounded-full flex-shrink-0",
+                    alert.severity === "critical" && "bg-red-500",
+                    alert.severity === "warning" && "bg-amber-500",
+                    alert.severity === "info" && "bg-blue-400",
+                  )} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium">{alert.label}</span>
+                      <Badge variant={severityVariant(alert.severity)} className="text-[9px]">{alert.severity}</Badge>
+                      <span className="ml-auto text-[10px] text-muted-foreground font-mono">{formatShortDate(alert.timestamp)}</span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">{alert.message}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

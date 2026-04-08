@@ -140,9 +140,9 @@ export default async function Home() {
       </div>
 
       {/* ── Row 3: Today Stats + Fitness ── */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr]">
-        <Link href="/services" className="block"><TodayStatsCard /></Link>
-        <Link href="/mjolnir" className="block"><FitnessCard /></Link>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr] items-stretch">
+        <Link href="/services" className="block h-full"><TodayStatsCard className="h-full" /></Link>
+        <Link href="/mjolnir" className="block h-full"><FitnessCard className="h-full" /></Link>
       </div>
 
       {/* ── Row 4: Reliability + Quick Actions ── */}
