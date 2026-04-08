@@ -201,3 +201,35 @@ def test_runtime_health_snapshot_marks_stale_canary_artifact(monkeypatch, tmp_pa
     assert payload["pre_open_gate_status"] == "stale"
     assert payload["pre_open_gate_freshness"]["status"] == "stale"
     assert "pre_open_gate_unavailable" in incident_types
+
+
+def test_runtime_health_snapshot_humanizes_pre_open_freshness_timestamp(monkeypatch, tmp_path):
+    readiness_path = tmp_path / "pre-open-canary-latest.json"
+    readiness_path.write_text(
+        json.dumps(
+            {
+                "artifact_family": "readiness_check",
+                "result": "warn",
+                "checked_at": "2026-04-08T14:45:47.822867+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_get(url, timeout):
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"data": {"ready": True, "operatorState": "healthy"}},
+        )
+
+    monkeypatch.setattr("operator_surfaces.runtime_health.requests.get", fake_get)
+
+    payload = build_runtime_health_snapshot(
+        generated_at="2026-04-08T14:46:20.382599+00:00",
+        readiness_path=readiness_path,
+        watchdog_state_path=tmp_path / "missing-state.json",
+        watchdog_log_path=tmp_path / "missing.log",
+    )
+
+    assert payload["pre_open_gate_detail"] == "Last pre-open readiness check ran under 1m ago at Apr 8, 10:45 AM ET."
+    assert payload["pre_open_gate_freshness"]["detail"] == payload["pre_open_gate_detail"]

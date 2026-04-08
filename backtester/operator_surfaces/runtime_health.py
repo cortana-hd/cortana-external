@@ -6,6 +6,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -22,6 +23,7 @@ DEFAULT_WATCHDOG_STATE_PATH = WATCHDOG_ROOT / "watchdog-state.json"
 DEFAULT_WATCHDOG_LOG_PATH = WATCHDOG_ROOT / "logs" / "watchdog.log"
 DEFAULT_SERVICE_BASE_URL = "http://127.0.0.1:3033"
 DEFAULT_PRE_OPEN_CANARY_MAX_AGE_SECONDS = 7200
+DISPLAY_TIMEZONE = ZoneInfo("America/New_York")
 
 
 def build_runtime_health_snapshot(
@@ -342,7 +344,10 @@ def _format_iso(value: Any) -> str:
     parsed = _parse_iso(value)
     if parsed is None:
         return "unknown time"
-    return parsed.isoformat()
+    display = parsed.astimezone(DISPLAY_TIMEZONE)
+    month = display.strftime("%b")
+    hour = display.strftime("%I").lstrip("0") or "0"
+    return f"{month} {display.day}, {hour}:{display.strftime('%M %p')} ET"
 
 
 def _min_iso(*values: str | None) -> str | None:
