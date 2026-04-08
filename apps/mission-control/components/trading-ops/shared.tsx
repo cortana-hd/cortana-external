@@ -1,8 +1,8 @@
 import { ClipboardList } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ArtifactState, LoadState } from "@/lib/trading-ops";
-import { summarizeStateVariant, formatRelativeAge } from "@/lib/trading-ops";
+import type { ArtifactState, LoadState } from "@/lib/trading-ops-contract";
+import { formatRelativeAge } from "@/lib/format-utils";
 
 /* ── helpers ── */
 
@@ -12,6 +12,13 @@ export function stateTextClass(state: LoadState) {
 
 export function panelBorderClass(state: LoadState) {
   return `panel-${state}` as const;
+}
+
+function summarizeStateVariant(state: LoadState): "success" | "warning" | "destructive" | "outline" {
+  if (state === "ok") return "success";
+  if (state === "degraded") return "warning";
+  if (state === "error") return "destructive";
+  return "outline";
 }
 
 /* ── small reusable components ── */

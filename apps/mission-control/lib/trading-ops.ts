@@ -207,6 +207,16 @@ export async function loadTradingOpsDashboardData(
   };
 }
 
+export async function loadLatestTradingRunOverview(
+  options: {
+    cortanaRepoPath?: string;
+    tradingRunStateStore?: TradingRunStateStore | null;
+  } = {},
+): Promise<ArtifactState<TradingRunOverview>> {
+  const cortanaRepoPath = options.cortanaRepoPath ?? getCortanaSourceRepo();
+  return loadTradingRunOverview(cortanaRepoPath, options.tradingRunStateStore ?? null);
+}
+
 export function summarizeStateVariant(state: LoadState): "success" | "warning" | "destructive" | "outline" {
   if (state === "ok") return "success";
   if (state === "degraded") return "warning";

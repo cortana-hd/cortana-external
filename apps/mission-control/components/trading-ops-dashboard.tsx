@@ -1,13 +1,20 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Gauge, Radar, ShieldCheck, Workflow } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { TradingOpsDashboardData } from "@/lib/trading-ops";
-import { formatMoney, formatOperatorTimestamp, formatPercent } from "@/lib/trading-ops";
+import type { ArtifactState, LiveQuoteRow, LoadState, TradingOpsDashboardData, TradingOpsLiveData } from "@/lib/trading-ops-contract";
+import { formatCurrency as formatMoney, formatOperatorTimestamp, formatPercentDecimal as formatPercent } from "@/lib/format-utils";
 import { Metric, StageChip, StrategyWatchlistSection, ArtifactPanel } from "./trading-ops/shared";
 import { TerminalHeader } from "./trading-ops/terminal-header";
 import { TerminalCell } from "./trading-ops/terminal-cell";
 import { AlertBanner } from "./trading-ops/alert-banner";
 import { OperatorChecklist } from "./trading-ops/operator-checklist";
 import { Badge } from "@/components/ui/badge";
+
+const LIVE_POLL_MS = 15_000;
+const LIVE_STREAM_RETRY_MS = 2_000;
+const COMPACT_TAPE_ORDER = ["SPY", "QQQ", "IWM", "DOW", "NASDAQ"];
 
 /* ── main component ── */
 
@@ -19,6 +26,132 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   const hasIncidents = (data.runtime.data?.incidents.length ?? 0) > 0;
   const hasErrors = [data.market, data.runtime, data.workflow, data.canary, data.tradingRun].some((a) => a.state === "error");
   const hasTradingRunFallback = data.tradingRun.badgeText === "fallback";
+  const [liveData, setLiveData] = useState<TradingOpsLiveData | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const [lastSuccessfulAt, setLastSuccessfulAt] = useState<string | null>(null);
+
+  const applyLiveData = useCallback((payload: TradingOpsLiveData) => {
+    setLiveData(payload);
+    setLiveError(null);
+    setLastSuccessfulAt(payload.generatedAt);
+  }, []);
+
+  const fetchLiveData = useCallback(async () => {
+    try {
+      const response = await fetch("/api/trading-ops/live", {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error(`Live route failed (${response.status})`);
+      }
+
+      const payload = (await response.json()) as TradingOpsLiveData;
+      applyLiveData(payload);
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : "Live route failed");
+    }
+  }, [applyLiveData]);
+
+  useEffect(() => {
+    let stopped = false;
+    let source: EventSource | null = null;
+    let fallbackInterval: number | null = null;
+    let reconnectTimeout: number | null = null;
+
+    const disconnect = () => {
+      source?.close();
+      source = null;
+    };
+
+    const stopFallback = () => {
+      if (fallbackInterval !== null) {
+        window.clearInterval(fallbackInterval);
+        fallbackInterval = null;
+      }
+    };
+
+    const startFallback = () => {
+      if (fallbackInterval !== null || document.hidden) return;
+      fallbackInterval = window.setInterval(() => {
+        void fetchLiveData();
+      }, LIVE_POLL_MS);
+    };
+
+    const scheduleReconnect = () => {
+      if (stopped || reconnectTimeout !== null || document.hidden) return;
+      reconnectTimeout = window.setTimeout(() => {
+        reconnectTimeout = null;
+        connect();
+      }, LIVE_STREAM_RETRY_MS);
+    };
+
+    const connect = () => {
+      if (stopped || source || document.hidden || typeof EventSource === "undefined") return;
+
+      try {
+        source = new EventSource("/api/trading-ops/live/stream");
+        source.addEventListener("snapshot", (event) => {
+          try {
+            const payload = JSON.parse((event as MessageEvent).data) as TradingOpsLiveData;
+            applyLiveData(payload);
+            stopFallback();
+          } catch {
+            setLiveError("Live stream payload could not be parsed.");
+          }
+        });
+        source.addEventListener("warning", (event) => {
+          try {
+            const payload = JSON.parse((event as MessageEvent).data) as { message?: string };
+            setLiveError(payload.message ?? "Live stream warning");
+          } catch {
+            setLiveError("Live stream warning");
+          }
+        });
+        source.onerror = () => {
+          disconnect();
+          setLiveError((current) => current ?? "Live stream reconnecting. Falling back to snapshots.");
+          void fetchLiveData();
+          startFallback();
+          scheduleReconnect();
+        };
+      } catch {
+        startFallback();
+      }
+    };
+
+    void fetchLiveData();
+    connect();
+
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        stopFallback();
+        void fetchLiveData();
+        connect();
+        return;
+      }
+
+      disconnect();
+      stopFallback();
+      if (reconnectTimeout !== null) {
+        window.clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      stopped = true;
+      disconnect();
+      stopFallback();
+      if (reconnectTimeout !== null) {
+        window.clearTimeout(reconnectTimeout);
+      }
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [applyLiveData, fetchLiveData]);
+
+  const liveArtifact = buildLiveArtifact(liveData, liveError, lastSuccessfulAt);
 
   return (
     <div className="space-y-3">
@@ -70,6 +203,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
       <Tabs defaultValue="overview" className="space-y-3">
         <TabsList className="w-full justify-start overflow-x-auto font-mono text-xs uppercase tracking-wide">
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="live">Live</TabsTrigger>
           <TabsTrigger value="watchlists">Watchlists</TabsTrigger>
           <TabsTrigger value="health">System Health</TabsTrigger>
           <TabsTrigger value="deep-dive">Deep Dive</TabsTrigger>
@@ -77,6 +211,35 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
         {/* ── Overview ── */}
         <TabsContent value="overview" className="space-y-3">
+          <ArtifactPanel title="Live now" artifact={liveArtifact}>
+            {liveData ? (
+              <div className="space-y-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={badgeVariantForStreamer(liveData.streamer)} className="text-[10px]">
+                    {liveData.streamer.connected ? "Streamer connected" : "REST fallback"}
+                  </Badge>
+                  <p className="text-xs text-muted-foreground">{liveData.tape.freshnessMessage}</p>
+                </div>
+                <CompactTapeStrip rows={liveData.tape.rows.filter((row) => COMPACT_TAPE_ORDER.includes(row.symbol))} />
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  <Metric
+                    label="Latest run"
+                    value={liveData.meta.runLabel ?? liveData.meta.runId ?? "No latest run"}
+                  />
+                  <Metric label="Decision" value={liveData.meta.decision ?? "No decision yet"} />
+                  <Metric
+                    label="Last refresh"
+                    value={lastSuccessfulAt ? formatOperatorTimestamp(lastSuccessfulAt) : "Waiting for first poll"}
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Waiting for the first live quote poll.
+              </p>
+            )}
+          </ArtifactPanel>
+
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
             {/* Column 1: Market Brief */}
             <ArtifactPanel title="Market brief" artifact={data.market}>
@@ -230,6 +393,67 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
           </section>
         </TabsContent>
 
+        {/* ── Live ── */}
+        <TabsContent value="live" className="space-y-3">
+          <ArtifactPanel title="Live tape" artifact={liveArtifact}>
+            {liveData ? (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">{liveData.tape.freshnessMessage}</p>
+                <LiveTapeGrid rows={liveData.tape.rows} />
+              </div>
+            ) : null}
+          </ArtifactPanel>
+
+          <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+            <ArtifactPanel title="Streamer status" artifact={liveArtifact}>
+              {liveData ? (
+                <div className="space-y-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={badgeVariantForStreamer(liveData.streamer)} className="text-[10px]">
+                      {liveData.streamer.connected ? "Connected" : "Disconnected"}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {liveData.streamer.operatorState.replaceAll("_", " ")}
+                    </span>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-2">
+                    <Metric label="Last login" value={formatOperatorTimestamp(liveData.streamer.lastLoginAt)} />
+                    <Metric label="Equity subs" value={String(liveData.streamer.activeEquitySubscriptions)} />
+                    <Metric label="Acct activity" value={String(liveData.streamer.activeAcctActivitySubscriptions)} />
+                    <Metric
+                      label="Last refresh"
+                      value={lastSuccessfulAt ? formatOperatorTimestamp(lastSuccessfulAt) : "—"}
+                    />
+                  </dl>
+                  {liveData.streamer.cooldownSummary ? (
+                    <p className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
+                      {liveData.streamer.cooldownSummary}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </ArtifactPanel>
+
+            <ArtifactPanel title="Dip Buyer live watchlist" artifact={liveArtifact}>
+              {liveData ? (
+                <div className="space-y-3">
+                  <LiveWatchlistGroup label="BUY" rows={liveData.watchlists.dipBuyer.buy} empty="No live Dip Buyer buy names." />
+                  <LiveWatchlistGroup label="WATCH" rows={liveData.watchlists.dipBuyer.watch} empty="No live Dip Buyer watch names." />
+                </div>
+              ) : null}
+            </ArtifactPanel>
+
+            <ArtifactPanel title="CANSLIM live watchlist" artifact={liveArtifact}>
+              {liveData ? (
+                <div className="space-y-3">
+                  <LiveWatchlistGroup label="BUY" rows={liveData.watchlists.canslim.buy} empty="No live CANSLIM buy names." />
+                  <LiveWatchlistGroup label="WATCH" rows={liveData.watchlists.canslim.watch} empty="No live CANSLIM watch names." />
+                </div>
+              ) : null}
+            </ArtifactPanel>
+          </section>
+        </TabsContent>
+
         {/* ── Watchlists ── */}
         <TabsContent value="watchlists" className="space-y-3">
           <ArtifactPanel title="Latest trading run watchlists" artifact={data.tradingRun}>
@@ -360,4 +584,184 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
       </Tabs>
     </div>
   );
+}
+
+function buildLiveArtifact(
+  liveData: TradingOpsLiveData | null,
+  liveError: string | null,
+  lastSuccessfulAt: string | null,
+): ArtifactState<TradingOpsLiveData> {
+  if (!liveData) {
+    return {
+      state: liveError ? "error" : "missing",
+      label: liveError ? "Live unavailable" : "Loading live data",
+      message: liveError ?? "Streaming live tape and streamer health.",
+      data: null,
+      updatedAt: lastSuccessfulAt,
+      source: "/api/trading-ops/live/stream",
+      warnings: liveError ? [liveError] : [],
+    };
+  }
+
+  const hasProblems =
+    liveData.streamer.operatorState !== "healthy" ||
+    liveData.tape.rows.some((row) => row.state !== "ok");
+
+  return {
+    state: hasProblems ? "degraded" : "ok",
+    label: liveData.streamer.connected ? "Live stream" : "Fallback live data",
+    message: liveError
+      ? `${liveData.tape.freshnessMessage} Last request error: ${liveError}`
+      : liveData.tape.freshnessMessage,
+    data: liveData,
+    updatedAt: lastSuccessfulAt ?? liveData.generatedAt,
+    source: "/api/trading-ops/live/stream",
+    warnings: liveError ? [liveError, ...liveData.warnings] : liveData.warnings,
+  };
+}
+
+function badgeVariantForStreamer(streamer: TradingOpsLiveData["streamer"]) {
+  if (streamer.connected && streamer.operatorState === "healthy") return "success" as const;
+  if (streamer.connected) return "warning" as const;
+  return "info" as const;
+}
+
+function CompactTapeStrip({ rows }: { rows: LiveQuoteRow[] }) {
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+      {rows.map((row) => (
+        <div
+          key={`${row.symbol}-${row.sourceSymbol}`}
+          className="min-w-0 rounded-md border border-border/50 bg-muted/20 px-3 py-3"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-mono text-xs font-semibold">{row.label}</span>
+            <QuoteStateBadge row={row} compact />
+          </div>
+          <p className="mt-2 font-mono text-sm font-medium">{formatQuotePrice(row.price)}</p>
+          <p className={`text-xs ${quoteChangeTextClass(row.changePercent, row.state)}`}>
+            {formatQuoteChange(row.changePercent)}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LiveTapeGrid({ rows }: { rows: LiveQuoteRow[] }) {
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      {rows.map((row) => (
+        <div key={`${row.symbol}-${row.sourceSymbol}`} className="rounded-md border border-border/50 bg-muted/20 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="font-mono text-sm font-semibold">{row.label}</p>
+              <p className="text-[11px] text-muted-foreground">via {row.sourceSymbol}</p>
+            </div>
+            <QuoteStateBadge row={row} />
+          </div>
+          <p className="mt-3 font-mono text-lg font-medium">{formatQuotePrice(row.price)}</p>
+          <p className={`mt-1 text-sm ${quoteChangeTextClass(row.changePercent, row.state)}`}>
+            {formatQuoteChange(row.changePercent)}
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {row.timestamp ? formatOperatorTimestamp(row.timestamp) : "Timestamp unavailable"}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LiveWatchlistGroup({
+  label,
+  rows,
+  empty,
+}: {
+  label: string;
+  rows: LiveQuoteRow[];
+  empty: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-mono text-xs font-semibold">{label}</p>
+        <p className="text-[11px] text-muted-foreground">{rows.length} names</p>
+      </div>
+      {rows.length > 0 ? (
+        <div className="space-y-1.5">
+          {rows.map((row) => (
+            <div
+              key={`${label}-${row.symbol}-${row.sourceSymbol}`}
+              className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md border border-border/50 bg-muted/20 px-2 py-2"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-mono text-sm font-medium">{row.symbol}</p>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {row.source === "schwab_streamer"
+                    ? "Streamer"
+                    : row.source
+                      ? `Source ${row.source}`
+                      : "Quote unavailable"}
+                </p>
+              </div>
+              <p className="font-mono text-sm">{formatQuotePrice(row.price)}</p>
+              <p className={`font-mono text-xs ${quoteChangeTextClass(row.changePercent, row.state)}`}>
+                {formatQuoteChange(row.changePercent)}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">{empty}</p>
+      )}
+    </div>
+  );
+}
+
+function QuoteStateBadge({ row, compact = false }: { row: LiveQuoteRow; compact?: boolean }) {
+  return (
+    <Badge variant={badgeVariantForQuoteState(row.state)} className={compact ? "px-1.5 py-0 text-[9px]" : "text-[10px]"}>
+      {quoteBadgeLabel(row)}
+    </Badge>
+  );
+}
+
+function badgeVariantForQuoteState(state: LoadState) {
+  if (state === "ok") return "success" as const;
+  if (state === "degraded") return "warning" as const;
+  if (state === "error") return "destructive" as const;
+  return "outline" as const;
+}
+
+function quoteBadgeLabel(row: LiveQuoteRow): string {
+  if (row.state === "ok" && row.source === "schwab_streamer") return "live";
+  if (row.state === "ok") return "rest";
+  if (row.state === "degraded") return "degraded";
+  if (row.state === "error") return "error";
+  return "missing";
+}
+
+function formatQuotePrice(value: number | null): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: value >= 100 ? 2 : 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatQuoteChange(value: number | null): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
+}
+
+function quoteChangeTextClass(changePercent: number | null, state: LoadState): string {
+  if (state === "error" || state === "missing") return "text-muted-foreground";
+  if (changePercent == null || Number.isNaN(changePercent)) return "text-muted-foreground";
+  if (changePercent > 0) return "text-emerald-600 dark:text-emerald-400";
+  if (changePercent < 0) return "text-red-600 dark:text-red-400";
+  return "text-muted-foreground";
 }
