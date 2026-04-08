@@ -1,9 +1,16 @@
 # Mission Control Roadmap
 
-Mission Control roadmap and next-step material currently lives in source docs rather than a single dedicated roadmap file.
+Mission Control roadmap priorities are:
 
-Start here:
+- improve queued/running job visibility before failures become surprises
+- cluster repeat failures into one actionable incident instead of noisy duplicates
+- add replay and rerun tools with safe defaults
+- surface agent reliability and operational trend data directly in the UI
+- tighten run-to-task linkage so operational state and delivery state stay aligned
+- make incident reconstruction faster with a unified timeline and embedded runbooks
 
-- [Mission Control next ideas](../../../apps/mission-control/docs/source/notes/mission-control-next-ideas.md)
+Primary source docs:
+
 - [Mission Control architecture](../../../docs/source/architecture/mission-control.md)
+- [Council background jobs](../../../apps/mission-control/docs/source/architecture/council-background-jobs.md)
 - [Repo systems index](../../indexes/systems.md)
