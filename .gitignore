@@ -40,6 +40,7 @@ watchdog/watchdog-state.json
 # Market intel runtime artifacts
 backtester/data/polymarket_watchlist.json
 backtester/var/local-workflows/
+backtester/var/readiness/
 var/market-intel/polymarket/history/
 var/market-intel/polymarket/latest-compact.txt
 var/market-intel/polymarket/latest-report.json
