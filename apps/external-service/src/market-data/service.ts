@@ -60,14 +60,17 @@ export class MarketDataService {
   private readonly universeRemoteJsonUrl: string;
   private readonly universeLocalJsonPath: string | null;
   private readonly schwabTokenPath: string;
+  private readonly schwabStreamerTokenPath: string;
   private readonly universeManager: UniverseArtifactManager;
   private readonly coinMarketCap: CoinMarketCapService;
   private readonly schwabRestClient: SchwabRestClient;
+  private readonly schwabStreamerClient: SchwabRestClient;
   private readonly streamerRuntime: SchwabStreamerRuntime;
   private readonly providerChain: ProviderChain;
   private readonly queryRoutes: MarketDataQueryRoutes;
   private readonly supportRoutes: MarketDataSupportRoutes;
   private readonly authRoutes: SchwabAuthRoutes;
+  private readonly streamerAuthRoutes: SchwabAuthRoutes;
   private readonly adminRoutes: MarketDataAdminRoutes;
   private readonly governanceReporter: MarketDataGovernanceReporter;
   private readonly providerMetrics: ProviderMetrics = {
@@ -85,7 +88,23 @@ export class MarketDataService {
     sourceUsage: {},
     fallbackUsage: {},
   };
+  private readonly streamerProviderMetrics: ProviderMetrics = {
+    lastSuccessfulSchwabRestAt: null,
+    lastSuccessfulUniverseRefreshAt: null,
+    lastSharedStateNotificationAt: null,
+    tokenRefreshInFlight: false,
+    lastTokenRefreshAt: null,
+    lastTokenRefreshFailureAt: null,
+    schwabTokenStatus: "ready",
+    schwabTokenReason: null,
+    lastSchwabFailureAt: null,
+    schwabConsecutiveFailures: 0,
+    schwabCooldownUntil: null,
+    sourceUsage: {},
+    fallbackUsage: {},
+  };
   private pendingSchwabAuthState: PendingSchwabAuthState | null = null;
+  private pendingSchwabStreamerAuthState: PendingSchwabAuthState | null = null;
 
   constructor(config: MarketDataServiceConfig = {}) {
     this.logger = config.logger ?? createLogger("market-data");
@@ -104,9 +123,13 @@ export class MarketDataService {
       SCHWAB_CLIENT_ID: "",
       SCHWAB_CLIENT_SECRET: "",
       SCHWAB_REFRESH_TOKEN: "",
+      SCHWAB_CLIENT_STREAMER_ID: "",
+      SCHWAB_CLIENT_STREAMER_SECRET: "",
+      SCHWAB_STREAMER_REFRESH_TOKEN: "",
       SCHWAB_AUTH_URL: "https://api.schwabapi.com/v1/oauth/authorize",
       SCHWAB_REDIRECT_URL: "https://127.0.0.1:8182/auth/schwab/callback",
       SCHWAB_TOKEN_PATH: ".cache/market_data/schwab-token.json",
+      SCHWAB_STREAMER_TOKEN_PATH: ".cache/market_data/schwab-streamer-token.json",
       SCHWAB_API_BASE_URL: "https://api.schwabapi.com",
       SCHWAB_TOKEN_URL: "https://api.schwabapi.com/v1/oauth/token",
       SCHWAB_USER_PREFERENCES_URL: "",
@@ -148,6 +171,7 @@ export class MarketDataService {
     this.universeRemoteJsonUrl = this.config.MARKET_DATA_UNIVERSE_REMOTE_JSON_URL.trim();
     this.universeLocalJsonPath = resolveOptionalRepoPath(this.config.MARKET_DATA_UNIVERSE_LOCAL_JSON_PATH);
     this.schwabTokenPath = resolveRepoPath(this.config.SCHWAB_TOKEN_PATH);
+    this.schwabStreamerTokenPath = resolveRepoPath(this.config.SCHWAB_STREAMER_TOKEN_PATH);
     const streamerSharedStatePath = resolveRepoPath(this.config.SCHWAB_STREAMER_SHARED_STATE_PATH);
     this.universeManager = new UniverseArtifactManager({
       cacheDir: this.cacheDir,
@@ -171,6 +195,14 @@ export class MarketDataService {
       fetchResponse: this.fetchResponse.bind(this),
       fetchJson: this.fetchJson.bind(this),
     });
+    this.schwabStreamerClient = new SchwabRestClient({
+      config: this.buildStreamerSchwabConfig(),
+      logger: this.logger,
+      tokenPath: this.schwabStreamerTokenPath,
+      providerMetrics: this.streamerProviderMetrics,
+      fetchResponse: this.fetchResponse.bind(this),
+      fetchJson: this.fetchJson.bind(this),
+    });
     this.streamerRuntime = new SchwabStreamerRuntime({
       config: {
         ...this.config,
@@ -178,8 +210,8 @@ export class MarketDataService {
       },
       logger: this.logger,
       providerMetrics: this.providerMetrics,
-      credentialsConfigured: () => this.isSchwabConfigured(),
-      accessTokenProvider: () => this.schwabRestClient.getAccessToken(),
+      credentialsConfigured: () => this.isSchwabStreamerConfigured(),
+      accessTokenProvider: () => this.schwabStreamerClient.getAccessToken(),
       preferencesProvider: () => this.fetchSchwabStreamerPreferences(),
       websocketFactory: config.websocketFactory,
     });
@@ -217,6 +249,15 @@ export class MarketDataService {
       getPendingState: () => this.pendingSchwabAuthState,
       setPendingState: (state) => {
         this.pendingSchwabAuthState = state;
+      },
+    });
+    this.streamerAuthRoutes = new SchwabAuthRoutes({
+      redirectUrl: this.config.SCHWAB_REDIRECT_URL,
+      tokenPath: this.schwabStreamerTokenPath,
+      schwabRestClient: this.schwabStreamerClient,
+      getPendingState: () => this.pendingSchwabStreamerAuthState,
+      setPendingState: (state) => {
+        this.pendingSchwabStreamerAuthState = state;
       },
     });
     this.governanceReporter = new MarketDataGovernanceReporter({
@@ -266,11 +307,24 @@ export class MarketDataService {
   }
 
   async handleSchwabAuthCallback(request: Request): Promise<MarketDataRouteResult<Record<string, unknown>>> {
+    const url = new URL(request.url);
+    const state = (url.searchParams.get("state") ?? "").trim();
+    if (state && this.streamerAuthRoutes.canHandleState(state)) {
+      return this.streamerAuthRoutes.handleAuthCallback(request);
+    }
     return this.authRoutes.handleAuthCallback(request);
   }
 
   async handleSchwabAuthStatus(): Promise<MarketDataRouteResult<Record<string, unknown>>> {
     return this.authRoutes.handleAuthStatus();
+  }
+
+  async handleSchwabStreamerAuthUrl(): Promise<MarketDataRouteResult<Record<string, unknown>>> {
+    return this.streamerAuthRoutes.handleAuthUrl();
+  }
+
+  async handleSchwabStreamerAuthStatus(): Promise<MarketDataRouteResult<Record<string, unknown>>> {
+    return this.streamerAuthRoutes.handleAuthStatus();
   }
 
   async handleHistory(request: Request, rawSymbol: string, compareWith?: string): Promise<MarketDataRouteResult<MarketDataHistory>> {
@@ -359,8 +413,12 @@ export class MarketDataService {
     return this.schwabRestClient.isConfigured();
   }
 
+  private isSchwabStreamerConfigured(): boolean {
+    return this.schwabStreamerClient.isConfigured();
+  }
+
   private async fetchSchwabStreamerPreferences(): Promise<SchwabStreamerPreferences> {
-    return this.schwabRestClient.fetchStreamerPreferences();
+    return this.schwabStreamerClient.fetchStreamerPreferences();
   }
 
   private async enforceStreamerFailurePolicy(): Promise<void> {
@@ -369,6 +427,16 @@ export class MarketDataService {
 
   private async ensureRuntimeReady(): Promise<void> {
     await this.streamerRuntime.startup();
+  }
+
+  private buildStreamerSchwabConfig(): AppConfig {
+    return {
+      ...this.config,
+      SCHWAB_CLIENT_ID: this.config.SCHWAB_CLIENT_STREAMER_ID.trim() || this.config.SCHWAB_CLIENT_ID,
+      SCHWAB_CLIENT_SECRET: this.config.SCHWAB_CLIENT_STREAMER_SECRET.trim() || this.config.SCHWAB_CLIENT_SECRET,
+      SCHWAB_REFRESH_TOKEN: this.config.SCHWAB_STREAMER_REFRESH_TOKEN.trim() || this.config.SCHWAB_REFRESH_TOKEN,
+      SCHWAB_TOKEN_PATH: this.config.SCHWAB_STREAMER_TOKEN_PATH,
+    };
   }
 
   private async loadOrRefreshUniverseArtifact(forceRefresh: boolean): Promise<MarketDataUniverse> {

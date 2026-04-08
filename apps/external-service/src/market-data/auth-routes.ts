@@ -131,6 +131,10 @@ export class SchwabAuthRoutes {
     };
   }
 
+  canHandleState(state: string): boolean {
+    return this.isValidAuthState(state);
+  }
+
   private isValidAuthState(state: string): boolean {
     const pendingState = this.getPendingState();
     if (!state || !pendingState) {
