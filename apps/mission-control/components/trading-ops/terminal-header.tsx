@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
-import type { LoadState, TradingOpsDashboardData } from "@/lib/trading-ops";
-import { formatPercent, formatRelativeAge } from "@/lib/trading-ops";
+import type { LoadState, TradingOpsDashboardData } from "@/lib/trading-ops-contract";
+import { formatPercentDecimal as formatPercent, formatRelativeAge } from "@/lib/format-utils";
 import { stateTextClass } from "./shared";
 
 export function TerminalHeader({ data }: { data: TradingOpsDashboardData }) {

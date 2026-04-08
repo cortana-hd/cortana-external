@@ -1,7 +1,13 @@
 import { Badge } from "@/components/ui/badge";
-import type { LoadState } from "@/lib/trading-ops";
-import { summarizeStateVariant } from "@/lib/trading-ops";
+import type { LoadState } from "@/lib/trading-ops-contract";
 import { panelBorderClass } from "./shared";
+
+function summarizeStateVariant(state: LoadState): "success" | "warning" | "destructive" | "outline" {
+  if (state === "ok") return "success";
+  if (state === "degraded") return "warning";
+  if (state === "error") return "destructive";
+  return "outline";
+}
 
 export function TerminalCell({
   title,

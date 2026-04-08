@@ -1,5 +1,5 @@
 import { AlertTriangle } from "lucide-react";
-import type { TradingOpsDashboardData } from "@/lib/trading-ops";
+import type { TradingOpsDashboardData } from "@/lib/trading-ops-contract";
 
 export function AlertBanner({ data }: { data: TradingOpsDashboardData }) {
   const incidents = data.runtime.data?.incidents ?? [];
