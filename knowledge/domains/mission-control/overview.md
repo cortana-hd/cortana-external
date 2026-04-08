@@ -12,4 +12,3 @@ Primary source docs:
 
 - [Mission Control architecture](../../../docs/source/architecture/mission-control.md)
 - [Council background jobs](../../../apps/mission-control/docs/source/architecture/council-background-jobs.md)
-- [Mission Control next ideas](../../../apps/mission-control/docs/source/notes/mission-control-next-ideas.md)

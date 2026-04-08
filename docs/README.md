@@ -7,7 +7,6 @@ This directory holds raw source docs for repo-wide systems that are not owned by
 - `source/architecture/` - architecture notes and system behavior docs
 - `source/prd/` - product requirement docs
 - `source/runbook/` - operator runbooks
-- `source/migration/` - one-off migration plans
 
 ## Start Here
 

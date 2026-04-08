@@ -19,7 +19,7 @@ Use the study guide when you want to understand the system conceptually:
 
 Other useful docs:
 - [Polymarket + backtester flow](./docs/source/architecture/polymarket-backtester-flow.md)
-- [Wave buildout overview](./docs/source/architecture/docs-wave-overview.md)
+- [Roadmap](./docs/source/roadmap/roadmap.md)
 - [Decision review loop](./docs/source/architecture/decision-review-loop.md)
 - [Scoring and calibration notes](./docs/source/reference/scoring-calibration.md)
 - [Scoring and prediction accuracy reference](./docs/source/reference/scoring-prediction-accuracy-reference.md)
@@ -483,7 +483,7 @@ What it does:
 - runs Dip Buyer alert
 - runs a quick-check
 - saves raw and formatted local artifacts under:
-  - [var/local-workflows](./var/local-workflows)
+  - `var/local-workflows/`
 
 New alert wording:
 - `Alert posture`
