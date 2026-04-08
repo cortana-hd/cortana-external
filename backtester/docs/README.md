@@ -1,6 +1,11 @@
 # Backtester Docs
 
-This directory separates raw source docs by artifact type.
+This directory is the raw source-document layer for the backtester.
+
+In the LLM wiki model:
+- `backtester/docs/source/` holds raw durable artifacts
+- `knowledge/domains/backtester/` holds the compiled current-truth wiki pages
+- detailed planning/execution artifacts stay close to the backtester instead of polluting the repo root
 
 ## Layout
 
