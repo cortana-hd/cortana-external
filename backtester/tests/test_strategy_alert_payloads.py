@@ -95,6 +95,78 @@ class _FakeDipBuyerAdvisor:
         return self._analysis[symbol]
 
 
+class _CacheFallbackCanSlimAdvisor(_FakeCanSlimAdvisor):
+    def __init__(self):
+        super().__init__()
+        self._market = SimpleNamespace(
+            regime=MarketRegime.CONFIRMED_UPTREND,
+            position_sizing=1.0,
+            notes="Fresh live market data is unavailable.",
+            status="degraded",
+            data_source="unknown",
+            snapshot_age_seconds=0.0,
+            degraded_reason="provider cooldown",
+            next_action="Retry after cooldown",
+        )
+        self.screener = SimpleNamespace(get_universe=lambda: ["AAA", "BBB", "CCC"])
+        self.market_data = SimpleNamespace(
+            has_cached_history=lambda symbol, period, allow_stale_recent=True: symbol in {"AAA", "BBB"}
+        )
+        self._analysis = {
+            "AAA": {
+                "total_score": 8,
+                "data_source": "cache",
+                "data_staleness_seconds": 7200.0,
+                "price": 100.0,
+                "recommendation": {"action": "BUY", "reason": "Strong setup", "entry": 100.0, "stop_loss": 93.0},
+            },
+            "BBB": {
+                "total_score": 7,
+                "data_source": "cache",
+                "data_staleness_seconds": 7200.0,
+                "price": 50.0,
+                "recommendation": {"action": "WATCH", "reason": "Watch setup"},
+            },
+            "CCC": {"error": "provider cooldown"},
+        }
+
+
+class _CacheFallbackDipBuyerAdvisor(_FakeDipBuyerAdvisor):
+    def __init__(self):
+        super().__init__()
+        self._market = SimpleNamespace(
+            regime=MarketRegime.UPTREND_UNDER_PRESSURE,
+            position_sizing=0.5,
+            notes="Fresh live market data is unavailable.",
+            status="degraded",
+            data_source="unknown",
+            snapshot_age_seconds=0.0,
+            degraded_reason="provider cooldown",
+            next_action="Retry after cooldown",
+        )
+        self.screener = SimpleNamespace(get_universe=lambda: ["AAA", "BBB", "CCC"])
+        self.market_data = SimpleNamespace(
+            has_cached_history=lambda symbol, period, allow_stale_recent=True: symbol in {"AAA", "BBB"}
+        )
+        self._analysis = {
+            "AAA": {
+                "total_score": 9,
+                "data_source": "cache",
+                "data_staleness_seconds": 7200.0,
+                "price": 50.0,
+                "recommendation": {"action": "BUY", "reason": "Strong rebound", "entry": 50.0, "stop_loss": 46.0},
+            },
+            "BBB": {
+                "total_score": 7,
+                "data_source": "cache",
+                "data_staleness_seconds": 7200.0,
+                "price": 48.0,
+                "recommendation": {"action": "WATCH", "reason": "Watch setup"},
+            },
+            "CCC": {"error": "provider cooldown"},
+        }
+
+
 def test_canslim_build_alert_payload_emits_strategy_artifact(monkeypatch):
     monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "0")
     monkeypatch.setenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "0")
@@ -283,6 +355,48 @@ def test_dipbuyer_build_alert_payload_marks_market_gate_blocked(monkeypatch):
     assert payload["status"] == "ok"
     assert payload["outcome_class"] == "market_gate_blocked"
     assert payload["degraded_status"] == "healthy"
+
+
+def test_canslim_build_alert_payload_prefers_cache_backed_universe_when_live_data_is_unavailable(monkeypatch):
+    monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "0")
+    monkeypatch.setenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "0")
+    monkeypatch.setenv("TRADING_DEGRADED_CACHE_ONLY_MIN_SYMBOLS", "1")
+    monkeypatch.setattr("canslim_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
+    monkeypatch.setattr("canslim_alert.build_alert_context_lines", lambda watchlist: [])
+
+    with patch("canslim_alert.TradingAdvisor", return_value=_CacheFallbackCanSlimAdvisor()):
+        payload = canslim_alert.build_alert_payload(limit=5, min_score=6, universe_size=3, review_detail_limit=2)
+
+    assert payload["summary"]["scanned"] == 2
+    assert payload["summary"]["evaluated"] == 2
+    assert payload["summary"]["threshold_passed"] == 2
+    assert [signal["symbol"] for signal in payload["signals"]] == ["AAA", "BBB"]
+    assert any("cache-backed CANSLIM names" in line for line in payload["render_lines"])
+
+
+def test_dipbuyer_build_alert_payload_prefers_cache_backed_universe_when_live_data_is_unavailable(monkeypatch):
+    monkeypatch.setenv("TRADING_INCLUDE_LEADER_BASKET_PRIORITY", "0")
+    monkeypatch.setenv("TRADING_INCLUDE_WATCHLIST_PRIORITY", "0")
+    monkeypatch.setenv("TRADING_DEGRADED_CACHE_ONLY_MIN_SYMBOLS", "1")
+    monkeypatch.setattr("dipbuyer_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
+    monkeypatch.setattr("dipbuyer_alert.build_alert_context_lines", lambda watchlist: [])
+    monkeypatch.setattr(
+        "dipbuyer_alert.build_intraday_breadth_snapshot",
+        lambda: {"status": "inactive", "override_state": "inactive", "override_reason": "outside regular market session", "warnings": []},
+    )
+    analyzer = MagicMock()
+    analyzer.analyze.return_value = {"sentiment": "NEUTRAL"}
+
+    with patch("dipbuyer_alert.TradingAdvisor", return_value=_CacheFallbackDipBuyerAdvisor()), patch(
+        "dipbuyer_alert.XSentimentAnalyzer", return_value=analyzer
+    ):
+        payload = dipbuyer_alert.build_alert_payload(limit=5, min_score=6, universe_size=3, review_detail_limit=2)
+
+    assert payload["summary"]["scanned"] == 2
+    assert payload["summary"]["evaluated"] == 2
+    assert payload["summary"]["threshold_passed"] == 2
+    assert [signal["symbol"] for signal in payload["signals"]] == ["AAA", "BBB"]
+    assert any("cache-backed Dip Buyer names" in line for line in payload["render_lines"])
 
 
 def test_canslim_persisted_prediction_records_include_explicit_contract_fields(monkeypatch):

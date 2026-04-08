@@ -15,6 +15,9 @@ from urllib.parse import quote
 import pandas as pd
 import requests
 
+BACKTESTER_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_MARKET_DATA_CACHE_DIR = BACKTESTER_ROOT / ".cache" / "market_data"
+
 
 class MarketDataError(RuntimeError):
     """Market data provider error.
@@ -61,7 +64,8 @@ class MarketDataProvider:
     ):
         self.providers = [p.strip().lower() for p in provider_order.split(",") if p.strip()]
         self.service_base_url = os.getenv("MARKET_DATA_SERVICE_URL", service_base_url).rstrip("/")
-        self.cache_dir = Path(cache_dir or os.getenv("MARKET_DATA_CACHE_DIR", ".cache/market_data")).expanduser()
+        configured_cache_dir = cache_dir or os.getenv("MARKET_DATA_CACHE_DIR")
+        self.cache_dir = Path(configured_cache_dir).expanduser() if configured_cache_dir else DEFAULT_MARKET_DATA_CACHE_DIR
         self.cache_ttl_seconds = int(cache_ttl_seconds)
         self.max_retries = int(max_retries)
         self.backoff_base_seconds = float(backoff_base_seconds)
@@ -105,31 +109,39 @@ class MarketDataProvider:
                     fatal_failures.append(f"{provider}: {exc}")
 
         # Live providers all failed: try local cache path.
-        cached = self._read_cache(symbol, period)
+        cached = self._read_cache_with_compatible_periods(symbol, period)
         if cached is not None:
-            cached_frame, cache_source, age_seconds = cached
+            cached_frame, cache_source, age_seconds, cache_period = cached
+            cache_note = (
+                "compatible cached data "
+                f"({cache_period} -> {period}, {int(age_seconds)}s old, original_source={cache_source})."
+                if cache_period != period
+                else "cached data "
+                f"({int(age_seconds)}s old, original_source={cache_source})."
+            )
             return MarketHistoryResult(
                 frame=cached_frame,
                 source="cache",
                 status="degraded",
-                degraded_reason=(
-                    "Live providers unavailable; using cached data "
-                    f"({int(age_seconds)}s old, original_source={cache_source})."
-                ),
+                degraded_reason=f"Live providers unavailable; using {cache_note}",
                 staleness_seconds=age_seconds,
             )
         if transient_failures:
-            cached = self._read_cache(symbol, period, allow_stale_recent=True)
+            cached = self._read_cache_with_compatible_periods(symbol, period, allow_stale_recent=True)
             if cached is not None:
-                cached_frame, cache_source, age_seconds = cached
+                cached_frame, cache_source, age_seconds, cache_period = cached
+                cache_note = (
+                    "stale compatible cached data "
+                    f"({cache_period} -> {period}, {int(age_seconds)}s old, original_source={cache_source}, beyond live TTL but within bounded fallback window)."
+                    if cache_period != period
+                    else "stale cached data "
+                    f"({int(age_seconds)}s old, original_source={cache_source}, beyond live TTL but within bounded fallback window)."
+                )
                 return MarketHistoryResult(
                     frame=cached_frame,
                     source="cache",
                     status="degraded",
-                    degraded_reason=(
-                        "Live providers unavailable; using stale cached data "
-                        f"({int(age_seconds)}s old, original_source={cache_source}, beyond live TTL but within bounded fallback window)."
-                    ),
+                    degraded_reason=f"Live providers unavailable; using {cache_note}",
                     staleness_seconds=age_seconds,
                 )
 
@@ -185,6 +197,19 @@ class MarketDataProvider:
             f"Failed to fetch quote for {symbol} from providers {','.join(providers_tried)}; {detail}",
             transient=bool(transient_failures) and not fatal_failures,
         )
+
+    def has_cached_history(
+        self,
+        symbol: str,
+        period: str,
+        *,
+        allow_stale_recent: bool = True,
+    ) -> bool:
+        return self._read_cache_with_compatible_periods(
+            symbol,
+            period,
+            allow_stale_recent=allow_stale_recent,
+        ) is not None
 
     def _fetch_with_retries(self, provider: str, symbol: str, period: str, auto_adjust: bool = False) -> tuple[pd.DataFrame, dict]:
         if provider not in {"service", "schwab", "alpaca"}:
@@ -460,10 +485,81 @@ class MarketDataProvider:
         except Exception:
             return None
 
+    def _read_cache_with_compatible_periods(
+        self,
+        symbol: str,
+        period: str,
+        *,
+        allow_stale_recent: bool = False,
+    ) -> Optional[tuple[pd.DataFrame, str, float, str]]:
+        exact = self._read_cache(symbol, period, allow_stale_recent=allow_stale_recent)
+        if exact is not None:
+            frame, source, age_seconds = exact
+            return frame, source, age_seconds, period
+
+        for compatible_period in self._compatible_cache_periods(period):
+            cached = self._read_cache(symbol, compatible_period, allow_stale_recent=allow_stale_recent)
+            if cached is None:
+                continue
+            frame, source, age_seconds = cached
+            trimmed = self._trim_frame_to_period(frame, period)
+            if trimmed is None or trimmed.empty:
+                continue
+            self._validate_frame(trimmed, symbol=symbol, provider="cache")
+            return trimmed, source, age_seconds, compatible_period
+        return None
+
     def _cache_path(self, symbol: str, period: str) -> Path:
         safe_symbol = "".join(c if c.isalnum() else "_" for c in symbol.upper())
         safe_period = "".join(c if c.isalnum() else "_" for c in period)
         return self.cache_dir / f"{safe_symbol}_{safe_period}.json"
+
+    @staticmethod
+    def _compatible_cache_periods(period: str) -> list[str]:
+        normalized = str(period or "").strip().lower()
+        durations: list[tuple[str, float]] = []
+        for candidate in ("30d", "90d", "6mo", "1y", "2y", "5y", "10y"):
+            days = MarketDataProvider._period_to_days(candidate)
+            if days is not None:
+                durations.append((candidate, days))
+        requested_days = MarketDataProvider._period_to_days(normalized)
+        if requested_days is None:
+            return []
+        return [candidate for candidate, days in durations if candidate != normalized and days >= requested_days]
+
+    @staticmethod
+    def _period_to_days(period: str) -> Optional[float]:
+        raw = str(period or "").strip().lower()
+        if not raw:
+            return None
+        try:
+            if raw.endswith("d"):
+                return float(int(raw[:-1] or "1"))
+            if raw.endswith("mo"):
+                return float(int(raw[:-2] or "1")) * 30.0
+            if raw.endswith("y"):
+                return float(int(raw[:-1] or "1")) * 365.0
+            if raw in {"max", "all"}:
+                return 3650.0
+        except ValueError:
+            return None
+        return None
+
+    @staticmethod
+    def _trim_frame_to_period(frame: pd.DataFrame, period: str) -> Optional[pd.DataFrame]:
+        if frame is None or frame.empty:
+            return None
+        requested_days = MarketDataProvider._period_to_days(period)
+        if requested_days is None:
+            return frame
+        end = frame.index.max()
+        if end is None:
+            return frame
+        start = end - pd.Timedelta(days=requested_days + 7)
+        trimmed = frame.loc[frame.index >= start].copy()
+        if trimmed.empty:
+            return frame
+        return trimmed.sort_index()
 
     @staticmethod
     def _validate_frame(frame: pd.DataFrame, *, symbol: str, provider: str) -> None:
