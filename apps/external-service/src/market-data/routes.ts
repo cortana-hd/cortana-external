@@ -18,6 +18,16 @@ export function registerMarketDataRoutes(app: Hono, service: MarketDataService):
     return c.json(result.body, result.status as never);
   });
 
+  app.get("/auth/schwab/streamer/url", async (c) => {
+    const result = await service.handleSchwabStreamerAuthUrl();
+    return c.json(result.body, result.status as never);
+  });
+
+  app.get("/auth/schwab/streamer/status", async (c) => {
+    const result = await service.handleSchwabStreamerAuthStatus();
+    return c.json(result.body, result.status as never);
+  });
+
   app.get("/market-data/ready", async (c) => {
     void c;
     const result = await service.handleReady();

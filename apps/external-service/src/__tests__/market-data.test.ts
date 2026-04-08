@@ -28,9 +28,13 @@ const TEST_CONFIG: AppConfig = {
   SCHWAB_CLIENT_ID: "client",
   SCHWAB_CLIENT_SECRET: "secret",
   SCHWAB_REFRESH_TOKEN: "refresh",
+  SCHWAB_CLIENT_STREAMER_ID: "streamer-client",
+  SCHWAB_CLIENT_STREAMER_SECRET: "streamer-secret",
+  SCHWAB_STREAMER_REFRESH_TOKEN: "",
   SCHWAB_AUTH_URL: "https://api.schwabapi.com/v1/oauth/authorize",
   SCHWAB_REDIRECT_URL: "https://127.0.0.1:8182/auth/schwab/callback",
   SCHWAB_TOKEN_PATH: path.join(TEST_TEMP_ROOT, "schwab-token.json"),
+  SCHWAB_STREAMER_TOKEN_PATH: path.join(TEST_TEMP_ROOT, "schwab-streamer-token.json"),
   SCHWAB_API_BASE_URL: "https://api.schwabapi.com",
   SCHWAB_TOKEN_URL: "https://api.schwabapi.com/v1/oauth/token",
   SCHWAB_USER_PREFERENCES_URL: "https://api.schwabapi.com/trader/v1/userPreference",
@@ -657,6 +661,26 @@ describe("market-data routes", () => {
     expect(authUrl.searchParams.get("state")).toBe(body.data.state);
   });
 
+  it("builds a Schwab streamer auth URL with streamer credentials", async () => {
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: TEST_CONFIG,
+      fetchImpl: async () => new Response("not found", { status: 404 }),
+    });
+    registerMarketDataRoutes(app, service);
+
+    const response = await app.request("/auth/schwab/streamer/url");
+    const body = (await response.json()) as { data: { url: string; callbackUrl: string; state: string; tokenPath: string } };
+    const authUrl = new URL(body.data.url);
+
+    expect(response.status).toBe(200);
+    expect(body.data.callbackUrl).toBe("https://127.0.0.1:8182/auth/schwab/callback");
+    expect(body.data.tokenPath).toBe(TEST_CONFIG.SCHWAB_STREAMER_TOKEN_PATH);
+    expect(authUrl.searchParams.get("client_id")).toBe("streamer-client");
+    expect(authUrl.searchParams.get("redirect_uri")).toBe("https://127.0.0.1:8182/auth/schwab/callback");
+    expect(authUrl.searchParams.get("state")).toBe(body.data.state);
+  });
+
   it("exchanges a Schwab authorization code and persists the refresh token", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-schwab-auth-"));
     const tokenPath = path.join(tempDir, "schwab-token.json");
@@ -707,6 +731,60 @@ describe("market-data routes", () => {
     expect(typeof persisted.expiresAt).toBe("number");
 
     const statusResponse = await app.request("/auth/schwab/status");
+    const statusBody = (await statusResponse.json()) as { data: { refreshTokenPresent: boolean; tokenPath: string } };
+    expect(statusResponse.status).toBe(200);
+    expect(statusBody.data.refreshTokenPresent).toBe(true);
+    expect(statusBody.data.tokenPath).toBe(tokenPath);
+  });
+
+  it("exchanges a Schwab streamer authorization code and persists the streamer refresh token", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-schwab-streamer-auth-"));
+    const tokenPath = path.join(tempDir, "schwab-streamer-token.json");
+    const app = new Hono();
+    const service = new MarketDataService({
+      config: {
+        ...TEST_CONFIG,
+        SCHWAB_STREAMER_REFRESH_TOKEN: "",
+        SCHWAB_STREAMER_TOKEN_PATH: tokenPath,
+      },
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        if (url.includes("/oauth/token")) {
+          expect(String(init?.body)).toContain("grant_type=authorization_code");
+          return new Response(
+            JSON.stringify({
+              access_token: "streamer-oauth-access-token",
+              refresh_token: "streamer-oauth-refresh-token",
+              expires_in: 1800,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    registerMarketDataRoutes(app, service);
+
+    const authResponse = await app.request("/auth/schwab/streamer/url");
+    const authBody = (await authResponse.json()) as { data: { state: string } };
+
+    const callbackResponse = await app.request(
+      `/auth/schwab/callback?code=streamer123&state=${encodeURIComponent(authBody.data.state)}`,
+    );
+    const callbackBody = (await callbackResponse.json()) as { data: { hasRefreshToken: boolean; tokenPath: string } };
+    const persisted = JSON.parse(fs.readFileSync(tokenPath, "utf8")) as {
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: number;
+    };
+
+    expect(callbackResponse.status).toBe(200);
+    expect(callbackBody.data.hasRefreshToken).toBe(true);
+    expect(callbackBody.data.tokenPath).toBe(tokenPath);
+    expect(persisted.accessToken).toBe("streamer-oauth-access-token");
+    expect(persisted.refreshToken).toBe("streamer-oauth-refresh-token");
+
+    const statusResponse = await app.request("/auth/schwab/streamer/status");
     const statusBody = (await statusResponse.json()) as { data: { refreshTokenPresent: boolean; tokenPath: string } };
     expect(statusResponse.status).toBe(200);
     expect(statusBody.data.refreshTokenPresent).toBe(true);
