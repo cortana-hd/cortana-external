@@ -161,4 +161,27 @@ describe("DocsClient", () => {
     expect(container).toHaveTextContent("arch");
     expect(container).toHaveTextContent("design.md");
   });
+
+  it("keeps archive folders collapsed until clicked", async () => {
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            { id: "OpenClaw Docs:archive/old.md", name: "archive/old.md", path: "/docs/archive/old.md", section: "OpenClaw Docs" },
+            { id: "OpenClaw Docs:source/new.md", name: "source/new.md", path: "/docs/source/new.md", section: "OpenClaw Docs" },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "new.md", content: "# New" }));
+
+    render(<DocsClient />);
+
+    await screen.findByRole("button", { name: /new/i });
+    expect(screen.queryByRole("button", { name: /old/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /archive/i }));
+
+    expect(await screen.findByRole("button", { name: /old/i })).toBeInTheDocument();
+  });
 });

@@ -47,6 +47,28 @@ type SectionTree = {
 
 /* ── pure helpers ── */
 
+function isArchiveFolderPath(fullPath: string): boolean {
+  return fullPath.split("/").includes("archive");
+}
+
+function sortFolderNodes(nodes: TreeNode[]): TreeNode[] {
+  return [...nodes].sort((a, b) => {
+    const aArchive = isArchiveFolderPath(a.fullPath);
+    const bArchive = isArchiveFolderPath(b.fullPath);
+    if (aArchive !== bArchive) return aArchive ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function collectArchiveFolderPaths(node: TreeNode): string[] {
+  const paths: string[] = [];
+  for (const child of node.children) {
+    if (isArchiveFolderPath(child.fullPath)) paths.push(child.fullPath);
+    paths.push(...collectArchiveFolderPaths(child));
+  }
+  return paths;
+}
+
 function buildFolderTree(files: DocFile[], searchQuery: string): SectionTree[] {
   const query = searchQuery.toLowerCase();
   const filtered = query ? files.filter((f) => f.name.toLowerCase().includes(query)) : files;
@@ -92,6 +114,10 @@ function basename(name: string): string {
   return parts[parts.length - 1].replace(/\.md$/i, "");
 }
 
+function isArchiveFile(file: DocFile): boolean {
+  return file.name.split("/").includes("archive");
+}
+
 /* ── main component ── */
 
 export default function DocsClient() {
@@ -133,7 +159,8 @@ export default function DocsClient() {
         }
         if (active) {
           setFiles(payload.files);
-          setSelectedFileId(payload.files[0]?.id ?? null);
+          const preferred = payload.files.find((file) => !isArchiveFile(file)) ?? payload.files[0] ?? null;
+          setSelectedFileId(preferred?.id ?? null);
           setListError(null);
         }
       } catch (error) {
@@ -181,6 +208,19 @@ export default function DocsClient() {
     setActiveHeadingId(null);
     setMobileTocOpen(false);
   }, [selectedFileId]);
+
+  React.useEffect(() => {
+    if (tree.length === 0) return;
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      for (const { root } of tree) {
+        for (const fullPath of collectArchiveFolderPaths(root)) {
+          next.add(fullPath);
+        }
+      }
+      return next;
+    });
+  }, [tree]);
 
   /* ── scroll-spy ── */
   React.useEffect(() => {
@@ -293,7 +333,7 @@ export default function DocsClient() {
     return (
       <div key={node.fullPath}>
         {/* Folder nodes */}
-        {node.children.map((child) => {
+        {sortFolderNodes(node.children).map((child) => {
           const isCollapsed = !isSearching && collapsedFolders.has(child.fullPath);
           return (
             <div key={child.fullPath}>

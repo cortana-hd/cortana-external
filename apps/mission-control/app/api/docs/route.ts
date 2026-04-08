@@ -25,6 +25,17 @@ const toDocId = (section: string, relativePath: string) => `${section}:${relativ
 const toPosixPath = (value: string) => value.split(path.sep).join("/");
 const DOC_SECTION_ORDER = ["External Docs", "Backtester Docs", "OpenClaw Docs"] as const;
 
+function isArchiveDocName(name: string): boolean {
+  return name.split("/").includes("archive");
+}
+
+function compareDocNames(a: string, b: string): number {
+  const aArchive = isArchiveDocName(a);
+  const bArchive = isArchiveDocName(b);
+  if (aArchive !== bArchive) return aArchive ? 1 : -1;
+  return a.localeCompare(b);
+}
+
 async function collectDocs(
   docsRoot: string,
   section: string,
@@ -57,7 +68,7 @@ async function collectDocs(
 
   return files
     .flat()
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => compareDocNames(a.name, b.name));
 }
 
 async function listBacktesterDocs(backtesterRoot: string): Promise<DocEntry[]> {
@@ -103,7 +114,7 @@ async function listAllDocs(): Promise<DocEntry[]> {
       DOC_SECTION_ORDER.indexOf(a.section as (typeof DOC_SECTION_ORDER)[number]) -
       DOC_SECTION_ORDER.indexOf(b.section as (typeof DOC_SECTION_ORDER)[number]);
     if (sectionOrder !== 0) return sectionOrder;
-    return a.name.localeCompare(b.name);
+    return compareDocNames(a.name, b.name);
   });
 }
 
