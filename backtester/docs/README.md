@@ -18,4 +18,5 @@ This directory separates raw source docs by artifact type.
 - [Session handoff](./source/guide/session-handoff.md)
 - [Market-data service reference](./source/reference/market-data-service-reference.md)
 - [Schwab OAuth reauth runbook](./source/runbook/schwab-oauth-reauth-runbook.md)
+- [Trading Ops QA runbook](./source/runbook/trading-ops-qa-runbook.md)
 - [Knowledge overview](../../knowledge/domains/backtester/overview.md)
