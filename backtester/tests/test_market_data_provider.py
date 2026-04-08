@@ -170,6 +170,57 @@ def test_default_stale_cache_window_covers_multi_day_trading_scan_fallback(tmp_p
     assert result.staleness_seconds >= 48 * 3600 - 60
 
 
+def test_compatible_longer_period_cache_is_used_for_shorter_request(tmp_path):
+    provider = MarketDataProvider(
+        cache_dir=str(tmp_path),
+        cache_ttl_seconds=60,
+        max_retries=0,
+        stale_fallback_max_age_hours=24,
+    )
+    frame = pd.DataFrame(
+        {
+            "Open": [1, 2, 3, 4, 5, 6],
+            "High": [1, 2, 3, 4, 5, 6],
+            "Low": [1, 2, 3, 4, 5, 6],
+            "Close": [1, 2, 3, 4, 5, 6],
+            "Volume": [10, 11, 12, 13, 14, 15],
+        },
+        index=pd.date_range(end=datetime.now(timezone.utc), periods=6, freq="30D"),
+    )
+    cache_path = tmp_path / "ABBV_1y.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "symbol": "ABBV",
+                "period": "1y",
+                "source": "schwab",
+                "generated_at_utc": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
+                "rows": [
+                    {
+                        "date": idx.isoformat(),
+                        "Open": float(row["Open"]),
+                        "High": float(row["High"]),
+                        "Low": float(row["Low"]),
+                        "Close": float(row["Close"]),
+                        "Volume": float(row["Volume"]),
+                    }
+                    for idx, row in frame.iterrows()
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    provider._fetch_service_history = lambda *args, **kwargs: (_ for _ in ()).throw(MarketDataError("provider cooldown", transient=True))  # type: ignore[method-assign]
+    result = provider.get_history("ABBV", period="6mo")
+
+    assert result.source == "cache"
+    assert result.status == "degraded"
+    assert "1y -> 6mo" in result.degraded_reason
+    assert not result.frame.empty
+
+
 def test_stale_cache_beyond_bounded_window_is_not_used(tmp_path):
     provider = MarketDataProvider(
         cache_dir=str(tmp_path),

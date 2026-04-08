@@ -291,7 +291,61 @@ def _load_priority_symbols() -> list[str]:
     return deduped
 
 
-def _deterministic_universe(advisor: TradingAdvisor, universe_size: int, market_regime: str = "unknown") -> tuple[list[str], int, UniverseSelectionResult | None]:
+def _market_requires_cache_backed_universe(market: object) -> bool:
+    status = str(getattr(market, "status", "ok") or "ok").strip().lower()
+    source = str(getattr(market, "data_source", "unknown") or "unknown").strip().lower()
+    detail = " ".join(
+        str(getattr(market, field, "") or "")
+        for field in ("notes", "degraded_reason", "next_action")
+    ).lower()
+    return status == "degraded" and (
+        source in {"unknown", "unavailable"} or "cooldown" in detail or "fresh market data" in detail
+    )
+
+
+def _prefer_cache_backed_symbols(
+    advisor: TradingAdvisor,
+    symbols: list[str],
+    *,
+    required_period: str,
+) -> tuple[list[str], str | None]:
+    provider = getattr(advisor, "market_data", None)
+    if provider is None or not hasattr(provider, "has_cached_history"):
+        return symbols, None
+
+    cached: list[str] = []
+    uncached: list[str] = []
+    for symbol in symbols:
+        if provider.has_cached_history(symbol, required_period, allow_stale_recent=True):
+            cached.append(symbol)
+        else:
+            uncached.append(symbol)
+
+    if not cached:
+        return symbols, None
+
+    min_cache_only_symbols = max(int(os.getenv("TRADING_DEGRADED_CACHE_ONLY_MIN_SYMBOLS", "12")), 1)
+    if len(cached) >= min_cache_only_symbols:
+        selected = cached[: len(symbols)]
+        return (
+            selected,
+            f"Degraded fallback: scanning {len(selected)} cache-backed CANSLIM names while live market data recovers.",
+        )
+
+    ordered = [*cached, *uncached][: len(symbols)]
+    return (
+        ordered,
+        f"Degraded fallback: only {len(cached)} cache-backed CANSLIM names were available, so they were prioritized first.",
+    )
+
+
+def _deterministic_universe(
+    advisor: TradingAdvisor,
+    universe_size: int,
+    market_regime: str = "unknown",
+    *,
+    market: object | None = None,
+) -> tuple[list[str], int, UniverseSelectionResult | None, str | None]:
     if hasattr(advisor, "screener"):
         base = _run_quiet(advisor.screener.get_universe)
     else:
@@ -305,14 +359,30 @@ def _deterministic_universe(advisor: TradingAdvisor, universe_size: int, market_
             universe_size=universe_size,
             market_regime=market_regime,
         )
-        return selection.symbols, len(selection.priority_symbols), selection
+        symbols = selection.symbols
+        fallback_line = None
+        if market is not None and _market_requires_cache_backed_universe(market):
+            symbols, fallback_line = _prefer_cache_backed_symbols(
+                advisor,
+                symbols,
+                required_period="1y",
+            )
+        return symbols, len(selection.priority_symbols), selection, fallback_line
     ordered = []
     seen = set()
     for sym in [*priority, *base]:
         if sym not in seen:
             seen.add(sym)
             ordered.append(sym)
-    return ordered[:universe_size], len(priority), None
+    symbols = ordered[:universe_size]
+    fallback_line = None
+    if market is not None and _market_requires_cache_backed_universe(market):
+        symbols, fallback_line = _prefer_cache_backed_symbols(
+            advisor,
+            symbols,
+            required_period="1y",
+        )
+    return symbols, len(priority), None, fallback_line
 
 
 def _selection_line(selection: UniverseSelectionResult | None, scanned_count: int) -> str:
@@ -685,7 +755,12 @@ def build_alert_payload(
     start = time.perf_counter()
     stress = build_adverse_regime_indicator(market=market)
     regime_value = getattr(getattr(market, "regime", None), "value", "unknown")
-    symbols, priority_count, selection = _deterministic_universe(advisor, universe_size, regime_value)
+    symbols, priority_count, selection, degraded_universe_line = _deterministic_universe(
+        advisor,
+        universe_size,
+        regime_value,
+        market=market,
+    )
     risk_snapshot: dict[str, object] = {}
     if hasattr(advisor, "risk_fetcher") and hasattr(advisor.risk_fetcher, "get_snapshot"):
         fetched_snapshot = _run_quiet(advisor.risk_fetcher.get_snapshot)
@@ -720,6 +795,8 @@ def build_alert_payload(
     selection_summary = _selection_line(selection, len(symbols))
     if selection_summary:
         lines.append(selection_summary)
+    if degraded_universe_line:
+        lines.append(degraded_universe_line)
     if stress.get("label") != "normal" and getattr(getattr(market, 'regime', None), 'value', '') != 'correction':
         lines.append(f"Adverse regime: {stress['label']} ({float(stress['score']):.0f}) -- {stress['reason']}")
 
