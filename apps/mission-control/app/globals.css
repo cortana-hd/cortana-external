@@ -380,10 +380,15 @@
       prose-img:rounded-lg prose-img:border;
   }
 
+  .docs-prose :is(h1, h2, h3, h4, h5, h6, p, li, a, td, th, blockquote) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
   /* ── Docs content layout ── */
 
   .docs-content-wrapper {
-    @apply mx-auto max-w-3xl;
+    @apply mx-auto max-w-3xl min-w-0;
   }
 
   /* ── Shiki dual-theme support ── */
@@ -515,7 +520,9 @@
 
   .docs-toc-link {
     @apply block py-1 text-sm text-muted-foreground transition-colors
-      hover:text-foreground border-l-2 border-transparent pl-3;
+      hover:text-foreground border-l-2 border-transparent pl-3 min-w-0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .docs-toc-link-active {

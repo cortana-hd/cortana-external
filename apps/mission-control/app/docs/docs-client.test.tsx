@@ -12,6 +12,7 @@ const jsonResponse = (payload: unknown, status = 200) =>
 describe("DocsClient", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    window.scrollTo = vi.fn();
   });
 
   it("renders header text", async () => {
@@ -222,5 +223,97 @@ describe("DocsClient", () => {
     fireEvent.click(screen.getByRole("button", { name: /archive/i }));
 
     expect(await screen.findByRole("button", { name: /old/i })).toBeInTheDocument();
+  });
+
+  it("resolves knowledge links into OpenClaw research docs", async () => {
+    const fetchMock = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            {
+              id: "OpenClaw Knowledge:domains/spartan/coaching-rules.md",
+              name: "domains/spartan/coaching-rules.md",
+              path: "/knowledge/domains/spartan/coaching-rules.md",
+              section: "OpenClaw Knowledge",
+            },
+            {
+              id: "OpenClaw Research:derived/spartan/spartan-evidence-map.md",
+              name: "derived/spartan/spartan-evidence-map.md",
+              path: "/research/derived/spartan/spartan-evidence-map.md",
+              section: "OpenClaw Research",
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          name: "coaching-rules.md",
+          content: "# Spartan Coaching Rules\n\n- [Spartan evidence map](../../../research/derived/spartan/spartan-evidence-map.md)",
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ status: "ok", name: "spartan-evidence-map.md", content: "# Evidence map" })
+      );
+
+    render(<DocsClient />);
+
+    const evidenceLink = await screen.findByRole("link", { name: /spartan evidence map/i });
+    fireEvent.click(evidenceLink);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/docs?file=OpenClaw%20Research%3Aderived%2Fspartan%2Fspartan-evidence-map.md",
+        { cache: "no-store" },
+      );
+    });
+  });
+
+  it("resolves knowledge links into OpenClaw planning docs", async () => {
+    const fetchMock = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            {
+              id: "OpenClaw Knowledge:domains/spartan/coaching-rules.md",
+              name: "domains/spartan/coaching-rules.md",
+              path: "/knowledge/domains/spartan/coaching-rules.md",
+              section: "OpenClaw Knowledge",
+            },
+            {
+              id: "OpenClaw Docs:source/planning/spartan/roadmap/fitness-trainer-roadmap-2026-04-04.md",
+              name: "source/planning/spartan/roadmap/fitness-trainer-roadmap-2026-04-04.md",
+              path: "/docs/source/planning/spartan/roadmap/fitness-trainer-roadmap-2026-04-04.md",
+              section: "OpenClaw Docs",
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          name: "coaching-rules.md",
+          content: "# Spartan Coaching Rules\n\n- [Ultimate fitness trainer roadmap](../../../docs/source/planning/spartan/roadmap/fitness-trainer-roadmap-2026-04-04.md)",
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ status: "ok", name: "fitness-trainer-roadmap-2026-04-04.md", content: "# Roadmap" })
+      );
+
+    render(<DocsClient />);
+
+    const roadmapLink = await screen.findByRole("link", { name: /ultimate fitness trainer roadmap/i });
+    fireEvent.click(roadmapLink);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/docs?file=OpenClaw%20Docs%3Asource%2Fplanning%2Fspartan%2Froadmap%2Ffitness-trainer-roadmap-2026-04-04.md",
+        { cache: "no-store" },
+      );
+    });
   });
 });

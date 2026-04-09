@@ -22,6 +22,55 @@ type DocsContentProps = {
   onNavigate: (id: string) => void;
 };
 
+const DOC_ROOT_PREFIXES = [
+  "docs",
+  "knowledge",
+  "research",
+  "cortical-loop",
+  "hooks",
+  "immune-system",
+  "proprioception",
+  "sae",
+  "backtester",
+  "apps",
+  "external-service",
+  "cortana",
+  "cortana-external",
+] as const;
+
+function resolveDocHref(currentName: string | null, href: string, files: DocFile[]): DocFile | null {
+  const currentDir = currentName ? currentName.split("/").slice(0, -1).join("/") : "";
+  const parts = [...(currentDir ? currentDir.split("/") : []), ...href.split("/")];
+  const resolved: string[] = [];
+
+  for (const part of parts) {
+    if (part === "..") resolved.pop();
+    else if (part !== "." && part !== "") resolved.push(part);
+  }
+
+  const targetPath = resolved.join("/");
+  const candidates = new Set<string>([targetPath]);
+
+  for (const prefix of DOC_ROOT_PREFIXES) {
+    const marker = `${prefix}/`;
+    if (targetPath.startsWith(marker)) {
+      candidates.add(targetPath.slice(marker.length));
+    }
+  }
+
+  for (const candidate of candidates) {
+    const exact = files.find((f) => f.name === candidate);
+    if (exact) return exact;
+  }
+
+  for (const candidate of candidates) {
+    const suffix = files.find((f) => f.name.endsWith(`/${candidate}`));
+    if (suffix) return suffix;
+  }
+
+  return null;
+}
+
 export function DocsContent({
   selectedFile,
   files,
@@ -70,17 +119,7 @@ export function DocsContent({
             href={href}
             onClick={(e) => {
               e.preventDefault();
-              const currentDir = selectedFile ? selectedFile.name.split("/").slice(0, -1).join("/") : "";
-              const parts = [...(currentDir ? currentDir.split("/") : []), ...href.split("/")];
-              const resolved: string[] = [];
-              for (const part of parts) {
-                if (part === "..") resolved.pop();
-                else if (part !== "." && part !== "") resolved.push(part);
-              }
-              const targetPath = resolved.join("/");
-              const match = files.find((f) =>
-                f.name === targetPath || f.name.endsWith("/" + targetPath) || f.name.endsWith(targetPath)
-              );
+              const match = resolveDocHref(selectedFile?.name ?? null, href, files);
               if (match) {
                 onNavigate(match.id);
                 window.scrollTo({ top: 0, behavior: "smooth" });
