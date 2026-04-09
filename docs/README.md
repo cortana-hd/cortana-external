@@ -7,6 +7,7 @@ This directory holds raw source docs for repo-wide systems that are not owned by
 - `source/architecture/` - architecture notes and system behavior docs
 - `source/prd/` - product requirement docs
 - `source/runbook/` - operator runbooks
+- `archive/` - historical or low-signal docs kept out of the active reading path
 
 ## Start Here
 
@@ -14,4 +15,5 @@ This directory holds raw source docs for repo-wide systems that are not owned by
 - [Mission Control architecture](./source/architecture/mission-control.md)
 - [Trading cron enrichment decoupling PRD](./source/prd/prd-trading-cron-enrichment-decoupling.md)
 - [Gateway uptime recovery runbook](./source/runbook/gateway-uptime-recovery-v1.md)
+- [Archive guide](./archive/README.md)
 - [Knowledge index](../knowledge/README.md)

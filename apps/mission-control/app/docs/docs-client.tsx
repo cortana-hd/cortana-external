@@ -47,6 +47,19 @@ type SectionTree = {
 
 /* ── pure helpers ── */
 
+function isArchiveFolderPath(fullPath: string): boolean {
+  return fullPath.split("/").includes("archive");
+}
+
+function sortFolderNodes(nodes: TreeNode[]): TreeNode[] {
+  return [...nodes].sort((a, b) => {
+    const aArchive = a.name === "archive";
+    const bArchive = b.name === "archive";
+    if (aArchive !== bArchive) return aArchive ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 function buildFolderTree(files: DocFile[], searchQuery: string): SectionTree[] {
   const query = searchQuery.toLowerCase();
   const filtered = query ? files.filter((f) => f.name.toLowerCase().includes(query)) : files;
@@ -119,6 +132,34 @@ export default function DocsClient() {
   const headings = React.useMemo(() => extractHeadings(content), [content]);
   const breadcrumbs = React.useMemo(() => deriveBreadcrumbs(selectedFile), [selectedFile]);
 
+  React.useEffect(() => {
+    if (searchQuery) return;
+    const archiveFolders = new Set<string>();
+
+    const collect = (node: TreeNode) => {
+      for (const child of node.children) {
+        if (isArchiveFolderPath(child.fullPath)) archiveFolders.add(child.fullPath);
+        collect(child);
+      }
+    };
+
+    tree.forEach(({ root }) => collect(root));
+
+    if (archiveFolders.size === 0) return;
+
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const folder of archiveFolders) {
+        if (!next.has(folder)) {
+          next.add(folder);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tree, searchQuery]);
+
   /* ── data fetching ── */
   React.useEffect(() => {
     let active = true;
@@ -133,7 +174,8 @@ export default function DocsClient() {
         }
         if (active) {
           setFiles(payload.files);
-          setSelectedFileId(payload.files[0]?.id ?? null);
+          const initialFile = payload.files.find((file) => !file.name.startsWith("archive/")) ?? payload.files[0] ?? null;
+          setSelectedFileId(initialFile?.id ?? null);
           setListError(null);
         }
       } catch (error) {
@@ -293,7 +335,7 @@ export default function DocsClient() {
     return (
       <div key={node.fullPath}>
         {/* Folder nodes */}
-        {node.children.map((child) => {
+        {sortFolderNodes(node.children).map((child) => {
           const isCollapsed = !isSearching && collapsedFolders.has(child.fullPath);
           return (
             <div key={child.fullPath}>
