@@ -608,7 +608,7 @@ function DocsHeader() {
       </p>
       <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Documentation</h1>
       <p className="text-sm text-muted-foreground">
-        Browse markdown documentation and research from the external repo, backtester, and OpenClaw knowledge bases.
+        Browse markdown documentation, knowledge, and research from the external repo, backtester, and OpenClaw knowledge bases.
       </p>
     </div>
   );

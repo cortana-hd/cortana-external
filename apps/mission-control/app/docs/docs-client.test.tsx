@@ -109,6 +109,7 @@ describe("DocsClient", () => {
           files: [
             { id: "OpenClaw Docs:a.md", name: "a.md", path: "/docs/a.md", section: "OpenClaw Docs" },
             { id: "Backtester Docs:README.md", name: "README.md", path: "/backtester/README.md", section: "Backtester Docs" },
+            { id: "OpenClaw Knowledge:README.md", name: "README.md", path: "/knowledge/README.md", section: "OpenClaw Knowledge" },
             { id: "OpenClaw Research:README.md", name: "README.md", path: "/research/README.md", section: "OpenClaw Research" },
           ],
         })
@@ -119,6 +120,7 @@ describe("DocsClient", () => {
 
     expect((await screen.findAllByText("OpenClaw Docs")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Backtester Docs").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("OpenClaw Knowledge").length).toBeGreaterThan(0);
     expect(screen.getAllByText("OpenClaw Research").length).toBeGreaterThan(0);
   });
 

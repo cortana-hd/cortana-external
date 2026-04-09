@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
-import { getDocsPath, getResearchPath } from "@/lib/runtime-paths";
+import { getDocsPath, getKnowledgePath, getResearchPath } from "@/lib/runtime-paths";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -27,6 +27,7 @@ const DOC_SECTION_ORDER = [
   "External Docs",
   "Backtester Docs",
   "OpenClaw Docs",
+  "OpenClaw Knowledge",
   "OpenClaw Research",
 ] as const;
 
@@ -110,6 +111,7 @@ async function listAllDocs(): Promise<DocEntry[]> {
     collectDocs(getExternalDocsRoot(), "External Docs"),
     listBacktesterDocs(getBacktesterRoot()),
     collectDocs(getDocsPath(), "OpenClaw Docs"),
+    collectDocs(getKnowledgePath(), "OpenClaw Knowledge"),
     collectDocs(getResearchPath(), "OpenClaw Research"),
   ]);
 
