@@ -8,6 +8,12 @@ If `~/clawd` is strategy/memory/policy, **cortana-external is execution runtime*
 
 Documentation placement and authoring rules live in [`docs/source/architecture/documentation-authoring-guide.md`](docs/source/architecture/documentation-authoring-guide.md).
 
+Documentation follows a Karpathy-style LLM wiki split:
+- raw source artifacts stay close to the owning system (`backtester/docs/`, app docs, or the tiny root `docs/` front door)
+- exploratory product/runtime research lives in `research/`
+- compiled current-truth pages live in `knowledge/`
+- archived repo-level leftovers live in `docs/archive/`
+
 ---
 
 ## 1) What this repo contains

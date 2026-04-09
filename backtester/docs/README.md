@@ -1,6 +1,11 @@
 # Backtester Docs
 
-This directory separates raw source docs by artifact type.
+This directory is the raw source-document layer for the backtester.
+
+In the LLM wiki model:
+- `backtester/docs/source/` holds raw durable artifacts
+- `knowledge/domains/backtester/` holds the compiled current-truth wiki pages
+- detailed planning/execution artifacts stay close to the backtester instead of polluting the repo root
 
 ## Layout
 
@@ -17,5 +22,8 @@ This directory separates raw source docs by artifact type.
 - [Roadmap](./source/roadmap/roadmap.md)
 - [Session handoff](./source/guide/session-handoff.md)
 - [Market-data service reference](./source/reference/market-data-service-reference.md)
+- [Trading cron base/enrichment/notify decoupling PRD](./source/prd/prd-trading-cron-base-enrichment-notify-decoupling.md)
+- [Polymarket market intelligence PRD](./source/prd/prd-polymarket-market-intelligence.md)
 - [Schwab OAuth reauth runbook](./source/runbook/schwab-oauth-reauth-runbook.md)
+- [Trading Ops QA runbook](./source/runbook/trading-ops-qa-runbook.md)
 - [Knowledge overview](../../knowledge/domains/backtester/overview.md)

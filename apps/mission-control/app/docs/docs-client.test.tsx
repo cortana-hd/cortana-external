@@ -58,15 +58,18 @@ describe("DocsClient", () => {
         jsonResponse({
           status: "ok",
           files: [
-            { id: "OpenClaw Docs:a.md", name: "a.md", path: "/docs/a.md", section: "OpenClaw Docs" },
+            { id: "External Docs:README.md", name: "README.md", path: "/docs/README.md", section: "External Docs" },
             { id: "Backtester Docs:b.md", name: "b.md", path: "/docs/b.md", section: "Backtester Docs" },
           ],
         })
       )
-      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "a.md", content: "A content" }))
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "README.md", content: "Repo content" }))
       .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "b.md", content: "B content" }));
 
     render(<DocsClient />);
+
+    await screen.findByRole("button", { name: /backtester docs/i });
+    fireEvent.click(screen.getByRole("button", { name: /backtester docs/i }));
 
     const secondFile = await screen.findByRole("button", { name: /\bb\b/i });
     fireEvent.click(secondFile);
@@ -107,17 +110,54 @@ describe("DocsClient", () => {
         jsonResponse({
           status: "ok",
           files: [
-            { id: "OpenClaw Docs:a.md", name: "a.md", path: "/docs/a.md", section: "OpenClaw Docs" },
+            { id: "External Docs:README.md", name: "README.md", path: "/docs/README.md", section: "External Docs" },
+            { id: "Mission Control Research:raw/mission-control/README.md", name: "raw/mission-control/README.md", path: "/research/raw/mission-control/README.md", section: "Mission Control Research" },
             { id: "Backtester Docs:README.md", name: "README.md", path: "/backtester/README.md", section: "Backtester Docs" },
+            { id: "Backtester Research:raw/backtester/README.md", name: "raw/backtester/README.md", path: "/research/raw/backtester/README.md", section: "Backtester Research" },
+            { id: "OpenClaw Docs:a.md", name: "a.md", path: "/docs/a.md", section: "OpenClaw Docs" },
+            { id: "OpenClaw Knowledge:README.md", name: "README.md", path: "/knowledge/README.md", section: "OpenClaw Knowledge" },
+            { id: "OpenClaw Research:README.md", name: "README.md", path: "/research/README.md", section: "OpenClaw Research" },
           ],
         })
       )
-      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "a.md", content: "# A" }));
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "README.md", content: "# External Docs" }));
 
     render(<DocsClient />);
 
-    expect((await screen.findAllByText("OpenClaw Docs")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("cortana-external")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("OpenClaw").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Repo Docs").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Mission Control Research").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Backtester Docs").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Backtester Research").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /^docs$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^knowledge$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^research$/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps inactive repo groups collapsed until clicked", async () => {
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            { id: "External Docs:README.md", name: "README.md", path: "/docs/README.md", section: "External Docs" },
+            { id: "OpenClaw Knowledge:README.md", name: "README.md", path: "/knowledge/README.md", section: "OpenClaw Knowledge" },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "README.md", content: "# External Docs" }));
+
+    render(<DocsClient />);
+
+    await screen.findByText("cortana-external");
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /knowledge/i })).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /openclaw/i }));
+
+    expect(await screen.findByRole("button", { name: /knowledge/i })).toBeInTheDocument();
   });
 
   it("renders search input", async () => {
@@ -156,9 +196,40 @@ describe("DocsClient", () => {
     await screen.findByRole("button", { name: /design/i });
 
     // Breadcrumbs should contain path segments
-    expect(container).toHaveTextContent("External Docs");
+    expect(container).toHaveTextContent("Repo Docs");
     expect(container).toHaveTextContent("source");
     expect(container).toHaveTextContent("arch");
     expect(container).toHaveTextContent("design.md");
+  });
+
+  it("keeps folders collapsed until clicked", async () => {
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            { id: "OpenClaw Docs:README.md", name: "README.md", path: "/docs/README.md", section: "OpenClaw Docs" },
+            { id: "OpenClaw Docs:archive/old.md", name: "archive/old.md", path: "/docs/archive/old.md", section: "OpenClaw Docs" },
+            { id: "OpenClaw Docs:source/new.md", name: "source/new.md", path: "/docs/source/new.md", section: "OpenClaw Docs" },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "README.md", content: "# Docs" }));
+
+    render(<DocsClient />);
+
+    await screen.findByRole("button", { name: /docs/i });
+    await screen.findByRole("button", { name: /source/i });
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /new/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /old/i })).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /source/i }));
+    expect(await screen.findByRole("button", { name: /new/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /archive/i }));
+
+    expect(await screen.findByRole("button", { name: /old/i })).toBeInTheDocument();
   });
 });

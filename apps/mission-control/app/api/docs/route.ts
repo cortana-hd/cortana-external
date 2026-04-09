@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
-import { getDocsPath } from "@/lib/runtime-paths";
+import { getDocsPath, getExternalResearchPath, getKnowledgePath, getResearchPath } from "@/lib/runtime-paths";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,10 +23,18 @@ const getExternalDocsRoot = () => path.join(getRepoRoot(), "docs");
 const toDocId = (section: string, relativePath: string) => `${section}:${relativePath}`;
 
 const toPosixPath = (value: string) => value.split(path.sep).join("/");
-const DOC_SECTION_ORDER = ["External Docs", "Backtester Docs", "OpenClaw Docs"] as const;
+const DOC_SECTION_ORDER = [
+  "External Docs",
+  "Mission Control Research",
+  "Backtester Docs",
+  "Backtester Research",
+  "OpenClaw Docs",
+  "OpenClaw Knowledge",
+  "OpenClaw Research",
+] as const;
 
 function isArchiveDocName(name: string): boolean {
-  return name.startsWith("archive/");
+  return name.split("/").includes("archive");
 }
 
 function compareDocNames(a: string, b: string): number {
@@ -100,11 +108,43 @@ async function listBacktesterDocs(backtesterRoot: string): Promise<DocEntry[]> {
   return files;
 }
 
+async function collectOptionalDocs(
+  docsRoot: string,
+  section: string,
+  baseRoot = docsRoot,
+): Promise<DocEntry[]> {
+  try {
+    return await collectDocs(docsRoot, section, baseRoot);
+  } catch {
+    return [];
+  }
+}
+
+async function listExternalResearchDocs(researchRoot: string): Promise<DocEntry[]> {
+  const results = await Promise.all([
+    collectOptionalDocs(path.join(researchRoot, "raw", "mission-control"), "Mission Control Research", researchRoot),
+    collectOptionalDocs(path.join(researchRoot, "derived", "mission-control"), "Mission Control Research", researchRoot),
+    collectOptionalDocs(path.join(researchRoot, "raw", "backtester"), "Backtester Research", researchRoot),
+    collectOptionalDocs(path.join(researchRoot, "derived", "backtester"), "Backtester Research", researchRoot),
+  ]);
+
+  return results.flat().sort((a, b) => {
+    const sectionOrder =
+      DOC_SECTION_ORDER.indexOf(a.section as (typeof DOC_SECTION_ORDER)[number]) -
+      DOC_SECTION_ORDER.indexOf(b.section as (typeof DOC_SECTION_ORDER)[number]);
+    if (sectionOrder !== 0) return sectionOrder;
+    return compareDocNames(a.name, b.name);
+  });
+}
+
 async function listAllDocs(): Promise<DocEntry[]> {
   const results = await Promise.allSettled([
     collectDocs(getExternalDocsRoot(), "External Docs"),
+    listExternalResearchDocs(getExternalResearchPath()),
     listBacktesterDocs(getBacktesterRoot()),
     collectDocs(getDocsPath(), "OpenClaw Docs"),
+    collectDocs(getKnowledgePath(), "OpenClaw Knowledge"),
+    collectDocs(getResearchPath(), "OpenClaw Research"),
   ]);
 
   const files = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));

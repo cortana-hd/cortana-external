@@ -1,16 +1,11 @@
-# External Archive
+# External Docs Archive
 
-This folder holds repo-wide docs that are still useful as reference but should not stay in the active docs tree.
+This folder holds repo-level docs that are still worth keeping in git but should not stay in the active top-level docs surface.
 
-Use it for:
+Use this for:
 
-- completed migration notes
-- speculative PRDs that are not current work
-- low-signal operator notes
-- older architecture docs kept for historical context
+- superseded repo-wide notes
+- old shared runbooks
+- historical architecture notes
 
-Rules:
-
-- do not place new active docs here
-- keep canonical current truth in `knowledge/`
-- keep active raw docs in `docs/source/`
+Do not put new active trading or backtester docs here. Those belong under `backtester/docs/source/`.

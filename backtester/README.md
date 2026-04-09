@@ -21,6 +21,8 @@ Other useful docs:
 - [Polymarket + backtester flow](./docs/source/architecture/polymarket-backtester-flow.md)
 - [Roadmap](./docs/source/roadmap/roadmap.md)
 - [Decision review loop](./docs/source/architecture/decision-review-loop.md)
+- [Trading cron base/enrichment/notify decoupling PRD](./docs/source/prd/prd-trading-cron-base-enrichment-notify-decoupling.md)
+- [Polymarket market intelligence PRD](./docs/source/prd/prd-polymarket-market-intelligence.md)
 - [Scoring and calibration notes](./docs/source/reference/scoring-calibration.md)
 - [Scoring and prediction accuracy reference](./docs/source/reference/scoring-prediction-accuracy-reference.md)
 - [Intraday breadth override PRD](./docs/source/prd/intraday-breadth-override-prd.md)

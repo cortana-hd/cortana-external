@@ -53,19 +53,22 @@ If you update a major source doc and it changes the current truth, update the ma
 
 ### Repo-wide docs
 
-Use top-level `docs/` when the subject spans multiple apps or describes shared runtime behavior.
+Use top-level `docs/` sparingly.
+
+Top-level source docs are reserved for the smallest shared front door:
+- documentation authoring guidance
+- Mission Control architecture / repo-level orientation
+
+If a doc is primarily about trading, runtime operations, or backtester behavior, it should not live in root `docs/source/`.
 
 Paths:
 - `docs/source/architecture/`
-- `docs/source/prd/`
-- `docs/source/runbook/`
+- `docs/archive/`
 
 Examples:
 - Mission Control architecture
-- repo-wide runtime design
-- shared recovery runbooks
-
-### Repo-wide archive docs
+- documentation placement guidance
+- archived repo-wide notes that no longer belong in the active surface
 
 Use `docs/archive/` for repo-wide docs that still matter historically but should not stay in the front-door source set.
 
@@ -82,7 +85,7 @@ Use `notes/` for idea dumps or future-work notes.
 
 ### Backtester source docs
 
-Use `backtester/docs/source/` for durable backtester docs.
+Use `backtester/docs/source/` for durable backtester docs, including trading PRDs and trading/operator runbooks that used to live at the repo root.
 
 Paths:
 - `backtester/docs/source/guide/`
@@ -95,9 +98,9 @@ Paths:
 Use:
 - `guide/` for conceptual learning docs and handoff docs
 - `architecture/` for system flow and design docs
-- `prd/` for requirement docs that belong in the backtester docs set
+- `prd/` for requirement docs that belong to the backtester/trading docs set
 - `reference/` for compact operational or technical reference docs
-- `runbook/` for recovery procedures
+- `runbook/` for recovery procedures and operator QA playbooks
 - `roadmap/` for the main forward plan
 
 ### Backtester planning artifacts
@@ -199,9 +202,10 @@ Avoid these:
 
 ## Fast Decision Table
 
-- "This is a repo-wide architecture note" -> `docs/source/architecture/`
+- "This is a repo-wide docs/front-door note" -> `docs/source/architecture/`
 - "This is a Mission Control-specific design note" -> `apps/mission-control/docs/source/architecture/`
 - "This is a backtester runbook" -> `backtester/docs/source/runbook/`
+- "This is a trading/backtester PRD" -> `backtester/docs/source/prd/`
 - "This is a backtester PRD/Tech Spec/Implementation Plan" -> `backtester/planning/...`
 - "This explains current truth for a whole system" -> `knowledge/domains/...`
 - "This is only a planning workflow helper or closeout note" -> `backtester/planning/docs/`
