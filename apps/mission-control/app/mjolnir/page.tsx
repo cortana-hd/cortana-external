@@ -5,6 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatPercent, formatNumber, formatDecimal, formatDuration, formatTimestamp } from "@/lib/format-utils";
+import { StrengthProfile } from "@/components/mjolnir/strength-profile";
+import { RecoveryRingAnimated } from "@/components/mjolnir/recovery-ring";
+import { AnimatedValue } from "@/components/mjolnir/animated-value";
+import { TrendChartRecharts, RecoverySleepOverlay, VolumeProgressionChart } from "@/components/mjolnir/trend-chart";
 
 export const dynamic = "force-dynamic";
 
@@ -289,7 +293,7 @@ export default async function FitnessPage() {
 
       {/* ═══ VITALS ROW ═══ */}
       <Animate delay={0.10}>
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <section className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
         {/* Left: Recovery + Sleep Combined */}
         <VitalsCard recovery={data.recovery} sleep={data.sleep} />
 
@@ -387,9 +391,8 @@ export default async function FitnessPage() {
               </Card>
             </section>
 
-            {/* ═══ 4. STRENGTH BARS + BODY ═══ */}
-            <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {/* Left: Strength Bars */}
+            {/* ═══ 4. STRENGTH + BODY + COVERAGE ═══ */}
+            <section>
               <Card className="gap-2 py-4 transition-colors hover:border-sky-300/50 dark:hover:border-sky-600/40 cursor-pointer">
                 <CardHeader className="gap-1 px-5">
                   <div className="flex items-center justify-between">
@@ -397,11 +400,13 @@ export default async function FitnessPage() {
                       <Weight className="h-4 w-4 text-sky-500 dark:text-sky-400" />
                       <CardTitle className="text-sm font-semibold uppercase tracking-wide">Strength Profile</CardTitle>
                     </div>
-                    {data.tonal?.available ? (
-                      <Badge variant="success" className="text-[10px]">connected</Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[10px]">offline</Badge>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {data.tonal?.available ? (
+                        <Badge variant="success" className="text-[10px]">connected</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px]">offline</Badge>
+                      )}
+                    </div>
                   </div>
                   {data.tonal?.available && (
                     <p className="text-[10px] text-muted-foreground">
@@ -409,38 +414,19 @@ export default async function FitnessPage() {
                     </p>
                   )}
                 </CardHeader>
-                <CardContent className="px-5">
-                  {data.tonal?.available && data.tonal.strengthScores.length > 0 ? (
-                    <StrengthBars scores={data.tonal.strengthScores} />
-                  ) : data.tonal?.available ? (
-                    <p className="py-4 text-xs text-muted-foreground">No strength score data available yet.</p>
-                  ) : (
-                    <p className="py-4 text-xs text-muted-foreground">Configure Tonal credentials to see strength metrics.</p>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Right: Body + Coverage */}
-              <Card className="gap-2 py-4 transition-colors hover:border-border/60 cursor-pointer">
-                <CardHeader className="gap-1 px-5">
-                  <div className="flex items-center gap-2">
-                    <Scale className="h-4 w-4 text-blue-500 dark:text-blue-400" />
-                    <CardTitle className="text-sm font-semibold uppercase tracking-wide">Body + Coverage</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4 px-5">
+                <CardContent className="space-y-5 px-5">
                   {/* Body metrics row */}
                   <div className="grid grid-cols-3 gap-2">
                     <div className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-center">
                       <p className="health-metric-label">Weight</p>
                       <p className="font-mono text-sm font-bold">
-                        {data.body?.weightKg != null ? `${Math.round(data.body.weightKg * 2.205)} lbs` : "—"}
+                        {data.body?.weightKg != null ? `${Math.round(data.body.weightKg * 2.205)} lbs` : "\u2014"}
                       </p>
                     </div>
                     <div className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-center">
                       <p className="health-metric-label">Height</p>
                       <p className="font-mono text-sm font-bold">
-                        {data.body?.heightM != null ? `${Math.round(data.body.heightM * 39.37)}"` : "—"}
+                        {data.body?.heightM != null ? `${Math.round(data.body.heightM * 39.37)}"` : "\u2014"}
                       </p>
                     </div>
                     <div className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-center">
@@ -451,8 +437,17 @@ export default async function FitnessPage() {
                     </div>
                   </div>
 
+                  {/* Strength charts */}
+                  {data.tonal?.available && data.tonal.strengthScores.length > 0 ? (
+                    <StrengthProfile scores={data.tonal.strengthScores} />
+                  ) : data.tonal?.available ? (
+                    <p className="py-4 text-xs text-muted-foreground">No strength score data available yet.</p>
+                  ) : (
+                    <p className="py-4 text-xs text-muted-foreground">Configure Tonal credentials to see strength metrics.</p>
+                  )}
+
                   {/* Movement Coverage */}
-                  <div className="space-y-2">
+                  <div className="space-y-2 border-t border-border/30 pt-4">
                     <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Movement Coverage</p>
                     <div className="h-2 w-full overflow-hidden rounded-full bg-muted/30">
                       <div
@@ -548,7 +543,7 @@ export default async function FitnessPage() {
           <div className="mb-3 flex items-center gap-2">
             <Weight className="h-4 w-4 text-sky-500 dark:text-sky-400" />
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Recent Tonal Sessions</h2>
-            <Badge variant="outline" className="text-[10px] font-mono">{data.tonal.recentWorkouts.length}</Badge>
+            <Badge variant="outline" className="text-[10px] font-mono">{Math.min(data.tonal.recentWorkouts.length, 5)}</Badge>
           </div>
           <div className="flex gap-3 overflow-x-auto pb-2">
             {data.tonal.recentWorkouts.slice(0, 5).map((w) => (
@@ -590,30 +585,36 @@ export default async function FitnessPage() {
         </Animate>
       )}
 
-      {/* ═══ 7. TRENDS ═══ */}
+      {/* ═══ 7. COMBINED RECOVERY + SLEEP LINE CHART ═══ */}
+      <RecoverySleepOverlay
+        recovery={data.trends.recovery}
+        sleep={data.trends.sleepPerformance}
+      />
+
+      {/* ═══ 8. VOLUME PROGRESSION ═══ */}
+      {data.tonal?.available && data.tonal.recentWorkouts.length > 0 && (
+        <VolumeProgressionChart workouts={data.tonal.recentWorkouts} />
+      )}
+
+      {/* ═══ 9. TREND BARS ═══ */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <TrendChart
+        <TrendChartRecharts
           data={data.trends.recovery}
-          tone="bg-emerald-500/80 dark:bg-emerald-400/70"
-          colorByValue={(v) =>
-            v >= 67 ? "bg-emerald-500/80 dark:bg-emerald-400/70"
-            : v >= 34 ? "bg-amber-500/80 dark:bg-amber-400/70"
-            : "bg-red-500/80 dark:bg-red-400/70"
-          }
+          colorMode="recovery"
           threshold={67}
           label="Recovery"
           currentValue={currentRecovery}
         />
-        <TrendChart
+        <TrendChartRecharts
           data={data.trends.sleepPerformance}
-          tone="bg-violet-500/80 dark:bg-violet-400/70"
+          defaultColor="#a78bfa"
           threshold={70}
           label="Sleep Performance"
           currentValue={currentSleep}
         />
       </section>
 
-      {/* ═══ 8. ALERT TIMELINE ═══ */}
+      {/* ═══ 10. ALERT TIMELINE ═══ */}
       <AlertTimeline alerts={data.alerts} history={data.alertHistory} />
     </div>
   );
@@ -635,19 +636,19 @@ function VitalsCard({
     <Card className="gap-0 py-0 overflow-hidden transition-colors hover:border-emerald-200/50 dark:hover:border-emerald-700/30 cursor-pointer">
       {/* Top half: Recovery */}
       <div className="flex flex-col gap-4 border-b border-border/30 px-5 py-4 sm:flex-row sm:items-center">
-        <RecoveryRing score={recovery.score} status={recovery.status} />
+        <RecoveryRingAnimated score={recovery.score} status={recovery.status} />
         <div className="flex flex-1 flex-col gap-2">
           <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
             <div className="flex items-baseline gap-1">
-              <span className="font-mono text-sm font-bold">{formatDecimal(recovery.hrv, "")}</span>
+              <AnimatedValue value={recovery.hrv} formatPreset="decimal" className="font-mono text-sm font-bold" duration={1000} />
               <span className="text-[10px] text-muted-foreground">HRV</span>
             </div>
             <div className="flex items-baseline gap-1">
-              <span className="font-mono text-sm font-bold">{formatNumber(recovery.restingHeartRate, "")}</span>
+              <AnimatedValue value={recovery.restingHeartRate} className="font-mono text-sm font-bold" duration={1000} />
               <span className="text-[10px] text-muted-foreground">RHR</span>
             </div>
             <div className="flex items-baseline gap-1">
-              <span className="font-mono text-sm font-bold">{formatPercent(recovery.spo2)}</span>
+              <AnimatedValue value={recovery.spo2 != null ? recovery.spo2 * 100 : null} formatPreset="percent" className="font-mono text-sm font-bold" duration={1000} />
               <span className="text-[10px] text-muted-foreground">SpO&#8322;</span>
             </div>
           </div>

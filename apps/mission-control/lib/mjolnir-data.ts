@@ -307,7 +307,7 @@ function buildTonalSummary(data?: TonalDataLike) {
       const bTime = parseDateValue(b.beginTime ?? b.startTime)?.getTime() ?? 0;
       return bTime - aTime;
     })
-    .slice(0, 5)
+    .slice(0, 20)
     .map((w) => {
       const movementCount = pickNumber(w, ["totalMovements"]) ?? 0;
       const totalVolume = pickNumber(w, ["totalVolume"]) ?? 0;
