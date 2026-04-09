@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
 import {
+  getCovenantPath,
   getCortanaSourceRepo,
   getCorticalLoopPath,
   getDocsPath,
@@ -174,6 +175,7 @@ async function listAllDocs(): Promise<DocEntry[]> {
     collectDocs(getDocsPath(), "OpenClaw Docs"),
     collectDocs(getKnowledgePath(), "OpenClaw Knowledge"),
     collectDocs(getResearchPath(), "OpenClaw Research"),
+    collectOptionalDocs(getCovenantPath(), "OpenClaw Knowledge", getCortanaSourceRepo()),
     collectOptionalDocs(getCorticalLoopPath(), "OpenClaw Knowledge", getCortanaSourceRepo()),
     collectOptionalDocs(getImmuneSystemPath(), "OpenClaw Knowledge", getCortanaSourceRepo()),
     collectOptionalDocs(getProprioceptionPath(), "OpenClaw Knowledge", getCortanaSourceRepo()),

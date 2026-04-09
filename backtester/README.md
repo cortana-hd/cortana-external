@@ -15,7 +15,7 @@ Use the study guide when you want to understand the system conceptually:
 - [Session Handoff](./docs/source/guide/session-handoff.md)
 - [Schwab OAuth Reauth Runbook](./docs/source/runbook/schwab-oauth-reauth-runbook.md)
 - [Streamer Failure Modes Runbook](./docs/source/runbook/streamer-failure-modes-runbook.md)
-- [Scoring and Prediction Accuracy Reference](./docs/source/reference/scoring-prediction-accuracy-reference.md)
+- [Scoring and Prediction Accuracy Reference](./knowledge/reference/scoring-prediction-accuracy-reference.md)
 
 Other useful docs:
 - [Polymarket + backtester flow](./docs/source/architecture/polymarket-backtester-flow.md)
@@ -23,12 +23,12 @@ Other useful docs:
 - [Decision review loop](./docs/source/architecture/decision-review-loop.md)
 - [Trading cron base/enrichment/notify decoupling PRD](./docs/source/prd/prd-trading-cron-base-enrichment-notify-decoupling.md)
 - [Polymarket market intelligence PRD](./docs/source/prd/prd-polymarket-market-intelligence.md)
-- [Scoring and calibration notes](./docs/source/reference/scoring-calibration.md)
-- [Scoring and prediction accuracy reference](./docs/source/reference/scoring-prediction-accuracy-reference.md)
+- [Scoring and calibration notes](./knowledge/reference/scoring-calibration.md)
+- [Scoring and prediction accuracy reference](./knowledge/reference/scoring-prediction-accuracy-reference.md)
 - [Intraday breadth override PRD](./docs/source/prd/intraday-breadth-override-prd.md)
 - [Uncertainty/confidence PRD](./docs/source/prd/uncertainty-confidence-prd.md)
-- [Uncertainty runtime wiring](./docs/source/reference/uncertainty-confidence-runtime-wiring.md)
-- [Market-data service reference](./docs/source/reference/market-data-service-reference.md)
+- [Uncertainty runtime wiring](./knowledge/reference/uncertainty-confidence-runtime-wiring.md)
+- [Market-data service reference](./knowledge/reference/market-data-service-reference.md)
 - [Schwab OAuth reauth runbook](./docs/source/runbook/schwab-oauth-reauth-runbook.md)
 - [Streamer failure modes runbook](./docs/source/runbook/streamer-failure-modes-runbook.md)
 
@@ -207,7 +207,7 @@ It does not include:
 - full CANSLIM or Dip Buyer scans
 - Telegram delivery logic
 
-Typed consumer-field guidance lives in [consumer-contracts.md](/Users/hd/Developer/cortana-external/backtester/docs/source/reference/consumer-contracts.md).
+Typed consumer-field guidance lives in [consumer-contracts.md](./knowledge/reference/consumer-contracts.md).
 
 ## Workflow Wrappers
 
@@ -658,7 +658,7 @@ Backtester-facing service endpoints:
 - `GET /market-data/risk/history`
 - `GET /market-data/risk/snapshot`
 
-See [Market-data service reference](./docs/source/reference/market-data-service-reference.md) for compact endpoint notes, readiness semantics, and streamer recovery basics.
+See [Market-data service reference](./knowledge/reference/market-data-service-reference.md) for compact endpoint notes, readiness semantics, and streamer recovery basics.
 
 History route notes:
 - `GET /market-data/history/:symbol` now honors `interval=1d|1wk|1mo` instead of silently collapsing everything to daily bars

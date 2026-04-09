@@ -9,4 +9,4 @@ Raw source docs for Mission Control live here.
 ## Start Here
 
 - [Council background jobs](./source/architecture/council-background-jobs.md)
-- [Knowledge overview](../../../knowledge/domains/mission-control/overview.md)
+- [Knowledge overview](../knowledge/README.md)

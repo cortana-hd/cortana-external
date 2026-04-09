@@ -48,6 +48,10 @@ export function getKnowledgePath(): string {
   return readEnvPath("KNOWLEDGE_PATH") ?? path.join(getCortanaSourceRepo(), "knowledge");
 }
 
+export function getCovenantPath(): string {
+  return readEnvPath("COVENANT_PATH") ?? path.join(getCortanaSourceRepo(), "covenant");
+}
+
 export function getCorticalLoopPath(): string {
   return readEnvPath("CORTICAL_LOOP_PATH") ?? path.join(getCortanaSourceRepo(), "cortical-loop");
 }

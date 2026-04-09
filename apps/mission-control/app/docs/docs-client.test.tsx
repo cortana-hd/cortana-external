@@ -316,4 +316,50 @@ describe("DocsClient", () => {
       );
     });
   });
+
+  it("resolves absolute filesystem markdown links", async () => {
+    const fetchMock = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          files: [
+            {
+              id: "OpenClaw Research:README.md",
+              name: "README.md",
+              path: "/Users/hd/Developer/cortana/research/README.md",
+              section: "OpenClaw Research",
+            },
+            {
+              id: "OpenClaw Research:raw/spartan/README.md",
+              name: "raw/spartan/README.md",
+              path: "/Users/hd/Developer/cortana/research/raw/spartan/README.md",
+              section: "OpenClaw Research",
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "ok",
+          name: "README.md",
+          content: "# Research Workspace\n\n- [Spartan raw corpus](/Users/hd/Developer/cortana/research/raw/spartan/README.md)",
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ status: "ok", name: "README.md", content: "# Spartan Raw Research Corpus" })
+      );
+
+    render(<DocsClient />);
+
+    const link = await screen.findByRole("link", { name: /spartan raw corpus/i });
+    fireEvent.click(link);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/docs?file=OpenClaw%20Research%3Araw%2Fspartan%2FREADME.md",
+        { cache: "no-store" },
+      );
+    });
+  });
 });

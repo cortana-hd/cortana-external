@@ -39,6 +39,9 @@ const DOC_ROOT_PREFIXES = [
 ] as const;
 
 function resolveDocHref(currentName: string | null, href: string, files: DocFile[]): DocFile | null {
+  const exactPath = files.find((f) => f.path === href);
+  if (exactPath) return exactPath;
+
   const currentDir = currentName ? currentName.split("/").slice(0, -1).join("/") : "";
   const parts = [...(currentDir ? currentDir.split("/") : []), ...href.split("/")];
   const resolved: string[] = [];
