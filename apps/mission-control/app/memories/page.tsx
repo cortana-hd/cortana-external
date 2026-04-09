@@ -261,53 +261,78 @@ export default function MemoriesPage() {
 
       {/* Date list */}
       <div className="space-y-0.5">
-        <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          Daily Memories
-        </p>
-        {dailyLoading ? (
-          <p className="px-2 py-3 text-sm text-muted-foreground">Loading...</p>
-        ) : filteredDates.length === 0 ? (
-          <p className="px-2 py-3 text-sm text-muted-foreground">
-            {searchQuery ? `No results for "${searchQuery}"` : "No memories found."}
-          </p>
-        ) : (
-          filteredDates.map((date) => {
-            const isActive = date === selectedDate && activeTab === "daily";
-            return (
-              <button
-                key={date}
-                type="button"
-                onClick={() => {
-                  setSelectedDate(date);
-                  setActiveTab("daily");
-                  setMobileSidebarOpen(false);
-                }}
-                className={cn("docs-nav-item", isActive && "docs-nav-item-active")}
-              >
-                <Calendar className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{formatDate(date)}</span>
-              </button>
-            );
-          })
+        <button
+          type="button"
+          onClick={() => setActiveTab("daily")}
+          className={cn(
+            "docs-nav-section",
+            activeTab === "daily" && "text-foreground",
+          )}
+        >
+          <ChevronRight className={cn("h-3 w-3 shrink-0 text-muted-foreground/70 transition-transform duration-150", activeTab === "daily" && "rotate-90")} />
+          <span className="min-w-0 flex-1 truncate">Daily Memories</span>
+          <span className="shrink-0 rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+            {dates.length}
+          </span>
+        </button>
+        {activeTab === "daily" && (
+          dailyLoading ? (
+            <p className="px-2 py-3 text-sm text-muted-foreground">Loading...</p>
+          ) : filteredDates.length === 0 ? (
+            <p className="px-2 py-3 text-sm text-muted-foreground">
+              {searchQuery ? `No results for "${searchQuery}"` : "No memories found."}
+            </p>
+          ) : (
+            filteredDates.map((date) => {
+              const isActive = date === selectedDate;
+              return (
+                <button
+                  key={date}
+                  type="button"
+                  onClick={() => {
+                    setSelectedDate(date);
+                    setActiveTab("daily");
+                    setMobileSidebarOpen(false);
+                  }}
+                  className={cn("docs-nav-file", isActive && "docs-nav-file-active")}
+                  style={{ paddingLeft: "14px" }}
+                >
+                  <Calendar className="h-3 w-3 shrink-0 text-muted-foreground/70" />
+                  <span className="truncate">{formatDate(date)}</span>
+                </button>
+              );
+            })
+          )
         )}
       </div>
 
       {/* Long-term memory link */}
       <div className="space-y-0.5">
-        <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          Persistent
-        </p>
         <button
           type="button"
-          onClick={() => {
-            setActiveTab("longterm");
-            setMobileSidebarOpen(false);
-          }}
-          className={cn("docs-nav-item", activeTab === "longterm" && "docs-nav-item-active")}
+          onClick={() => setActiveTab("longterm")}
+          className={cn(
+            "docs-nav-section",
+            activeTab === "longterm" && "text-foreground",
+          )}
         >
-          <List className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">MEMORY.md</span>
+          <ChevronRight className={cn("h-3 w-3 shrink-0 text-muted-foreground/70 transition-transform duration-150", activeTab === "longterm" && "rotate-90")} />
+          <span className="min-w-0 flex-1 truncate">Persistent</span>
         </button>
+        {activeTab === "longterm" && (
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("longterm");
+              setMobileSidebarOpen(false);
+            }}
+            className={cn("docs-nav-file docs-nav-file-active")}
+            style={{ paddingLeft: "14px" }}
+          >
+            <List className="h-3 w-3 shrink-0 text-muted-foreground/70" />
+            <span className="truncate">MEMORY.md</span>
+          </button>
+        )}
       </div>
     </nav>
   );
@@ -408,7 +433,7 @@ export default function MemoriesPage() {
         <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Memory Vault</p>
         <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Memories</h1>
         <p className="text-sm text-muted-foreground">
-          Daily notes and long-term memory from OpenClaw.
+          Daily notes and long-term memory from Cortana.
         </p>
       </div>
 
