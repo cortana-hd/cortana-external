@@ -104,7 +104,6 @@ function getGroupLabel(group: string): string {
 function getSectionKey(group: string, section: string): string {
   return `${group}::${section}`;
 }
-
 function buildFolderTree(files: DocFile[], searchQuery: string): SectionTree[] {
   const query = searchQuery.toLowerCase();
   const filtered = query ? files.filter((f) => f.name.toLowerCase().includes(query)) : files;

@@ -33,6 +33,8 @@ Examples:
 
 These live in repo/app/backtester doc folders.
 
+Historical or low-signal docs can be moved to `docs/archive/` instead of staying in the active source tree.
+
 ### 2. Knowledge docs
 
 Knowledge docs are canonical summaries of current truth.
@@ -67,6 +69,8 @@ Examples:
 - Mission Control architecture
 - documentation placement guidance
 - archived repo-wide notes that no longer belong in the active surface
+
+Use `docs/archive/` for repo-wide docs that still matter historically but should not stay in the front-door source set.
 
 ### Mission Control docs
 
@@ -183,6 +187,8 @@ For significant new work:
 6. Update nearby README/index pages if discovery changed.
 7. Verify relative links before finishing.
 
+If a doc is still useful but no longer belongs in active source docs, move it into `docs/archive/`.
+
 ## Anti-Patterns
 
 Avoid these:
@@ -191,6 +197,7 @@ Avoid these:
 - putting app-specific docs in top-level `docs/`
 - putting raw planning artifacts in `knowledge/`
 - creating "misc" or "random-notes" style folders
+- leaving low-signal historical docs in the active front-door tree
 - leaving stale links to old paths after moves
 
 ## Fast Decision Table

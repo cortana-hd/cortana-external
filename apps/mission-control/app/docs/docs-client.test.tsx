@@ -151,11 +151,13 @@ describe("DocsClient", () => {
     render(<DocsClient />);
 
     await screen.findByText("cortana-external");
-    expect(screen.queryAllByText("Knowledge")).toHaveLength(0);
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /knowledge/i })).not.toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /openclaw/i }));
 
-    expect(await screen.findAllByText("Knowledge")).not.toHaveLength(0);
+    expect(await screen.findByRole("button", { name: /knowledge/i })).toBeInTheDocument();
   });
 
   it("renders search input", async () => {
@@ -218,8 +220,10 @@ describe("DocsClient", () => {
 
     await screen.findByRole("button", { name: /docs/i });
     await screen.findByRole("button", { name: /source/i });
-    expect(screen.queryByRole("button", { name: /new/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /old/i })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /new/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /old/i })).not.toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /source/i }));
     expect(await screen.findByRole("button", { name: /new/i })).toBeInTheDocument();
