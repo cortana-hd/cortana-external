@@ -14,7 +14,7 @@ import { OverviewTab } from "./tabs/overview-tab";
 import { AgentsTab } from "./tabs/agents-tab";
 import { SessionsTab } from "./tabs/sessions-tab";
 import { LogsTab } from "./tabs/logs-tab";
-import { TabLoading } from "./tabs/shared";
+import { TabLayout, TabLoading } from "./tabs/shared";
 import type {
   SerializedAgent,
   CouncilSessionSummary,
@@ -55,8 +55,12 @@ export default function ServicesHub() {
   const [logsLoading, setLogsLoading] = React.useState(false);
   const [logsLoaded, setLogsLoaded] = React.useState(false);
   const [dataLoading, setDataLoading] = React.useState(true);
+  const [dataLoaded, setDataLoaded] = React.useState(false);
+  const [dataError, setDataError] = React.useState<string | null>(null);
   const [sessionsLoading, setSessionsLoading] = React.useState(false);
   const [sessionsLoaded, setSessionsLoaded] = React.useState(false);
+  const [sessionsError, setSessionsError] = React.useState<string | null>(null);
+  const [logsError, setLogsError] = React.useState<string | null>(null);
 
   /* Preload heavy tab chunks in background */
   React.useEffect(() => {
@@ -67,49 +71,57 @@ export default function ServicesHub() {
 
   /* Fetch agents + council fast, usage in background (it's slow — CLI subprocess) */
   React.useEffect(() => {
+    if (dataLoaded) return;
     let cancelled = false;
 
     const loadFast = async () => {
       setDataLoading(true);
-      const [agentsRes, councilRes] = await Promise.allSettled([
-        fetch("/api/agents", { cache: "no-store" }).then((r) => r.json()),
-        fetch("/api/council", { cache: "no-store" }).then((r) => r.json()),
-      ]);
-      if (cancelled) return;
+      setDataError(null);
+      try {
+        const [agentsRes, councilRes] = await Promise.allSettled([
+          fetch("/api/agents", { cache: "no-store" }).then((r) => r.json()),
+          fetch("/api/council", { cache: "no-store" }).then((r) => r.json()),
+          new Promise((r) => setTimeout(r, 400)),
+        ]);
+        if (cancelled) return;
 
-      if (agentsRes.status === "fulfilled") {
-        const raw = agentsRes.value?.agents ?? agentsRes.value ?? [];
-        if (Array.isArray(raw)) {
-          setAgents(raw.map((a: Record<string, unknown>) => ({
-            id: String(a.id ?? ""),
-            name: String(a.name ?? ""),
-            role: String(a.role ?? ""),
-            status: String(a.status ?? "unknown"),
-            model: (a.model as string) ?? null,
-            modelDisplay: (a.modelDisplay as string) ?? null,
-            capabilities: String(a.capabilities ?? ""),
-            healthScore: typeof a.healthScore === "number" ? a.healthScore : null,
-            lastSeen: a.lastSeen ? String(a.lastSeen) : null,
-          })));
+        if (agentsRes.status === "fulfilled") {
+          const raw = agentsRes.value?.agents ?? agentsRes.value ?? [];
+          if (Array.isArray(raw)) {
+            setAgents(raw.map((a: Record<string, unknown>) => ({
+              id: String(a.id ?? ""),
+              name: String(a.name ?? ""),
+              role: String(a.role ?? ""),
+              status: String(a.status ?? "unknown"),
+              model: (a.model as string) ?? null,
+              modelDisplay: (a.modelDisplay as string) ?? null,
+              capabilities: String(a.capabilities ?? ""),
+              healthScore: typeof a.healthScore === "number" ? a.healthScore : null,
+              lastSeen: a.lastSeen ? String(a.lastSeen) : null,
+            })));
+          }
         }
-      }
 
-      if (councilRes.status === "fulfilled") {
-        const raw = councilRes.value?.sessions ?? councilRes.value ?? [];
-        if (Array.isArray(raw)) {
-          setCouncilSessions(raw.map((s: Record<string, unknown>) => ({
-            id: String(s.id ?? ""),
-            topic: String(s.topic ?? ""),
-            status: String(s.status ?? ""),
-            mode: String(s.mode ?? ""),
-            confidence: typeof s.confidence === "number" ? s.confidence : null,
-            createdAt: String(s.createdAt ?? ""),
-            decidedAt: s.decidedAt ? String(s.decidedAt) : null,
-          })));
+        if (councilRes.status === "fulfilled") {
+          const raw = councilRes.value?.sessions ?? councilRes.value ?? [];
+          if (Array.isArray(raw)) {
+            setCouncilSessions(raw.map((s: Record<string, unknown>) => ({
+              id: String(s.id ?? ""),
+              topic: String(s.topic ?? ""),
+              status: String(s.status ?? ""),
+              mode: String(s.mode ?? ""),
+              confidence: typeof s.confidence === "number" ? s.confidence : null,
+              createdAt: String(s.createdAt ?? ""),
+              decidedAt: s.decidedAt ? String(s.decidedAt) : null,
+            })));
+          }
         }
+      } catch (e) {
+        if (!cancelled) setDataError(e instanceof Error ? e.message : "Failed to load services data.");
+      } finally {
+        if (!cancelled) setDataLoading(false);
+        if (!cancelled) setDataLoaded(true);
       }
-
-      setDataLoading(false);
     };
 
     const loadUsage = async () => {
@@ -124,7 +136,7 @@ export default function ServicesHub() {
     void loadUsage();
 
     return () => { cancelled = true; };
-  }, []);
+  }, [dataLoaded]);
 
   /* lazy-load sessions when tab is activated */
   React.useEffect(() => {
@@ -132,6 +144,7 @@ export default function ServicesHub() {
     let cancelled = false;
     const load = async () => {
       setSessionsLoading(true);
+      setSessionsError(null);
       try {
         const res = await fetch("/api/sessions", { cache: "no-store" });
         const data = (await res.json()) as { sessions?: SessionData[] };
@@ -139,7 +152,7 @@ export default function ServicesHub() {
           setSessions(data.sessions ?? []);
           setSessionsLoaded(true);
         }
-      } catch { /* ignore */ } finally {
+      } catch (e) { if (!cancelled) setSessionsError(e instanceof Error ? e.message : "Failed to load sessions."); } finally {
         if (!cancelled) setSessionsLoading(false);
       }
     };
@@ -153,6 +166,7 @@ export default function ServicesHub() {
     let cancelled = false;
     const load = async () => {
       setLogsLoading(true);
+      setLogsError(null);
       try {
         const res = await fetch("/api/logs?rangeHours=24&limit=100", { cache: "no-store" });
         const data = (await res.json()) as { logs?: LogEntry[] };
@@ -160,13 +174,25 @@ export default function ServicesHub() {
           setLogs(data.logs ?? []);
           setLogsLoaded(true);
         }
-      } catch { /* ignore */ } finally {
+      } catch (e) { if (!cancelled) setLogsError(e instanceof Error ? e.message : "Failed to load logs."); } finally {
         if (!cancelled) setLogsLoading(false);
       }
     };
     void load();
     return () => { cancelled = true; };
   }, [activeTab, logsLoaded]);
+
+  const refreshData = React.useCallback(() => {
+    setDataLoaded(false);
+  }, []);
+
+  const refreshSessions = React.useCallback(() => {
+    setSessionsLoaded(false);
+  }, []);
+
+  const refreshLogs = React.useCallback(() => {
+    setLogsLoaded(false);
+  }, []);
 
   const coreAgents = agents.filter((a) => !WORKER_IDS.has(a.id));
   const workerAgents = agents.filter((a) => WORKER_IDS.has(a.id));
@@ -175,7 +201,7 @@ export default function ServicesHub() {
     <div className="space-y-4">
       {/* Header */}
       <div className="space-y-1">
-        <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">OpenClaw</p>
+        <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Cortana</p>
         <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Services & Operations</h1>
         <p className="text-sm text-muted-foreground">
           Configuration, agents, scheduled jobs, and session analytics in one view.
@@ -207,9 +233,7 @@ export default function ServicesHub() {
       {/* Tab content */}
       <div className="min-h-[50vh]">
         {activeTab === "overview" && (
-          dataLoading
-            ? <TabLoading />
-            : <OverviewTab agents={agents} councilSessions={councilSessions} usage={usage} onSwitchTab={setActiveTab} />
+          <OverviewTab agents={agents} councilSessions={councilSessions} usage={usage} onSwitchTab={setActiveTab} loading={dataLoading && !dataLoaded} error={dataError} onRefresh={refreshData} />
         )}
         {activeTab === "config" && (
           <React.Suspense fallback={<TabLoading />}>
@@ -217,25 +241,30 @@ export default function ServicesHub() {
           </React.Suspense>
         )}
         {activeTab === "agents" && (
-          dataLoading
-            ? <TabLoading />
-            : <AgentsTab coreAgents={coreAgents} workerAgents={workerAgents} />
+          <AgentsTab coreAgents={coreAgents} workerAgents={workerAgents} loading={dataLoading} error={dataError} />
         )}
         {activeTab === "cron" && (
           <React.Suspense fallback={<TabLoading />}>
-            <CronClient />
+            <TabLayout
+              title="Cron Jobs"
+              subtitle="Review schedules, trigger runs, and adjust delivery settings"
+            >
+              <CronClient hideHeader />
+            </TabLayout>
           </React.Suspense>
         )}
         {activeTab === "sessions" && (
           <SessionsTab
             sessions={sessions}
-            sessionsLoading={sessionsLoading}
             councilSessions={councilSessions}
             usage={usage}
+            loading={sessionsLoading && !sessionsLoaded}
+            error={sessionsError}
+            onRefresh={refreshSessions}
           />
         )}
         {activeTab === "logs" && (
-          <LogsTab logs={logs} loading={logsLoading} />
+          <LogsTab logs={logs} loading={logsLoading && !logsLoaded} error={logsError} onRefresh={refreshLogs} />
         )}
       </div>
     </div>

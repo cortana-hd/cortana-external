@@ -3,7 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { getTaskPrisma } from "@/lib/task-prisma";
 import { deriveEvidenceGrade, deriveLaunchPhase, extractProviderPath } from "@/lib/run-intelligence";
 import { AgentOperationalStats, AgentRecentRun, computeHealthScore, deriveHealthBand } from "@/lib/agent-health";
-import { getAgentModelDisplay } from "@/lib/agent-models";
+import { getAgentModelDisplay, getAgentProfiles } from "@/lib/agent-models";
 import { normalizeIdentity, refreshOpenClawState, latestRunOrder, type AgentSummary } from "@/lib/data-helpers";
 
 export const getAgents = async (options?: { refreshRuns?: boolean }) => {
@@ -14,7 +14,11 @@ export const getAgents = async (options?: { refreshRuns?: boolean }) => {
 
   const taskPrisma = getTaskPrisma();
 
-  const [agents, runs, tasks] = await Promise.all([
+  /* Read the agent roster from config/agent-profiles.json (source of truth)
+     and enrich with DB runtime data (runs, tasks, health). */
+  const profiles = getAgentProfiles();
+
+  const [dbAgents, runs, tasks] = await Promise.all([
     prisma.agent.findMany({
       orderBy: [{ status: "asc" }, { name: "asc" }],
     }),
@@ -31,6 +35,28 @@ export const getAgents = async (options?: { refreshRuns?: boolean }) => {
       orderBy: [{ updatedAt: "desc" }],
     }),
   ]);
+
+  /* Build a lookup of DB agents by id and normalized name for matching */
+  const dbAgentById = new Map(dbAgents.map((a) => [a.id, a]));
+  const dbAgentByName = new Map(dbAgents.map((a) => [normalizeIdentity(a.name), a]));
+
+  /* Merge: use profiles as the canonical roster, overlay with DB metadata */
+  const agents = profiles.map((profile) => {
+    const dbMatch = dbAgentById.get(profile.id) ?? dbAgentByName.get(normalizeIdentity(profile.name));
+    return {
+      id: profile.id,
+      name: profile.name,
+      role: profile.role,
+      description: dbMatch?.description ?? null,
+      capabilities: profile.capabilities,
+      model: profile.model,
+      status: dbMatch?.status ?? "active",
+      healthScore: dbMatch?.healthScore ?? null,
+      lastSeen: dbMatch?.lastSeen ?? null,
+      createdAt: dbMatch?.createdAt ?? new Date(),
+      updatedAt: dbMatch?.updatedAt ?? new Date(),
+    };
+  });
 
   const statsByAgent = new Map<string, AgentOperationalStats>();
 

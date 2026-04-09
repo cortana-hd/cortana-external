@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
-import { getAgentModelsPath } from "@/lib/runtime-paths";
+import { getAgentModelsPath, getAgentProfilesPath } from "@/lib/runtime-paths";
 
 const formatModelDisplayName = (key: string) => {
   const suffix = key.split("/").pop() ?? key;
@@ -17,6 +17,54 @@ const formatModelDisplayName = (key: string) => {
     })
     .join(" ");
 };
+
+/* ── agent roles (canonical definitions for display) ── */
+
+const AGENT_ROLES: Record<string, { name: string; role: string; capabilities: string }> = {
+  main: { name: "Cortana", role: "Command Deck", capabilities: "Triage, routing, synthesis, escalation" },
+  huragok: { name: "Hera", role: "Systems Engineer", capabilities: "Code, infra, debugging, PRs, CI" },
+  researcher: { name: "Researcher", role: "Scout", capabilities: "Research, news, evidence gathering" },
+  oracle: { name: "Oracle", role: "Forecaster", capabilities: "Market pulse, portfolio, risk analysis" },
+  monitor: { name: "Monitor", role: "Guardian", capabilities: "Health, cron delivery, drift, incidents" },
+  arbiter: { name: "Arbiter", role: "Council Chair", capabilities: "Multi-agent deliberation, voting" },
+  spartan: { name: "Spartan", role: "Fitness Coach", capabilities: "Whoop/Tonal analysis, coaching" },
+  librarian: { name: "Librarian", role: "Knowledge Base", capabilities: "Docs, schema, information architecture" },
+};
+
+export type AgentProfile = {
+  id: string;
+  name: string;
+  role: string;
+  capabilities: string;
+  model: string | null;
+  modelDisplay: string | null;
+};
+
+export function getAgentProfiles(): AgentProfile[] {
+  try {
+    const profilesPath = getAgentProfilesPath();
+    if (!existsSync(profilesPath)) return [];
+    const raw = JSON.parse(readFileSync(profilesPath, "utf8")) as Array<{ id: string; model?: string }>;
+    const modelMap = getAgentModelMap();
+
+    return raw
+      .filter((p) => !p.id.startsWith("cron-"))
+      .map((p) => {
+        const meta = AGENT_ROLES[p.id] ?? { name: p.id, role: "Agent", capabilities: "" };
+        const modelKey = p.model ?? modelMap[meta.name] ?? null;
+        return {
+          id: p.id,
+          name: meta.name,
+          role: meta.role,
+          capabilities: meta.capabilities,
+          model: modelKey,
+          modelDisplay: modelKey ? formatModelDisplayName(modelKey) : null,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
 
 export function getAgentModelMap(): Record<string, string> {
   try {

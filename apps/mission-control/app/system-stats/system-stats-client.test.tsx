@@ -17,8 +17,8 @@ describe("SystemStatsClient", () => {
   it("shows loading state initially", () => {
     vi.spyOn(global, "fetch").mockImplementation(() => new Promise(() => {}));
 
-    render(<SystemStatsClient />);
-    expect(screen.getByText("Loading system stats...")).toBeInTheDocument();
+    const { container } = render(<SystemStatsClient />);
+    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
   });
 
   it("renders host, gateway, and session health cards", async () => {

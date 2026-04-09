@@ -68,6 +68,10 @@ export function getSaePath(): string {
   return readEnvPath("SAE_PATH") ?? path.join(getCortanaSourceRepo(), "sae");
 }
 
+export function getAgentProfilesPath(): string {
+  return readEnvPath("AGENT_PROFILES_PATH") ?? path.join(getCortanaSourceRepo(), "config", "agent-profiles.json");
+}
+
 export function getAgentModelsPath(): string {
   return readEnvPath("AGENT_MODELS_PATH") ?? path.join(getCortanaSourceRepo(), "config", "agent-models.json");
 }

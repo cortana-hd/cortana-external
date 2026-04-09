@@ -1,7 +1,7 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CronClient } from "@/app/cron/cron-client";
+import { CronClient, __resetCronCache } from "@/app/cron/cron-client";
 
 const jsonResponse = (payload: unknown, status = 200) =>
   ({ ok: status >= 200 && status < 300, status, json: async () => payload }) as Response;
@@ -9,7 +9,7 @@ const jsonResponse = (payload: unknown, status = 200) =>
 const hasText = (text: string) => screen.queryAllByText(text).length > 0;
 
 describe("CronClient", () => {
-  beforeEach(() => vi.restoreAllMocks());
+  beforeEach(() => { vi.restoreAllMocks(); __resetCronCache(); });
 
   const baseJobs = [
     { id: "job-alpha", name: "Alpha Job", enabled: true, state: { consecutiveErrors: 0 } },

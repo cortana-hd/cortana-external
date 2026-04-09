@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { TabLayout } from "./tabs/shared";
 import type {
   WorkspaceData,
   WorkspaceEnvFile,
@@ -34,6 +35,11 @@ type WorkspaceRouteResponse =
   | { status: "error"; message: string };
 
 const POLL_MS = 45_000;
+const CACHE_MAX_AGE_MS = 5 * 60_000;
+
+/* ── module-level cache so data survives tab switches ── */
+let cachedWorkspace: WorkspaceData | null = null;
+let cachedAt = 0;
 
 const toneStyles: Record<WorkspaceHealthTone, { badge: React.ComponentProps<typeof Badge>["variant"]; dot: string; border: string }> = {
   healthy: { badge: "success", dot: "bg-emerald-500", border: "border-l-emerald-500 dark:border-l-emerald-400" },
@@ -100,10 +106,12 @@ function buildUpdates(data: WorkspaceData, drafts: Record<string, string>, clear
 /* ── main component ── */
 
 export default function ServicesClient() {
-  const [data, setData] = React.useState<WorkspaceData | null>(null);
-  const [drafts, setDrafts] = React.useState<Record<string, string>>({});
+  const [data, setData] = React.useState<WorkspaceData | null>(() => cachedWorkspace);
+  const [drafts, setDrafts] = React.useState<Record<string, string>>(() =>
+    cachedWorkspace ? hydrateDrafts(cachedWorkspace) : {},
+  );
   const [clearRequested, setClearRequested] = React.useState<Record<string, boolean>>({});
-  const [loading, setLoading] = React.useState(true);
+  const [loading, setLoading] = React.useState(!cachedWorkspace);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [isSaving, startSaving] = React.useTransition();
@@ -113,17 +121,23 @@ export default function ServicesClient() {
 
   const loadWorkspace = React.useCallback(async (options?: { preserveDrafts?: boolean }) => {
     const nextData = await requestWorkspace();
+    cachedWorkspace = nextData;
+    cachedAt = Date.now();
     setData(nextData);
     if (!options?.preserveDrafts) { setDrafts(hydrateDrafts(nextData)); setClearRequested({}); }
   }, []);
 
   React.useEffect(() => {
     let active = true;
+    const cacheAge = Date.now() - cachedAt;
+    if (cachedWorkspace && cacheAge < CACHE_MAX_AGE_MS) return;
     const run = async () => {
       try {
         setLoading(true); setError(null);
         const nextData = await requestWorkspace();
         if (!active) return;
+        cachedWorkspace = nextData;
+        cachedAt = Date.now();
         setData(nextData); setDrafts(hydrateDrafts(nextData)); setClearRequested({});
       } catch (e) { if (active) setError(e instanceof Error ? e.message : "Failed to load."); }
       finally { if (active) setLoading(false); }
@@ -154,6 +168,8 @@ export default function ServicesClient() {
       void (async () => {
         try {
           const nextData = await requestWorkspace({ method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ updates }) });
+          cachedWorkspace = nextData;
+          cachedAt = Date.now();
           setData(nextData); setDrafts(hydrateDrafts(nextData)); setClearRequested({});
           setNotice("Configuration saved. Restart the affected service to apply env changes.");
         } catch (e) { setError(e instanceof Error ? e.message : "Save failed."); }
@@ -161,9 +177,12 @@ export default function ServicesClient() {
     });
   };
 
+  const [manualRefreshing, setManualRefreshing] = React.useState(false);
   const handleRefresh = () => {
-    setNotice(null); setError(null);
-    startRefreshing(() => { void loadWorkspace({ preserveDrafts: dirtyCount > 0 }).catch((e) => { setError(e instanceof Error ? e.message : "Refresh failed."); }); });
+    setNotice(null); setError(null); setManualRefreshing(true);
+    void loadWorkspace({ preserveDrafts: dirtyCount > 0 })
+      .catch((e) => { setError(e instanceof Error ? e.message : "Refresh failed."); })
+      .finally(() => setManualRefreshing(false));
   };
 
   const handleAuth = (action: "whoop-auth-url" | "schwab-auth-url") => {
@@ -187,30 +206,23 @@ export default function ServicesClient() {
   const isLoading = loading && !data;
 
   return (
-    <div className="space-y-4">
-      {/* ── Action bar ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/10 px-4 py-2.5">
-        <div className="flex items-center gap-3">
-          {isLoading ? (
-            <div className="h-3 w-56 animate-pulse rounded bg-muted/50" />
-          ) : data ? (
-            <span className="text-xs text-muted-foreground">
-              {data.sections.length} config groups · {data.files.length} env files · Updated {formatUpdatedAt(data.generatedAt)}
-            </span>
-          ) : null}
-          {dirtyCount > 0 && <Badge variant="warning" className="text-[10px]">{dirtyCount} unsaved</Badge>}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing || isSaving || isLoading}>
-            <RefreshCw className={cn("h-3.5 w-3.5", (isRefreshing || isLoading) && "animate-spin")} />
+    <TabLayout
+      title="Configuration"
+      subtitle={data ? `${data.sections.length} config groups · ${data.files.length} env files · Updated ${formatUpdatedAt(data.generatedAt)}` : undefined}
+      badge={dirtyCount > 0 ? <Badge variant="warning" className="text-[10px]">{dirtyCount} unsaved</Badge> : undefined}
+      actions={
+        <>
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={manualRefreshing || isSaving || isLoading}>
+            <RefreshCw className={cn("h-3.5 w-3.5", manualRefreshing && "animate-spin")} />
             Refresh
           </Button>
           <Button size="sm" onClick={handleSave} disabled={isSaving || dirtyCount === 0 || isLoading}>
             <Save className="h-3.5 w-3.5" />
             {isSaving ? "Saving..." : `Save${dirtyCount > 0 ? ` (${dirtyCount})` : ""}`}
           </Button>
-        </div>
-      </div>
+        </>
+      }
+    >
 
       {/* ── Notices ── */}
       {error && <div className="rounded-lg border border-red-200 bg-red-50/70 px-4 py-2.5 text-sm text-red-900 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-200">{error}</div>}
@@ -352,7 +364,7 @@ export default function ServicesClient() {
           <GuideItem icon={Sparkles} title="Docs" body={data?.openclawDocsPath ?? "—"} />
         </div>
       </div>
-    </div>
+    </TabLayout>
   );
 }
 
@@ -461,29 +473,3 @@ function GuideItem({ icon: Icon, title, body }: { icon: React.ComponentType<{ cl
   );
 }
 
-function ConfigLoading() {
-  return (
-    <div className="space-y-3 py-4 animate-pulse">
-      {[1, 2, 3].map((i) => (
-        <div key={i} className="rounded-lg border border-border/50 bg-card/30 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-4 w-4 rounded bg-muted/50" />
-              <div className="h-4 w-36 rounded bg-muted/60" />
-            </div>
-            <div className="h-3 w-3 rounded bg-muted/40" />
-          </div>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: i === 1 ? 3 : 2 }).map((_, j) => (
-              <div key={j} className="rounded-lg border border-border/40 bg-card/40 p-3">
-                <div className="h-3 w-20 rounded bg-muted/50" />
-                <div className="mt-2 h-4 w-32 rounded bg-muted/50" />
-                <div className="mt-1 h-3 w-40 rounded bg-muted/40" />
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}

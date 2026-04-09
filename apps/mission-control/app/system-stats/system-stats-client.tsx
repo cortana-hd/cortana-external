@@ -68,7 +68,12 @@ type SystemStatsData = {
 };
 
 const POLL_MS = 30_000;
+const CACHE_MAX_AGE_MS = 5 * 60_000; // 5 minutes
 const SESSION_WINDOW_MINUTES = 120;
+
+/* ── module-level cache so data survives tab switches ── */
+let cachedData: SystemStatsData | null = null;
+let cachedAt = 0;
 
 const formatInt = (value: number) => new Intl.NumberFormat("en-US").format(value);
 
@@ -88,55 +93,63 @@ const fetchJson = async <T,>(url: string): Promise<T> => {
   return (await res.json()) as T;
 };
 
-export default function SystemStatsClient() {
-  const [data, setData] = useState<SystemStatsData>({
-    heartbeat: null,
-    thinking: null,
-    db: null,
-    sessions: null,
-  });
-  const [loading, setLoading] = useState(true);
+export default function SystemStatsClient({ hideHeader = false }: { hideHeader?: boolean } = {}) {
+  const [data, setData] = useState<SystemStatsData>(() =>
+    cachedData ?? { heartbeat: null, thinking: null, db: null, sessions: null },
+  );
+  const [loading, setLoading] = useState(!cachedData);
   const [error, setError] = useState<string | null>(null);
-  const [snapshotAt, setSnapshotAt] = useState<number>(() => Date.now());
+  const [snapshotAt, setSnapshotAt] = useState<number>(() => cachedData ? cachedAt : Date.now());
 
   const fetchStats = useCallback(async () => {
-    const [heartbeatResult, thinkingResult, dbResult, sessionsResult] = await Promise.allSettled([
+    const errors: string[] = [];
+
+    /* Fast lane: heartbeat, thinking, db — render as soon as these land */
+    const fastDone = Promise.allSettled([
       fetchJson<HeartbeatPayload>("/api/heartbeat-status"),
       fetchJson<ThinkingPayload>("/api/thinking-status"),
       fetchJson<DbStatusPayload>("/api/db-status"),
-      fetchJson<SessionsPayload>(`/api/sessions?minutes=${SESSION_WINDOW_MINUTES}`),
-    ]);
-
-    const errors: string[] = [];
-
-    setData((prev) => {
-      const next = { ...prev };
-
-      if (heartbeatResult.status === "fulfilled") next.heartbeat = heartbeatResult.value;
-      else errors.push("heartbeat");
-
-      if (thinkingResult.status === "fulfilled") next.thinking = thinkingResult.value;
-      else errors.push("gateway");
-
-      if (dbResult.status === "fulfilled") next.db = dbResult.value;
-      else errors.push("db");
-
-      if (sessionsResult.status === "fulfilled") next.sessions = sessionsResult.value;
-      else errors.push("sessions");
-
-      return next;
+    ]).then(([heartbeatResult, thinkingResult, dbResult]) => {
+      setData((prev) => {
+        const next = { ...prev };
+        if (heartbeatResult.status === "fulfilled") next.heartbeat = heartbeatResult.value;
+        else errors.push("heartbeat");
+        if (thinkingResult.status === "fulfilled") next.thinking = thinkingResult.value;
+        else errors.push("gateway");
+        if (dbResult.status === "fulfilled") next.db = dbResult.value;
+        else errors.push("db");
+        cachedData = next;
+        cachedAt = Date.now();
+        return next;
+      });
+      setSnapshotAt(Date.now());
+      setLoading(false);
     });
 
-    setSnapshotAt(Date.now());
+    /* Slow lane: sessions — arrives independently without blocking the UI */
+    const slowDone = fetchJson<SessionsPayload>(`/api/sessions?minutes=${SESSION_WINDOW_MINUTES}`)
+      .then((sessions) => {
+        setData((prev) => {
+          const next = { ...prev, sessions };
+          cachedData = next;
+          cachedAt = Date.now();
+          return next;
+        });
+        setSnapshotAt(Date.now());
+      })
+      .catch(() => { errors.push("sessions"); });
+
+    await Promise.allSettled([fastDone, slowDone]);
     setError(errors.length > 0 ? `Partial data: ${errors.join(", ")}` : null);
-    setLoading(false);
   }, []);
 
   useEffect(() => {
-    const timeout = window.setTimeout(fetchStats, 0);
+    const cacheAge = Date.now() - cachedAt;
+    const skipInitial = cachedData != null && cacheAge < CACHE_MAX_AGE_MS;
+    const timeout = skipInitial ? undefined : window.setTimeout(fetchStats, 0);
     const interval = window.setInterval(fetchStats, POLL_MS);
     return () => {
-      window.clearTimeout(timeout);
+      if (timeout != null) window.clearTimeout(timeout);
       window.clearInterval(interval);
     };
   }, [fetchStats]);
@@ -171,23 +184,43 @@ export default function SystemStatsClient() {
   const staleHours = Math.round(SESSION_STALE_MS / 60_000 / 60);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight">System Stats</h1>
-          <p className="text-sm text-muted-foreground">
-            Host, gateway, and session health signals from live telemetry.
-          </p>
+    <div className={hideHeader ? "space-y-4" : "space-y-6"}>
+      {!hideHeader && (
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-2">
+            <h1 className="text-3xl font-semibold tracking-tight">System Stats</h1>
+            <p className="text-sm text-muted-foreground">
+              Host, gateway, and session health signals from live telemetry.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant="outline">refresh {POLL_MS / 1000}s</Badge>
+            <span>last updated {new Date(snapshotAt).toLocaleTimeString()}</span>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <Badge variant="outline">refresh {POLL_MS / 1000}s</Badge>
-          <span>last updated {new Date(snapshotAt).toLocaleTimeString()}</span>
-        </div>
-      </div>
+      )}
 
-      {loading ? <p className="text-sm text-muted-foreground">Loading system stats...</p> : null}
       {error ? <p className="text-xs text-amber-500">{error}</p> : null}
 
+      {loading ? (
+        <div className="grid gap-4 md:grid-cols-3 animate-pulse">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="h-4 w-28 rounded bg-muted/60" />
+                  <div className="h-5 w-16 rounded-full bg-muted/50" />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="h-3 w-full rounded bg-muted/40" />
+                <div className="h-3 w-3/4 rounded bg-muted/40" />
+                <div className="h-3 w-1/2 rounded bg-muted/40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-3">
@@ -308,6 +341,7 @@ export default function SystemStatsClient() {
           </CardContent>
         </Card>
       </div>
+      )}
     </div>
   );
 }

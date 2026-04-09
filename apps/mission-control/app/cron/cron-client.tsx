@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -80,9 +81,16 @@ const parseJobToForm = (job: CronJob): FormState => {
   };
 };
 
-export function CronClient() {
-  const [jobs, setJobs] = React.useState<CronJob[]>([]);
-  const [loading, setLoading] = React.useState(true);
+const CACHE_MAX_AGE_MS = 5 * 60_000;
+let cachedJobs: CronJob[] | null = null;
+let cachedJobsAt = 0;
+
+/** @internal test-only — reset module cache between tests */
+export function __resetCronCache() { cachedJobs = null; cachedJobsAt = 0; }
+
+export function CronClient({ hideHeader = false, refreshKey = 0 }: { hideHeader?: boolean; refreshKey?: number } = {}) {
+  const [jobs, setJobs] = React.useState<CronJob[]>(() => cachedJobs ?? []);
+  const [loading, setLoading] = React.useState(!cachedJobs);
   const [error, setError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
@@ -104,8 +112,14 @@ export function CronClient() {
     try {
       setLoading(true);
       setError(null);
-      const payload = await fetchCronJobs();
-      setJobs(payload.jobs ?? []);
+      const [payload] = await Promise.all([
+        fetchCronJobs(),
+        new Promise((r) => setTimeout(r, 400)),
+      ]);
+      const nextJobs = payload.jobs ?? [];
+      cachedJobs = nextJobs;
+      cachedJobsAt = Date.now();
+      setJobs(nextJobs);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load cron jobs.");
     } finally {
@@ -114,8 +128,11 @@ export function CronClient() {
   }, []);
 
   React.useEffect(() => {
+    if (refreshKey > 0) { cachedJobs = null; cachedJobsAt = 0; }
+    const cacheAge = Date.now() - cachedJobsAt;
+    if (cachedJobs && cacheAge < CACHE_MAX_AGE_MS) return;
     void loadJobs();
-  }, [loadJobs]);
+  }, [loadJobs, refreshKey]);
 
   React.useEffect(() => {
     if (!success) return;
@@ -273,24 +290,26 @@ export function CronClient() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
-            Cron Scheduler
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight">Cron editor</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Review schedules, trigger runs, and adjust delivery settings.
-          </p>
+    <div className={hideHeader ? "space-y-6" : "mx-auto max-w-6xl space-y-6"}>
+      {!hideHeader && (
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
+              Cron Scheduler
+            </p>
+            <h1 className="text-3xl font-semibold tracking-tight">Cron editor</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Review schedules, trigger runs, and adjust delivery settings.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary">Total {summary.total}</Badge>
+            <Badge variant="success">Enabled {summary.enabled}</Badge>
+            <Badge variant="outline">Disabled {summary.disabled}</Badge>
+            {summary.errors > 0 && <Badge variant="destructive">Errors {summary.errors}</Badge>}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary">Total {summary.total}</Badge>
-          <Badge variant="success">Enabled {summary.enabled}</Badge>
-          <Badge variant="outline">Disabled {summary.disabled}</Badge>
-          {summary.errors > 0 && <Badge variant="destructive">Errors {summary.errors}</Badge>}
-        </div>
-      </div>
+      )}
 
       <Card>
         <CardHeader className="gap-3">
@@ -316,6 +335,7 @@ export function CronClient() {
                 </SelectContent>
               </Select>
               <Button variant="outline" onClick={loadJobs} disabled={loading}>
+                {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 Refresh
               </Button>
               <Button onClick={openCreate}>Create cron</Button>
