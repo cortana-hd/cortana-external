@@ -17,6 +17,12 @@ Do not create the same document in multiple places.
 
 ## The Two-Layer Model
 
+Research sits before both layers as the exploratory intake and synthesis workspace.
+
+- `research/raw/` for collected source material
+- `research/derived/` for generated exploratory outputs
+- `research/llm-wiki-workflow.md` for the exact ingest -> bucket -> derive -> promote loop
+
 ### 1. Source docs
 
 Source docs are the raw artifacts.

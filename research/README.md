@@ -20,6 +20,7 @@ In the LLM wiki model:
 - `raw/mission-control/` - source material for Mission Control research
 - `derived/backtester/` - generated analysis and outputs for backtester
 - `derived/mission-control/` - generated analysis and outputs for Mission Control
+- [llm-wiki-workflow.md](./llm-wiki-workflow.md) - exact intake, bucketing, synthesis, and promotion process
 
 ## Rule
 
