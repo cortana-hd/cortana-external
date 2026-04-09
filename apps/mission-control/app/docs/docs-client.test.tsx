@@ -108,6 +108,7 @@ describe("DocsClient", () => {
           status: "ok",
           files: [
             { id: "OpenClaw Docs:a.md", name: "a.md", path: "/docs/a.md", section: "OpenClaw Docs" },
+            { id: "External Research:README.md", name: "README.md", path: "/research/README.md", section: "External Research" },
             { id: "Backtester Docs:README.md", name: "README.md", path: "/backtester/README.md", section: "Backtester Docs" },
             { id: "OpenClaw Knowledge:README.md", name: "README.md", path: "/knowledge/README.md", section: "OpenClaw Knowledge" },
             { id: "OpenClaw Research:README.md", name: "README.md", path: "/research/README.md", section: "OpenClaw Research" },
@@ -119,6 +120,7 @@ describe("DocsClient", () => {
     render(<DocsClient />);
 
     expect((await screen.findAllByText("OpenClaw Docs")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("External Research").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Backtester Docs").length).toBeGreaterThan(0);
     expect(screen.getAllByText("OpenClaw Knowledge").length).toBeGreaterThan(0);
     expect(screen.getAllByText("OpenClaw Research").length).toBeGreaterThan(0);

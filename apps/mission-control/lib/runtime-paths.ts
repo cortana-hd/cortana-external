@@ -32,6 +32,10 @@ export function getBacktesterRepoPath(): string {
   return DEFAULT_BACKTESTER_REPO;
 }
 
+export function getExternalResearchPath(): string {
+  return readEnvPath("EXTERNAL_RESEARCH_PATH") ?? path.join(getRepoRoot(), "research");
+}
+
 export function getDocsPath(): string {
   return readEnvPath("DOCS_PATH") ?? path.join(getCortanaSourceRepo(), "docs");
 }
@@ -57,4 +61,8 @@ export function getHeartbeatStatePath(): string {
 
 export function getTelegramUsageHandlerPath(): string {
   return readEnvPath("TELEGRAM_USAGE_HANDLER_PATH") ?? path.join(getCortanaSourceRepo(), "skills", "telegram-usage", "handler.ts");
+}
+
+function getRepoRoot(): string {
+  return path.resolve(process.cwd(), "..", "..");
 }

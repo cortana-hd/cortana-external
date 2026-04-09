@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
-import { getDocsPath, getKnowledgePath, getResearchPath } from "@/lib/runtime-paths";
+import { getDocsPath, getExternalResearchPath, getKnowledgePath, getResearchPath } from "@/lib/runtime-paths";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,6 +25,7 @@ const toDocId = (section: string, relativePath: string) => `${section}:${relativ
 const toPosixPath = (value: string) => value.split(path.sep).join("/");
 const DOC_SECTION_ORDER = [
   "External Docs",
+  "External Research",
   "Backtester Docs",
   "OpenClaw Docs",
   "OpenClaw Knowledge",
@@ -109,6 +110,7 @@ async function listBacktesterDocs(backtesterRoot: string): Promise<DocEntry[]> {
 async function listAllDocs(): Promise<DocEntry[]> {
   const results = await Promise.allSettled([
     collectDocs(getExternalDocsRoot(), "External Docs"),
+    collectDocs(getExternalResearchPath(), "External Research"),
     listBacktesterDocs(getBacktesterRoot()),
     collectDocs(getDocsPath(), "OpenClaw Docs"),
     collectDocs(getKnowledgePath(), "OpenClaw Knowledge"),

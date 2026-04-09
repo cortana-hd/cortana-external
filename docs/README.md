@@ -7,6 +7,7 @@ Top-level source docs are intentionally limited to Mission Control and doc-autho
 In the LLM wiki model:
 - this folder is a tiny raw-source front door
 - system-owned raw docs live closer to the code, especially under `backtester/docs/`
+- exploratory product/runtime research lives in `../research/`
 - `knowledge/` is the compiled wiki/current-truth layer
 - `archive/` is for old repo-level notes that should not stay in the active surface
 
@@ -19,5 +20,6 @@ In the LLM wiki model:
 
 - [Documentation authoring guide](./source/architecture/documentation-authoring-guide.md)
 - [Mission Control architecture](./source/architecture/mission-control.md)
+- [Research workspace](../research/README.md)
 - [Archive guide](./archive/README.md)
 - [Knowledge index](../knowledge/README.md)
