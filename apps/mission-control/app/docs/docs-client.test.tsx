@@ -108,8 +108,9 @@ describe("DocsClient", () => {
           status: "ok",
           files: [
             { id: "OpenClaw Docs:a.md", name: "a.md", path: "/docs/a.md", section: "OpenClaw Docs" },
-            { id: "External Research:README.md", name: "README.md", path: "/research/README.md", section: "External Research" },
+            { id: "Mission Control Research:raw/mission-control/README.md", name: "raw/mission-control/README.md", path: "/research/raw/mission-control/README.md", section: "Mission Control Research" },
             { id: "Backtester Docs:README.md", name: "README.md", path: "/backtester/README.md", section: "Backtester Docs" },
+            { id: "Backtester Research:raw/backtester/README.md", name: "raw/backtester/README.md", path: "/research/raw/backtester/README.md", section: "Backtester Research" },
             { id: "OpenClaw Knowledge:README.md", name: "README.md", path: "/knowledge/README.md", section: "OpenClaw Knowledge" },
             { id: "OpenClaw Research:README.md", name: "README.md", path: "/research/README.md", section: "OpenClaw Research" },
           ],
@@ -120,8 +121,9 @@ describe("DocsClient", () => {
     render(<DocsClient />);
 
     expect((await screen.findAllByText("OpenClaw Docs")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("External Research").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Mission Control Research").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Backtester Docs").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Backtester Research").length).toBeGreaterThan(0);
     expect(screen.getAllByText("OpenClaw Knowledge").length).toBeGreaterThan(0);
     expect(screen.getAllByText("OpenClaw Research").length).toBeGreaterThan(0);
   });
