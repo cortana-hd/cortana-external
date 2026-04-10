@@ -13,6 +13,7 @@ describe("DocsClient", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     window.scrollTo = vi.fn();
+    window.localStorage.clear();
   });
 
   it("renders header text", async () => {
@@ -213,16 +214,16 @@ describe("DocsClient", () => {
 
     await screen.findByText("source");
     await waitFor(() => {
-      expect(screen.queryByText("new")).not.toBeInTheDocument();
-      expect(screen.queryByText("old")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /\bnew\b/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /\bold\b/i })).not.toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText("source"));
-    expect(await screen.findByText("new")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /\bnew\b/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("archive"));
 
-    expect(await screen.findByText("old")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /\bold\b/i })).toBeInTheDocument();
   });
 
   it("resolves knowledge links into OpenClaw research docs", async () => {
