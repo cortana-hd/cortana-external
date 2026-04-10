@@ -91,6 +91,33 @@ describe("quality and normalization", () => {
     expect(snapshot?.change4h).toBe(0.02);
   });
 
+  it("maps explicit Yes outcomes correctly even when the feed returns No before Yes", () => {
+    const snapshot = normalizeCandidate({
+      candidate: {
+        selectionSource: "event_slug",
+        event: { id: "evt-yes-no", slug: "fed-event", title: "Fed cut by June?" },
+        market: {
+          id: "mkt-yes-no",
+          slug: "fed-cut-june",
+          question: "Will the Fed cut rates by June?",
+          description:
+            "This market resolves to Yes if the Fed cuts rates by June. Otherwise it resolves to No. The primary resolution source is official FOMC reporting.",
+          outcomes: '["No","Yes"]',
+          outcomePrices: '["0.31","0.69"]',
+          active: true,
+          updatedAt: "2026-03-13T10:00:00.000Z",
+        },
+      },
+      registryEntry,
+      fetchedAt: "2026-03-13T12:00:00.000Z",
+      now: new Date("2026-03-13T12:00:00.000Z"),
+      change4h: null,
+    });
+
+    expect(snapshot?.probability).toBe(0.69);
+    expect(snapshot?.acceptingOrders).toBe(true);
+  });
+
   it("downgrades low-quality markets so they do not drive output", () => {
     const assessment = buildQualityAssessment({
       liquidity: 1000,

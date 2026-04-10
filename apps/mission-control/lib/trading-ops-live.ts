@@ -7,11 +7,15 @@ import { loadLatestTradingRunOverview, type TradingRunOverview } from "@/lib/tra
 
 const LIVE_REQUEST_TIMEOUT_MS = 6_000;
 const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
-const TAPE_SOURCE_SYMBOLS = ["SPY", "QQQ", "IWM", "DIA", "GLD"] as const;
+const TAPE_SOURCE_SYMBOLS = ["SPY", "QQQ", "IWM", "DIA", "GLD", "ARKK", "XLE"] as const;
 const TAPE_ROWS = [
   { symbol: "SPY", label: "SPY", sourceSymbol: "SPY" },
   { symbol: "QQQ", label: "QQQ", sourceSymbol: "QQQ" },
   { symbol: "IWM", label: "IWM", sourceSymbol: "IWM" },
+  { symbol: "DIA", label: "DIA", sourceSymbol: "DIA" },
+  { symbol: "ARKK", label: "ARKK", sourceSymbol: "ARKK" },
+  { symbol: "XLE", label: "XLE", sourceSymbol: "XLE" },
+  { symbol: "S&P 500", label: "S&P 500", sourceSymbol: "SPY" },
   { symbol: "DOW", label: "DOW", sourceSymbol: "DIA" },
   { symbol: "NASDAQ", label: "NASDAQ", sourceSymbol: "QQQ" },
   { symbol: "GLD", label: "GLD", sourceSymbol: "GLD" },

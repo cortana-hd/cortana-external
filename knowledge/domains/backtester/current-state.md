@@ -9,9 +9,11 @@ Current shape:
 - Operator docs now live under `backtester/docs/source/` by artifact type.
 - Planning artifacts stay under `backtester/planning/`.
 - Duplicate copies that previously lived under `backtester/planning/docs/` were removed in favor of the canonical source set under `backtester/docs/source/`.
+- Polymarket US artifacts now bridge into both the equity backtester and the live Trading Ops operator surface.
 
 Start here:
 
 - [Operator manual](../../../backtester/README.md)
 - [Study guide](../../../backtester/docs/source/guide/backtester-study-guide.md)
+- [Polymarket + backtester flow](../../../backtester/docs/source/architecture/polymarket-backtester-flow.md)
 - [Market-data service reference](../../../backtester/knowledge/reference/market-data-service-reference.md)

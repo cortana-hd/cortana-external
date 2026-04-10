@@ -428,6 +428,87 @@ market_data_advisory_should_recover() {
   return 0
 }
 
+humanize_polymarket_issue() {
+  local status="${1:-}"
+  local raw="${2:-}"
+  case "$status" in
+    degraded)
+      if [[ "$raw" == *"Too many requests"* || "$raw" == *"rate limit"* || "$raw" == *"Rate limit"* ]]; then
+        printf '%s' "Polymarket US API rate limit is active."
+      elif [[ -n "$raw" ]]; then
+        printf '%s' "$raw"
+      else
+        printf '%s' "Polymarket is degraded."
+      fi
+      ;;
+    unconfigured)
+      printf '%s' "Polymarket credentials are not configured in the external service."
+      ;;
+    unhealthy)
+      if [[ "$raw" == *"Invalid credentials"* || "$raw" == *"authentication"* || "$raw" == *"credential"* ]]; then
+        printf '%s' "Polymarket credentials need operator attention."
+      elif [[ -n "$raw" ]]; then
+        printf '%s' "$raw"
+      else
+        printf '%s' "Polymarket is unhealthy."
+      fi
+      ;;
+    *)
+      if [[ -n "$raw" ]]; then
+        printf '%s' "$raw"
+      else
+        printf '%s' "Polymarket health status is unknown."
+      fi
+      ;;
+  esac
+}
+
+check_polymarket_health() {
+  local check_name="polymarket"
+  local advisory_threshold_seconds="${POLYMARKET_ADVISORY_THRESHOLD_SECONDS:-900}"
+  local body
+  body="$(mktemp)"
+  trap 'rm -f "${body:-}"' RETURN
+
+  local health_url="${FITNESS_BASE_URL}/polymarket/health"
+  local code
+  code=$(probe_json_endpoint "$health_url" "$body")
+
+  if [[ "$code" == "000" ]]; then
+    alert "Polymarket health endpoint is unreachable (${health_url})" "$check_name" "warning"
+    return
+  fi
+
+  if [[ "$code" != "200" ]]; then
+    alert "Polymarket health endpoint returned HTTP ${code} (${health_url})" "$check_name" "warning"
+    return
+  fi
+
+  local status error detail
+  status=$(jq -r '.status // empty' "$body" 2>/dev/null || true)
+  error=$(jq -r '.error // empty' "$body" 2>/dev/null || true)
+  detail=$(humanize_polymarket_issue "$status" "$error")
+
+  case "$status" in
+    healthy|ok)
+      recovery_alert "$check_name" "Polymarket recovered and is healthy"
+      log "info" "Polymarket: OK"
+      ;;
+    degraded)
+      alert_if_failure_persists "$check_name" "$advisory_threshold_seconds" "Polymarket is degraded. ${detail}" "warning" >/dev/null || true
+      ;;
+    unconfigured)
+      alert "Polymarket is unconfigured. ${detail}" "$check_name" "critical"
+      ;;
+    unhealthy)
+      alert "Polymarket is unhealthy. ${detail}" "$check_name" "critical"
+      ;;
+    *)
+      alert "Polymarket health returned unexpected status (${status:-unknown}). ${detail}" "$check_name" "warning"
+      ;;
+  esac
+}
+
 get_iso8601_age_seconds() {
   local iso_timestamp="${1:-}"
   python3 - "$iso_timestamp" <<'PY'
@@ -984,6 +1065,9 @@ check_tools() {
     recovery_alert "$whoop_check_name" "Whoop recovered and is healthy"
     log "info" "Whoop: OK"
   fi
+
+  # Polymarket
+  check_polymarket_health
 
   # PostgreSQL
   local pg_check_name="postgresql"

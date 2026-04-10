@@ -6,8 +6,7 @@ import type {
   SelectionSource,
 } from "./types.js";
 import { matchesKeyword, matchesSelectorFilters } from "./registry.js";
-
-const BASE_URL = "https://gamma-api.polymarket.com";
+import { getMarketIntelRuntimeConfig } from "./runtime-config.js";
 const KEYWORD_PAGE_LIMIT = 200;
 const KEYWORD_MAX_PAGES = 5;
 
@@ -33,8 +32,12 @@ export class PolymarketClient {
   private readonly logger?: MarketIntelLogger;
 
   constructor(options: PolymarketClientOptions = {}) {
+    const runtimeConfig = getMarketIntelRuntimeConfig();
+
     this.fetchImpl = options.fetchImpl ?? fetch;
-    this.baseUrl = options.baseUrl ?? BASE_URL;
+    this.baseUrl = normalizePublicBaseUrl(
+      options.baseUrl ?? runtimeConfig.polymarketPublicBaseUrl,
+    );
     this.timeoutMs = options.timeoutMs ?? 10_000;
     this.retries = options.retries ?? 2;
     this.logger = options.logger;
@@ -72,7 +75,7 @@ export class PolymarketClient {
   async fetchByMarketSlugs(slugs: string[]): Promise<CandidateMarket[]> {
     const results = await Promise.all(
       slugs.map(async (slug) => {
-        const markets = await this.request<PolymarketRawMarket[]>("/markets", { slug });
+        const markets = await this.requestCollection<PolymarketRawMarket>("/markets", { slug }, "markets");
         return markets.map((market) => ({
           market,
           event: market.events?.[0] ?? null,
@@ -87,7 +90,7 @@ export class PolymarketClient {
   async fetchByEventSlugs(slugs: string[]): Promise<CandidateMarket[]> {
     const results = await Promise.all(
       slugs.map(async (slug) => {
-        const events = await this.request<PolymarketRawEvent[]>("/events", { slug });
+        const events = await this.requestCollection<PolymarketRawEvent>("/events", { slug }, "events");
         return events.flatMap((event) =>
           (event.markets ?? []).map((market) => ({
             market,
@@ -124,12 +127,12 @@ export class PolymarketClient {
 
     for (let page = 0; page < maxPages; page += 1) {
       const offset = page * limit;
-      const events = await this.request<PolymarketRawEvent[]>("/events", {
+      const events = await this.requestCollection<PolymarketRawEvent>("/events", {
         active: "true",
         closed: "false",
         limit: String(limit),
         offset: String(offset),
-      });
+      }, "events");
 
       allEvents.push(...events);
 
@@ -142,7 +145,20 @@ export class PolymarketClient {
   }
 
   async request<T>(pathname: string, query: Record<string, string>): Promise<T> {
-    const url = new URL(pathname, this.baseUrl);
+    return (await this.requestJson(pathname, query)) as T;
+  }
+
+  private async requestCollection<T>(
+    pathname: string,
+    query: Record<string, string>,
+    collectionKey: string,
+  ): Promise<T[]> {
+    const payload = await this.requestJson(pathname, query);
+    return unwrapCollection<T>(payload, collectionKey);
+  }
+
+  private async requestJson(pathname: string, query: Record<string, string>): Promise<unknown> {
+    const url = new URL(normalizePathname(pathname), this.baseUrl);
     Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, value));
 
     let lastError: unknown;
@@ -171,7 +187,7 @@ export class PolymarketClient {
           throw new Error(`Polymarket request failed: ${response.status} ${response.statusText}`);
         }
 
-        const parsed = (await response.json()) as T;
+        const parsed = await response.json();
         this.logger?.debug("polymarket_request_success", {
           pathname,
           query,
@@ -224,4 +240,40 @@ function marketHaystack(event: PolymarketRawEvent | null, market: PolymarketRawM
   return [event?.title, event?.slug, market.question, market.slug, market.description]
     .filter(Boolean)
     .join(" ");
+}
+
+function normalizePublicBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/+$/u, "");
+  const versioned = trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+  return `${versioned}/`;
+}
+
+function normalizePathname(pathname: string): string {
+  return pathname.replace(/^\/+/u, "");
+}
+
+function unwrapCollection<T>(payload: unknown, collectionKey: string): T[] {
+  if (Array.isArray(payload)) {
+    return payload as T[];
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`Polymarket response for ${collectionKey} was not an array or object envelope`);
+  }
+
+  const collection = (payload as Record<string, unknown>)[collectionKey];
+  if (Array.isArray(collection)) {
+    return collection as T[];
+  }
+
+  const singularKey =
+    collectionKey.endsWith("s") && collectionKey.length > 1
+      ? collectionKey.slice(0, -1)
+      : collectionKey;
+  const singular = (payload as Record<string, unknown>)[singularKey];
+  if (singular && typeof singular === "object") {
+    return [singular as T];
+  }
+
+  throw new Error(`Polymarket response was missing the ${collectionKey} collection`);
 }

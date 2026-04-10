@@ -69,11 +69,16 @@ pnpm dev
 - `PATCH /api/feedback/:id` — update workflow and remediation fields (`status`, `owner`, `remediationStatus`, `remediationNotes`, `resolvedBy`)
 - `GET /api/task-board` — task board slices (ready, blocked, due, pillar rollups, recent outcomes)
 - `GET /api/live` — SSE stream for near-live UI refresh ticks
+- `GET /api/trading-ops/polymarket` — Polymarket Trading Ops summary payload
+- `GET /api/trading-ops/polymarket/live` — Polymarket live snapshot
+- `GET /api/trading-ops/polymarket/live/stream` — Polymarket SSE stream
+- `POST /api/trading-ops/polymarket/pins` / `DELETE /api/trading-ops/polymarket/pins/:marketSlug` — pinned-market mutations
 - `POST /api/openclaw/subagent-events` — OpenClaw sub-agent lifecycle ingestion (queued/running/done/failed/timeout/killed)
 - `POST /api/github/post-merge-task-autoclose` — webhook endpoint for merged PR task auto-closure + verification gate
 
 ## Pages
 - `/` — Dashboard with stats, agent health widgets, runs table, and alerts feed
+- `/trading-ops` — live market operator surface including Schwab tape and Polymarket boards
 - `/task-board` — Task board cards (Ready now, Blocked, Due soon/Overdue, By pillar, and Recent execution log)
 - `/agents` — Agent overview
 - `/approvals` — Approvals inbox with Mission Control review flow, Telegram deep links, and resume/execution controls
@@ -121,6 +126,26 @@ curl -X POST http://localhost:3000/api/openclaw/subagent-events \
   -H "content-type: application/json" \
   -d '{"runId":"sub-123","status":"queued","agentName":"Huragok","jobType":"mission-control-sync"}'
 ```
+
+## Polymarket Trading Ops
+
+Trading Ops now includes a dedicated Polymarket tab with:
+
+- live stream status
+- pinned markets
+- top events
+- top sports
+- account
+- signal overlay
+- linked watchlist
+- results
+
+Operational notes:
+
+- quote changes use green/red motion
+- roster changes use amber motion
+- pinned markets stay live while visible
+- restart the app with `apps/mission-control/scripts/restart-mission-control.sh` so the UI refreshes without spawning extra Next.js processes
 
 
 ## Governance integration notes

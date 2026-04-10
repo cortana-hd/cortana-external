@@ -20,6 +20,7 @@ In the LLM wiki model:
 
 - [Documentation authoring guide](./source/architecture/documentation-authoring-guide.md)
 - [Mission Control architecture](./source/architecture/mission-control.md)
+- [Polymarket US in Trading Ops](./source/architecture/polymarket-us-trading-ops.md)
 - [Research workspace](../research/README.md)
 - [Archive guide](./archive/README.md)
 - [Knowledge index](../knowledge/README.md)

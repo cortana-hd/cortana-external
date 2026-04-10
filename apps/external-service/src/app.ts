@@ -6,6 +6,7 @@ import { createAppleHealthService, registerAppleHealthRoutes, type AppleHealthSe
 import { getConfig } from "./config.js";
 import { buildAggregateHealth } from "./health.js";
 import { createLogger } from "./lib/logger.js";
+import { createPolymarketService, registerPolymarketRoutes, type PolymarketService } from "./polymarket/index.js";
 import { createTonalService, registerTonalRoutes, type TonalService } from "./tonal/index.js";
 import { createWhoopService, registerWhoopRoutes, type WhoopService } from "./whoop/index.js";
 
@@ -15,6 +16,7 @@ export interface ExternalServices {
   alpaca: AlpacaService;
   appleHealth: AppleHealthService;
   marketData: MarketDataService;
+  polymarket: PolymarketService;
 }
 
 function toUnhealthyPayload(error: unknown): Record<string, unknown> {
@@ -41,6 +43,7 @@ export function createExternalServices(): ExternalServices {
     alpaca: createAlpacaService({ logger: createLogger("alpaca") }),
     appleHealth: createAppleHealthService(config),
     marketData: createMarketDataService(config),
+    polymarket: createPolymarketService(config),
   };
 }
 
@@ -55,20 +58,22 @@ export function createApplication(services: ExternalServices = createExternalSer
   registerAlpacaRoutes(app, services.alpaca);
   registerAppleHealthRoutes(app, services.appleHealth);
   registerMarketDataRoutes(app, services.marketData);
+  registerPolymarketRoutes(app, services.polymarket);
 
   app.get("/health", async (c) => {
     const { signal, cancel } = createHealthSignal(10_000);
 
     try {
-      const [whoop, tonal, alpaca, appleHealth, marketData] = await Promise.all([
+      const [whoop, tonal, alpaca, appleHealth, marketData, polymarket] = await Promise.all([
         services.whoop.getAggregateHealth().catch(toUnhealthyPayload),
         services.tonal.getAggregateHealth(signal).catch(toUnhealthyPayload),
         services.alpaca.checkHealth().catch(toUnhealthyPayload),
         services.appleHealth.handleHealth().then((result) => result.body).catch(toUnhealthyPayload),
         services.marketData.checkHealth().catch(toUnhealthyPayload),
+        services.polymarket.checkHealth().catch(toUnhealthyPayload),
       ]);
 
-      const result = buildAggregateHealth({ whoop, tonal, alpaca, appleHealth, marketData });
+      const result = buildAggregateHealth({ whoop, tonal, alpaca, appleHealth, marketData, polymarket });
       return c.json(
         {
           status: result.status,
@@ -77,6 +82,7 @@ export function createApplication(services: ExternalServices = createExternalSer
           alpaca: result.alpaca,
           appleHealth: result.appleHealth,
           marketData: result.marketData,
+          polymarket: result.polymarket,
         },
         result.statusCode as never,
       );

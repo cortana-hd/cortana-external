@@ -110,8 +110,9 @@ describe("artifacts", () => {
 
     expect(compact).toContain("Fed easing odds");
     expect(exported.tickers.map((item: { symbol: string }) => item.symbol)).toEqual(
-      expect.arrayContaining(["QQQ", "NVDA"]),
+      expect.arrayContaining(["SPY", "QQQ", "DIA", "NVDA"]),
     );
+    expect(exported.buckets.funds).toEqual(expect.arrayContaining(["SPY", "QQQ", "DIA"]));
   });
 
   it("builds a stable watchlist payload", () => {
@@ -167,8 +168,12 @@ describe("artifacts", () => {
     } as never);
 
     const qqq = payload.tickers.find((item) => item.symbol == "QQQ");
+    const spy = payload.tickers.find((item) => item.symbol == "SPY");
+    const dia = payload.tickers.find((item) => item.symbol == "DIA");
     expect(qqq).toBeDefined();
     expect(qqq?.themes).toEqual(expect.arrayContaining(["rates", "recession"]));
     expect(qqq?.asset_class).toBe("etf");
+    expect(spy?.source_titles).toEqual(["Core US index baseline"]);
+    expect(dia?.asset_class).toBe("etf");
   });
 });

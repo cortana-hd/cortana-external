@@ -15,6 +15,7 @@ Current location: `~/Developer/cortana-external/watchdog` · Status: **active** 
 | **gog (Gmail)** | Log failure |
 | **Tonal API** | Health probe + retry; Tonal service self-heals via refresh-token flow |
 | **Whoop API** | Log failure |
+| **Polymarket US** | Probe `/polymarket/health`; warn only on sustained degraded/rate-limit state; alert immediately on auth or unconfigured failures |
 | **Schwab market-data lane** | Probe `/market-data/ready`, `/market-data/ops`, and `SPY,QQQ` quote smoke test; restart local service once only when unreachable; warn only on sustained provider cooldown; alert for auth/operator action |
 | **Pre-open readiness artifact** | Consume `backtester/var/readiness/pre-open-canary-latest.json`; keep pure market-data warnings owned by the market-data lane; alert on higher-level trade-lane failures or sustained degraded readiness |
 | **PostgreSQL** | Alert |
@@ -58,6 +59,7 @@ launchctl load ~/Library/LaunchAgents/com.cortana.watchdog.plist
 
 ```bash
 ~/Developer/cortana-external/watchdog/tests/heartbeat-classifier-test.sh
+~/Developer/cortana-external/watchdog/tests/polymarket-check-test.sh
 ~/Developer/cortana-external/watchdog/tests/market-data-check-test.sh
 ~/Developer/cortana-external/watchdog/tests/pre-open-readiness-test.sh
 ~/Developer/cortana-external/watchdog/tests/mission-control-check-test.sh

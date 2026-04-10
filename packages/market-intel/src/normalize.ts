@@ -33,7 +33,7 @@ export function normalizeCandidate(args: {
   const volume24h = firstNumber(market.volume24hr, market.volume24hrClob, args.candidate.event?.volume24hr);
   const spread = deriveSpread(market);
   const active = market.active ?? false;
-  const acceptingOrders = market.acceptingOrders ?? false;
+  const acceptingOrders = market.acceptingOrders ?? (active && market.closed !== true);
   const invert = args.registryEntry.probabilityMode === "invert";
   const probability = invert ? round(1 - rawProbability, 4) : rawProbability;
   const change1h = transformChange(numberOrNull(market.oneHourPriceChange), invert);
@@ -117,7 +117,20 @@ function deriveProbability(market: PolymarketRawMarket): number | null {
   const lastTrade = numberOrNull(market.lastTradePrice);
   if (lastTrade != null) return clamp(lastTrade, 0, 1);
 
+  const outcomes = parseStringArray(market.outcomes).map((value) => value.trim().toLowerCase());
   const prices = parseStringArray(market.outcomePrices).map((value) => Number(value));
+  if (outcomes.length === prices.length && outcomes.length > 0) {
+    const yesIndex = outcomes.findIndex((value) => value === "yes");
+    if (yesIndex >= 0 && Number.isFinite(prices[yesIndex])) {
+      return clamp(prices[yesIndex] as number, 0, 1);
+    }
+
+    const noIndex = outcomes.findIndex((value) => value === "no");
+    if (noIndex >= 0 && Number.isFinite(prices[noIndex])) {
+      return clamp(1 - (prices[noIndex] as number), 0, 1);
+    }
+  }
+
   if (prices.length > 0 && Number.isFinite(prices[0])) {
     return clamp(prices[0] as number, 0, 1);
   }

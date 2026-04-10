@@ -810,6 +810,9 @@ Runtime behavior:
 - Polymarket is extra context, not the main decision authority
 - stale Polymarket artifacts are rejected by freshness checks
 - direct crypto remains contextual and does not automatically enter the stock screener
+- the current market-intel lane is now Polymarket US only
+- credentialed US account validation uses `POLYMARKET_KEY_ID` / `POLYMARKET_SECRET_KEY`
+- the legacy macro registry is only partially compatible with the current US public feed, so artifact quality will remain limited until that registry is rebuilt
 
 ## Research and Calibration
 

@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 /* ── animation hooks ── */
 
 /** Smoothly interpolates toward `target` over `duration` ms (ease-out cubic). */
-function useAnimatedValue(target: number | null, duration = 350): number | null {
+export function useAnimatedValue(target: number | null, duration = 350): number | null {
   const [display, setDisplay] = useState(target);
   const rafRef = useRef(0);
   const currentRef = useRef(target);
@@ -48,7 +48,7 @@ function useAnimatedValue(target: number | null, duration = 350): number | null 
 }
 
 /** Returns a transient Tailwind class (green/red wash) that fades via CSS transition. */
-function useFlashClass(value: number | null): string {
+export function useFlashClass(value: number | null): string {
   const prevRef = useRef(value);
   const [flash, setFlash] = useState<"up" | "down" | null>(null);
   const timerRef = useRef(0);

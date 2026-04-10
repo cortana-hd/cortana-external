@@ -217,6 +217,10 @@ const fixture: TradingOpsDashboardData = {
   },
 };
 
+function findEventSource(url: string) {
+  return MockEventSource.instances.find((instance) => instance.url === url);
+}
+
 describe("TradingOpsDashboard", () => {
   beforeEach(() => {
     MockEventSource.reset();
@@ -241,10 +245,12 @@ describe("TradingOpsDashboard", () => {
     expect(screen.getByRole("tab", { name: "Overview" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Live" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Watchlists" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Polymarket" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "System Health" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Deep Dive" })).toBeInTheDocument();
     expect(screen.getAllByText("Market posture").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Latest trading run").length).toBeGreaterThan(0);
+    expect(screen.getByText("Polymarket status")).toBeInTheDocument();
     expect(container).toHaveTextContent("Focus ABBV · WATCH");
     expect(screen.getAllByText("OXY, GEV, FANG").length).toBeGreaterThan(0);
     expect(container).toHaveTextContent("Cooldown is active now. Watchdog still sees provider health, quote smoke failing since Apr 3, 7:02 PM ET.");
@@ -270,9 +276,9 @@ describe("TradingOpsDashboard", () => {
   it("renders compact live summary and live tab data", async () => {
     const { container } = render(<TradingOpsDashboard data={fixture} />);
 
-    expect(MockEventSource.instances[0]?.url).toBe("/api/trading-ops/live/stream");
+    expect(findEventSource("/api/trading-ops/live/stream")).toBeDefined();
     await act(async () => {
-      MockEventSource.instances[0]?.emit("snapshot", {
+      findEventSource("/api/trading-ops/live/stream")?.emit("snapshot", {
         generatedAt: "2026-04-08T20:00:00.000Z",
         streamer: {
           connected: true,
@@ -335,6 +341,406 @@ describe("TradingOpsDashboard", () => {
     });
   });
 
+  it("renders the Polymarket overview card and tab content", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/trading-ops/polymarket") {
+        return new Response(
+          JSON.stringify({
+            generatedAt: "2026-04-09T20:00:00.000Z",
+            account: {
+              state: "ok",
+              label: "healthy",
+              message: "Authenticated account is reachable with 0 balances, 0 positions, 0 open orders.",
+              updatedAt: "2026-04-09T20:00:00.000Z",
+              source: "/api/trading-ops/polymarket",
+              warnings: [],
+              badgeText: "...106dac",
+              data: {
+                status: "healthy",
+                keyIdSuffix: "106dac",
+                balanceCount: 0,
+                positionCount: 0,
+                openOrdersCount: 0,
+                balances: [],
+              },
+            },
+            signal: {
+              state: "ok",
+              label: "Signal artifact ready",
+              message: "Risk-off confirmation",
+              updatedAt: "2026-04-09T12:31:55.267Z",
+              source: "/tmp/latest-report.json",
+              warnings: [],
+              badgeText: "confirms",
+              data: {
+                generatedAt: "2026-04-09T12:31:55.267Z",
+                compactLines: [
+                  "Polymarket: Fed easing odds 67% (0 pts/24h); Inflation upside risk 56% (+15 pts/24h); US recession odds 30% (-4 pts/24h)",
+                ],
+                alignment: "confirms",
+                overlaySummary: "Risk-off confirmation",
+                overlayDetail: "Polymarket risk-off signals align with a weak or degraded market regime.",
+                conviction: "supportive",
+                aggressionDial: "lean_more_selective",
+                divergenceSummary: "No major divergence",
+                topMarkets: [
+                  {
+                    slug: "rdc-usfed-fomc-2026-04-29-cut25bps",
+                    title: "Fed easing odds",
+                    theme: "rates",
+                    probability: 0.673,
+                    change24h: -0.001,
+                    severity: "major",
+                    persistence: "one_off",
+                    regimeEffect: "mixed",
+                    watchTickers: ["QQQ", "NVDA", "AMD", "MSFT"],
+                    qualityTier: "medium",
+                  },
+                ],
+              },
+            },
+            watchlist: {
+              state: "ok",
+              label: "Watchlist ready",
+              message: "Linked watchlist has 6 symbols across stocks, funds.",
+              updatedAt: "2026-04-09T12:31:55.267Z",
+              source: "/tmp/latest-watchlist.json",
+              warnings: [],
+              data: {
+                updatedAt: "2026-04-09T12:31:55.267Z",
+                totalCount: 6,
+                buckets: {
+                  stocks: ["AMD", "MSFT", "NVDA", "CVX"],
+                  funds: ["QQQ", "XLE"],
+                  crypto: [],
+                  cryptoProxies: [],
+                },
+                symbols: [
+                  {
+                    symbol: "AMD",
+                    assetClass: "stock",
+                    themes: ["rates"],
+                    sourceTitles: ["Fed easing odds"],
+                    severity: "major",
+                    persistence: "one_off",
+                    probability: 0.673,
+                    score: 0.7116,
+                  },
+                  {
+                    symbol: "MSFT",
+                    assetClass: "stock",
+                    themes: ["rates"],
+                    sourceTitles: ["Fed easing odds"],
+                    severity: "major",
+                    persistence: "one_off",
+                    probability: 0.673,
+                    score: 0.7116,
+                  },
+                ],
+              },
+            },
+            results: {
+              state: "ok",
+              label: "Pinned results waiting",
+              message: "Pinned markets will appear here after settlement.",
+              updatedAt: "2026-04-09T12:31:55.267Z",
+              source: "/api/trading-ops/polymarket/results",
+              warnings: [],
+              data: {
+                updatedAt: "2026-04-09T12:31:55.267Z",
+                settledCount: 0,
+                tradedCount: 0,
+                openPositionCount: 0,
+                rows: [],
+              },
+            },
+          }),
+        );
+      }
+
+      return new Promise<Response>(() => {
+        // Keep the unrelated live snapshot fetches dormant; this test only exercises Polymarket.
+      });
+    }) as typeof fetch);
+
+    const { container } = render(<TradingOpsDashboard data={fixture} />);
+
+    await act(async () => {
+      findEventSource("/api/trading-ops/polymarket/live/stream")?.emit("snapshot", {
+        generatedAt: "2026-04-09T20:00:02.000Z",
+        streamer: {
+          marketsConnected: true,
+          privateConnected: true,
+          operatorState: "healthy",
+          trackedMarketCount: 1,
+          trackedMarketSlugs: ["rdc-usfed-fomc-2026-04-29-cut25bps"],
+          lastMarketMessageAt: "2026-04-09T20:00:01.000Z",
+          lastPrivateMessageAt: "2026-04-09T20:00:01.500Z",
+          lastError: null,
+        },
+        account: {
+          balance: 0,
+          buyingPower: 0,
+          openOrdersCount: 0,
+          positionCount: 0,
+          lastBalanceUpdateAt: "2026-04-09T20:00:01.500Z",
+          lastOrdersUpdateAt: null,
+          lastPositionsUpdateAt: null,
+        },
+        markets: [
+          {
+            slug: "rdc-usfed-fomc-2026-04-29-cut25bps",
+            title: "Fed easing odds",
+            bucket: "events",
+            pinned: false,
+            pinnedAt: null,
+            eventTitle: "Fed Decision in April",
+            league: null,
+            bestBid: 0.41,
+            bestAsk: 0.43,
+            lastTrade: 0.42,
+            spread: 0.02,
+            marketState: "MARKET_STATE_OPEN",
+            sharesTraded: 1500,
+            openInterest: 2100,
+            tradePrice: 0.42,
+            tradeQuantity: 25,
+            tradeTime: "2026-04-09T20:00:01.000Z",
+            updatedAt: "2026-04-09T20:00:01.000Z",
+            state: "ok",
+            warning: null,
+          },
+        ],
+        warnings: [],
+      });
+    });
+
+    await waitFor(() => {
+      expect(container).toHaveTextContent("Risk-off confirmation");
+      expect(container).toHaveTextContent("AMD, MSFT");
+      expect(container).toHaveTextContent("1 live markets");
+    });
+
+    const polymarketTab = screen.getByRole("tab", { name: "Polymarket" });
+    fireEvent.mouseDown(polymarketTab);
+    fireEvent.click(polymarketTab);
+
+    await waitFor(() => {
+      expect(container).toHaveTextContent("Signal overlay");
+      expect(container).toHaveTextContent("Linked watchlist");
+      expect(container).toHaveTextContent("Live stream");
+      expect(container).toHaveTextContent("Fed easing odds");
+      expect(container).toHaveTextContent("...106dac");
+      expect(container).toHaveTextContent("$0.4100");
+    });
+  });
+
+  it("highlights roster changes when a new Polymarket board market enters", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/trading-ops/polymarket") {
+        return new Response(
+          JSON.stringify({
+            generatedAt: "2026-04-10T11:45:00.000Z",
+            account: {
+              state: "ok",
+              label: "healthy",
+              message: "Authenticated account is reachable with 0 balances, 0 positions, 0 open orders.",
+              updatedAt: "2026-04-10T11:45:00.000Z",
+              source: "/api/trading-ops/polymarket",
+              warnings: [],
+              badgeText: "...106dac",
+              data: {
+                status: "healthy",
+                keyIdSuffix: "106dac",
+                balanceCount: 0,
+                positionCount: 0,
+                openOrdersCount: 0,
+                balances: [],
+              },
+            },
+            signal: {
+              state: "ok",
+              label: "Signal artifact ready",
+              message: "Neutral",
+              updatedAt: "2026-04-10T11:45:00.000Z",
+              source: "/tmp/latest-report.json",
+              warnings: [],
+              badgeText: "neutral",
+              data: {
+                generatedAt: "2026-04-10T11:45:00.000Z",
+                compactLines: ["Polymarket: live event board ready"],
+                alignment: "neutral",
+                overlaySummary: "Neutral",
+                overlayDetail: null,
+                conviction: "neutral",
+                aggressionDial: "steady",
+                divergenceSummary: null,
+                topMarkets: [],
+              },
+            },
+            watchlist: {
+              state: "ok",
+              label: "Watchlist ready",
+              message: "Linked watchlist has 0 symbols across stocks, funds.",
+              updatedAt: "2026-04-10T11:45:00.000Z",
+              source: "/tmp/latest-watchlist.json",
+              warnings: [],
+              data: {
+                updatedAt: "2026-04-10T11:45:00.000Z",
+                totalCount: 0,
+                buckets: {
+                  stocks: [],
+                  funds: [],
+                  crypto: [],
+                  cryptoProxies: [],
+                },
+                symbols: [],
+              },
+            },
+            results: {
+              state: "ok",
+              label: "Pinned results waiting",
+              message: "Pinned markets will appear here after settlement.",
+              updatedAt: "2026-04-10T11:45:00.000Z",
+              source: "/api/trading-ops/polymarket/results",
+              warnings: [],
+              data: {
+                updatedAt: "2026-04-10T11:45:00.000Z",
+                settledCount: 0,
+                tradedCount: 0,
+                openPositionCount: 0,
+                rows: [],
+              },
+            },
+          }),
+        );
+      }
+
+      return new Promise<Response>(() => {
+        // Keep unrelated fetches dormant.
+      });
+    }) as typeof fetch);
+
+    const { container } = render(<TradingOpsDashboard data={fixture} />);
+
+    const polymarketTab = screen.getByRole("tab", { name: "Polymarket" });
+    fireEvent.mouseDown(polymarketTab);
+    fireEvent.click(polymarketTab);
+
+    await act(async () => {
+      findEventSource("/api/trading-ops/polymarket/live/stream")?.emit("snapshot", {
+        generatedAt: "2026-04-10T11:45:02.000Z",
+        streamer: {
+          marketsConnected: true,
+          privateConnected: true,
+          operatorState: "healthy",
+          trackedMarketCount: 1,
+          trackedMarketSlugs: ["rdc-usfed-fomc-2026-04-29-cut25bps"],
+          lastMarketMessageAt: "2026-04-10T11:45:01.000Z",
+          lastPrivateMessageAt: "2026-04-10T11:45:01.500Z",
+          lastError: null,
+        },
+        account: {
+          balance: 0,
+          buyingPower: 0,
+          openOrdersCount: 0,
+          positionCount: 0,
+          lastBalanceUpdateAt: "2026-04-10T11:45:01.500Z",
+          lastOrdersUpdateAt: null,
+          lastPositionsUpdateAt: null,
+        },
+        markets: [
+          {
+            slug: "rdc-usfed-fomc-2026-04-29-cut25bps",
+            title: "Fed easing odds",
+            bucket: "events",
+            pinned: false,
+            pinnedAt: null,
+            eventTitle: "Fed Decision in April",
+            league: null,
+            bestBid: 0.41,
+            bestAsk: 0.43,
+            lastTrade: 0.42,
+            spread: 0.02,
+            marketState: "MARKET_STATE_OPEN",
+            sharesTraded: 1500,
+            openInterest: 2100,
+            tradePrice: 0.42,
+            tradeQuantity: 25,
+            tradeTime: "2026-04-10T11:45:01.000Z",
+            updatedAt: "2026-04-10T11:45:01.000Z",
+            state: "ok",
+            warning: null,
+          },
+        ],
+        warnings: [],
+      });
+    });
+
+    await waitFor(() => {
+      expect(container).toHaveTextContent("Fed easing odds");
+    });
+
+    await act(async () => {
+      findEventSource("/api/trading-ops/polymarket/live/stream")?.emit("snapshot", {
+        generatedAt: "2026-04-10T11:46:02.000Z",
+        streamer: {
+          marketsConnected: true,
+          privateConnected: true,
+          operatorState: "healthy",
+          trackedMarketCount: 1,
+          trackedMarketSlugs: ["cpic-uscpi-apr2026yoy-2026-05-12-3pt9pct"],
+          lastMarketMessageAt: "2026-04-10T11:46:01.000Z",
+          lastPrivateMessageAt: "2026-04-10T11:46:01.500Z",
+          lastError: null,
+        },
+        account: {
+          balance: 0,
+          buyingPower: 0,
+          openOrdersCount: 0,
+          positionCount: 0,
+          lastBalanceUpdateAt: "2026-04-10T11:46:01.500Z",
+          lastOrdersUpdateAt: null,
+          lastPositionsUpdateAt: null,
+        },
+        markets: [
+          {
+            slug: "cpic-uscpi-apr2026yoy-2026-05-12-3pt9pct",
+            title: "Exactly 3.9",
+            bucket: "events",
+            pinned: false,
+            pinnedAt: null,
+            eventTitle: "CPI year-over-year in April",
+            league: null,
+            bestBid: 0.08,
+            bestAsk: 0.09,
+            lastTrade: 0.09,
+            spread: 0.01,
+            marketState: "MARKET_STATE_OPEN",
+            sharesTraded: 300,
+            openInterest: 900,
+            tradePrice: 0.09,
+            tradeQuantity: 5,
+            tradeTime: "2026-04-10T11:46:01.000Z",
+            updatedAt: "2026-04-10T11:46:01.000Z",
+            state: "ok",
+            warning: null,
+          },
+        ],
+        warnings: [],
+      });
+    });
+
+    await waitFor(() => {
+      expect(container).toHaveTextContent("Exactly 3.9");
+      expect(screen.getAllByText("NEW").length).toBeGreaterThan(0);
+      expect(container).toHaveTextContent("1 new");
+      expect(container).toHaveTextContent("Roster updated");
+    });
+  });
+
   it("falls back cleanly when the live stream errors", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
       new Response(
@@ -372,7 +778,7 @@ describe("TradingOpsDashboard", () => {
 
     const { container } = render(<TradingOpsDashboard data={fixture} />);
     await act(async () => {
-      MockEventSource.instances[0]?.fail();
+      findEventSource("/api/trading-ops/live/stream")?.fail();
     });
 
     await waitFor(() => {

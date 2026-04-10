@@ -72,12 +72,23 @@ Options:
 - `--max-markets <n>` limit output size
 - `--persist` write `latest.json` and timestamped history files
 
+Runtime configuration from `/Users/hd/Developer/cortana-external/.env`:
+- `POLYMARKET_PUBLIC_BASE_URL=https://gateway.polymarket.us`
+- `POLYMARKET_API_BASE_URL=https://api.polymarket.us`
+- `POLYMARKET_KEY_ID=...`
+- `POLYMARKET_SECRET_KEY=...`
+
+Notes:
+- this package now targets Polymarket US only
+- the seeded macro registry is not a clean match for the current US public catalog, so some legacy macro entries will resolve poorly or not at all until the registry is redesigned
+- authenticated account validation is available via `pnpm auth-smoke`
+
 ## Implementation notes
 
-- Exact market and event slug selectors are supported, but the seeded v1 registry uses curated keyword fallback for time-sensitive contracts.
-- The fetcher uses official read-only Polymarket Gamma endpoints:
-  - `/markets?slug=...`
-  - `/events?slug=...`
+- Exact market and event slug selectors are supported, but the seeded registry still relies on curated keyword fallback for time-sensitive contracts.
+- The fetcher uses the Polymarket US public gateway:
+  - `/v1/markets?slug=...`
+  - `/v1/events?slug=...`
 - `1h` and `24h` changes come from Polymarket fields when present.
 - `4h` change is derived from local history if available.
 - local history is also used to classify themes as `one_off`, `persistent`, `accelerating`, or `reversing`.
@@ -89,6 +100,7 @@ Options:
 
 ```bash
 pnpm test
+pnpm auth-smoke
 ```
 
 ## Production Notes

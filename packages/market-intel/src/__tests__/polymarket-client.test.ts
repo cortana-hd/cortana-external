@@ -28,7 +28,8 @@ describe("polymarket client", () => {
 
   it("paginates active events for keyword fallback discovery", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {
-      const url = typeof input === "string" ? new URL(input) : new URL(input.url);
+      const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url = new URL(rawUrl);
       const offset = Number(url.searchParams.get("offset") ?? "0");
 
       if (offset === 0) {
@@ -85,6 +86,53 @@ describe("polymarket client", () => {
 
     expect(result).toHaveLength(1);
     expect(result[0]?.market.slug).toBe("inflation-upside-live");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("supports US public API envelopes without dropping the /v1 path prefix", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url = new URL(rawUrl);
+
+      if (url.pathname === "/v1/markets") {
+        return new Response(
+          JSON.stringify({
+            markets: [{ id: "mkt-1", slug: "fed-cut-june", question: "Fed cut by June?", active: true, closed: false }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+
+      if (url.pathname === "/v1/events") {
+        return new Response(
+          JSON.stringify({
+            events: [
+              {
+                id: "evt-1",
+                slug: "fed-event",
+                title: "Fed cut by June?",
+                markets: [{ id: "mkt-1", slug: "fed-cut-june", question: "Fed cut by June?", active: true, closed: false }],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+
+      throw new Error(`Unexpected path ${url.pathname}`);
+    });
+
+    const client = new PolymarketClient({
+      fetchImpl,
+      retries: 0,
+      timeoutMs: 1000,
+    });
+
+    const marketMatches = await client.fetchByMarketSlugs(["fed-cut-june"]);
+    const eventMatches = await client.fetchByEventSlugs(["fed-event"]);
+
+    expect(marketMatches[0]?.market.slug).toBe("fed-cut-june");
+    expect(eventMatches[0]?.event?.slug).toBe("fed-event");
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });

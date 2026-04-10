@@ -8,6 +8,7 @@ describe("buildAggregateHealth", () => {
       alpaca: { status: "healthy" },
       appleHealth: { status: "healthy" },
       marketData: { status: "healthy" },
+      polymarket: { status: "healthy" },
     });
 
     expect(result.status).toBe("ok");
@@ -21,6 +22,7 @@ describe("buildAggregateHealth", () => {
       alpaca: { status: "healthy" },
       appleHealth: { status: "healthy" },
       marketData: { status: "healthy" },
+      polymarket: { status: "healthy" },
     });
 
     expect(result.status).toBe("degraded");
@@ -34,6 +36,7 @@ describe("buildAggregateHealth", () => {
       alpaca: { status: "unhealthy" },
       appleHealth: { status: "unhealthy" },
       marketData: { status: "unhealthy" },
+      polymarket: { status: "unhealthy" },
     });
 
     expect(result.status).toBe("unhealthy");
@@ -47,6 +50,7 @@ describe("buildAggregateHealth", () => {
       alpaca: { status: "healthy" },
       appleHealth: { status: "unconfigured" },
       marketData: { status: "healthy" },
+      polymarket: { status: "healthy" },
     });
 
     expect(result.status).toBe("ok");

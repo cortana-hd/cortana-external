@@ -6,6 +6,7 @@ export interface AggregateHealthInput {
   alpaca: Record<string, unknown>;
   appleHealth: Record<string, unknown>;
   marketData: Record<string, unknown>;
+  polymarket: Record<string, unknown>;
 }
 
 export interface AggregateHealthOutput extends AggregateHealthInput {
@@ -26,7 +27,7 @@ function isHealthy(entry: Record<string, unknown>): boolean {
 }
 
 export function buildAggregateHealth(input: AggregateHealthInput): AggregateHealthOutput {
-  const required = [input.whoop, input.tonal, input.alpaca, input.marketData];
+  const required = [input.whoop, input.tonal, input.alpaca, input.marketData, input.polymarket];
   const requiredHealthyCount = required.filter(isHealthy).length;
   const appleHealthStatus = statusOf(input.appleHealth);
 
@@ -45,5 +46,6 @@ export function buildAggregateHealth(input: AggregateHealthInput): AggregateHeal
     alpaca: input.alpaca,
     appleHealth: input.appleHealth,
     marketData: input.marketData,
+    polymarket: input.polymarket,
   };
 }

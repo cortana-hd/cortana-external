@@ -76,8 +76,9 @@ describe("service, reports, and cli helpers", () => {
     );
 
     const fetchImpl: typeof fetch = async (input) => {
-      const url = typeof input === "string" ? new URL(input) : new URL(input.url);
-      if (url.pathname !== "/events") {
+      const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url = new URL(rawUrl);
+      if (!url.pathname.endsWith("/events")) {
         throw new Error(`Unexpected path ${url.pathname}`);
       }
 

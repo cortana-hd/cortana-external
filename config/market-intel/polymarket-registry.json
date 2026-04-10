@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-03-13T00:00:00Z",
+  "updatedAt": "2026-04-09T00:00:00Z",
   "entries": [
     {
       "id": "fed-easing",
@@ -17,10 +17,10 @@
       "probabilityMode": "invert",
       "notes": "Use as macro context, not a buy trigger.",
       "selectors": {
-        "marketSlugs": ["will-no-fed-rate-cuts-happen-in-2026"],
-        "eventSlugs": [],
-        "keywords": ["fed cut", "fomc", "rate cut", "fed rates", "cut rates"],
-        "includeKeywords": ["no fed rate cuts"],
+        "marketSlugs": [],
+        "eventSlugs": ["usfed-fomc-2026-04-29"],
+        "keywords": ["fed decision", "fomc", "fed cut", "rate cut"],
+        "includeKeywords": ["fed decision"],
         "excludeKeywords": ["2025", "hikes"]
       }
     },
@@ -34,9 +34,9 @@
       "watchTickers": ["XLU", "XLV", "COST", "IWM"],
       "confidenceWeight": 0.9,
       "minLiquidity": 150000,
-      "active": true,
+      "active": false,
       "impactModel": "recession_risk",
-      "notes": "Use for risk framing and watchlist posture.",
+      "notes": "Inactive until the US catalog offers a current recession-style macro contract again.",
       "selectors": {
         "marketSlugs": ["us-recession-by-end-of-2026"],
         "eventSlugs": [],
@@ -60,10 +60,10 @@
       "impactModel": "inflation_upside",
       "notes": "Prefer CPI/PCE style markets over generic sentiment contracts.",
       "selectors": {
-        "marketSlugs": ["will-inflation-reach-more-than-4-in-2026"],
-        "eventSlugs": ["how-high-will-inflation-get-in-2026"],
-        "keywords": ["inflation reaccelerate", "inflation 2026", "cpi 2026", "pce 2026"],
-        "includeKeywords": ["inflation", "2026"],
+        "marketSlugs": [],
+        "eventSlugs": ["uscpi-apr2026yoy-2026-05-12"],
+        "keywords": ["cpi", "inflation", "year-over-year"],
+        "includeKeywords": ["cpi year-over-year in april"],
         "excludeKeywords": ["gta vi", "world cup", "egg prices"]
       }
     },
@@ -78,9 +78,9 @@
       "watchTickers": ["NVDA", "AMD", "AAPL", "NKE", "CAT"],
       "confidenceWeight": 0.8,
       "minLiquidity": 100000,
-      "active": true,
+      "active": false,
       "impactModel": "tariff_risk",
-      "notes": "Use only when contract wording is specific enough to matter.",
+      "notes": "Inactive until the US catalog restores a live tariff or trade-policy contract with enough liquidity.",
       "selectors": {
         "marketSlugs": [
           "will-trump-create-a-tariff-dividend-by-june-30",
@@ -102,9 +102,9 @@
       "watchTickers": ["XOM", "CVX", "LMT", "NOC", "JETS"],
       "confidenceWeight": 0.82,
       "minLiquidity": 100000,
-      "active": true,
+      "active": false,
       "impactModel": "geopolitical_escalation",
-      "notes": "Favor high-liquidity escalation or ceasefire contracts.",
+      "notes": "Inactive until the US catalog restores a live geopolitical escalation contract with enough liquidity.",
       "selectors": {
         "marketSlugs": [
           "will-china-invade-taiwan-before-2027",
@@ -127,9 +127,9 @@
       "watchTickers": ["BTC", "ETH", "SOL", "COIN", "HOOD", "MARA", "MSTR"],
       "confidenceWeight": 0.78,
       "minLiquidity": 100000,
-      "active": true,
+      "active": false,
       "impactModel": "crypto_policy_support",
-      "notes": "Treat as thematic watchlist context rather than broad market direction.",
+      "notes": "Inactive until the US catalog restores a live crypto-policy contract with enough liquidity.",
       "selectors": {
         "marketSlugs": [
           "us-national-bitcoin-reserve-before-2027",

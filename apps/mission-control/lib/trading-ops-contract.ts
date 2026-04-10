@@ -175,3 +175,153 @@ export type TradingOpsLiveData = {
   };
   warnings: string[];
 };
+
+export type PolymarketAccountOverview = {
+  status: string;
+  keyIdSuffix: string | null;
+  balanceCount: number;
+  positionCount: number;
+  openOrdersCount: number;
+  balances: Array<{
+    currency: string;
+    currentBalance: number | null;
+    buyingPower: number | null;
+  }>;
+};
+
+export type PolymarketSignalMarket = {
+  slug: string;
+  title: string;
+  theme: string;
+  probability: number | null;
+  change24h: number | null;
+  severity: string;
+  persistence: string;
+  regimeEffect: string | null;
+  watchTickers: string[];
+  qualityTier: string | null;
+};
+
+export type PolymarketSignalOverview = {
+  generatedAt: string | null;
+  compactLines: string[];
+  alignment: string | null;
+  overlaySummary: string | null;
+  overlayDetail: string | null;
+  conviction: string | null;
+  aggressionDial: string | null;
+  divergenceSummary: string | null;
+  topMarkets: PolymarketSignalMarket[];
+};
+
+export type PolymarketWatchlistSymbol = {
+  symbol: string;
+  assetClass: string;
+  themes: string[];
+  sourceTitles: string[];
+  severity: string;
+  persistence: string;
+  probability: number | null;
+  score: number | null;
+};
+
+export type PolymarketWatchlistOverview = {
+  updatedAt: string | null;
+  totalCount: number;
+  buckets: {
+    stocks: string[];
+    funds: string[];
+    crypto: string[];
+    cryptoProxies: string[];
+  };
+  symbols: PolymarketWatchlistSymbol[];
+};
+
+export type PolymarketResultRow = {
+  marketSlug: string;
+  bucket: "events" | "sports";
+  title: string;
+  eventTitle: string | null;
+  league: string | null;
+  pinnedAt: string | null;
+  status: "open" | "closed" | "settled";
+  traded: boolean;
+  realizedPnl: number | null;
+  netPosition: number | null;
+  costBasis: number | null;
+  currentValue: number | null;
+  unrealizedPnl: number | null;
+  settledAt: string | null;
+  settlementPrice: number | null;
+  outcome: string | null;
+  lastActivityAt: string | null;
+  resultLabel: string;
+};
+
+export type PolymarketResultsOverview = {
+  updatedAt: string | null;
+  settledCount: number;
+  tradedCount: number;
+  openPositionCount: number;
+  rows: PolymarketResultRow[];
+};
+
+export type TradingOpsPolymarketData = {
+  generatedAt: string;
+  account: ArtifactState<PolymarketAccountOverview>;
+  signal: ArtifactState<PolymarketSignalOverview>;
+  watchlist: ArtifactState<PolymarketWatchlistOverview>;
+  results: ArtifactState<PolymarketResultsOverview>;
+};
+
+export type PolymarketLiveStreamerSummary = {
+  marketsConnected: boolean;
+  privateConnected: boolean;
+  operatorState: string;
+  trackedMarketCount: number;
+  trackedMarketSlugs: string[];
+  lastMarketMessageAt: string | null;
+  lastPrivateMessageAt: string | null;
+  lastError: string | null;
+};
+
+export type PolymarketLiveAccountOverview = {
+  balance: number | null;
+  buyingPower: number | null;
+  openOrdersCount: number | null;
+  positionCount: number | null;
+  lastBalanceUpdateAt: string | null;
+  lastOrdersUpdateAt: string | null;
+  lastPositionsUpdateAt: string | null;
+};
+
+export type PolymarketLiveMarketRow = {
+  slug: string;
+  title: string;
+  bucket: "events" | "sports";
+  pinned: boolean;
+  pinnedAt: string | null;
+  eventTitle: string | null;
+  league: string | null;
+  bestBid: number | null;
+  bestAsk: number | null;
+  lastTrade: number | null;
+  spread: number | null;
+  marketState: string | null;
+  sharesTraded: number | null;
+  openInterest: number | null;
+  tradePrice: number | null;
+  tradeQuantity: number | null;
+  tradeTime: string | null;
+  updatedAt: string | null;
+  state: LoadState;
+  warning: string | null;
+};
+
+export type TradingOpsPolymarketLiveData = {
+  generatedAt: string;
+  streamer: PolymarketLiveStreamerSummary;
+  account: PolymarketLiveAccountOverview;
+  markets: PolymarketLiveMarketRow[];
+  warnings: string[];
+};

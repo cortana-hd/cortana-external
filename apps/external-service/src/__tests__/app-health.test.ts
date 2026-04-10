@@ -21,6 +21,9 @@ function createServices(overrides?: Partial<ExternalServices>): ExternalServices
     marketData: {
       checkHealth: async () => ({ status: "healthy" }),
     } as unknown as ExternalServices["marketData"],
+    polymarket: {
+      checkHealth: async () => ({ status: "healthy" }),
+    } as unknown as ExternalServices["polymarket"],
     ...overrides,
   };
 }
@@ -47,6 +50,9 @@ describe("/health", () => {
         marketData: {
           checkHealth: async () => ({ status: "healthy" }),
         } as unknown as ExternalServices["marketData"],
+        polymarket: {
+          checkHealth: async () => ({ status: "healthy" }),
+        } as unknown as ExternalServices["polymarket"],
       }),
     );
 
@@ -75,6 +81,9 @@ describe("/health", () => {
         marketData: {
           checkHealth: async () => ({ status: "unhealthy" }),
         } as unknown as ExternalServices["marketData"],
+        polymarket: {
+          checkHealth: async () => ({ status: "unhealthy" }),
+        } as unknown as ExternalServices["polymarket"],
       }),
     );
 

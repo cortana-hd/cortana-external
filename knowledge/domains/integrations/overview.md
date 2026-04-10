@@ -8,10 +8,11 @@ Main examples in this repo:
 - Tonal
 - Schwab
 - Alpaca
-- Polymarket context
+- Polymarket US
 
 Start here:
 
 - [Repo README](../../../README.md)
+- [Polymarket US current truth](./polymarket-us.md)
 - [Backtester market-data service reference](../../../backtester/knowledge/reference/market-data-service-reference.md)
 - [Gateway uptime recovery runbook](../../../docs/archive/runbook/gateway-uptime-recovery-v1.md)

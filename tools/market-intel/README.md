@@ -72,6 +72,17 @@ Environment overrides for the wrapper:
 - `MIN_WATCHLIST_COUNT`
 - `MAX_FALLBACK_ONLY`
 
+Polymarket US configuration:
+- `POLYMARKET_PUBLIC_BASE_URL=https://gateway.polymarket.us`
+- `POLYMARKET_API_BASE_URL=https://api.polymarket.us`
+- `POLYMARKET_KEY_ID=...`
+- `POLYMARKET_SECRET_KEY=...`
+
+Current boundary:
+- this bridge still runs a read-only context lane
+- authenticated key validation now lives in `pnpm auth-smoke`
+- the seeded macro registry is not yet well-aligned with the current Polymarket US public catalog, so legacy macro coverage will remain partial until the registry is rebuilt
+
 ## Example OpenClaw cron
 
 ```bash

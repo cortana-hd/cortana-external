@@ -1,44 +1,69 @@
 # Polymarket + Backtester Flow
 
-This is the simplest user-facing view of how the stock-analysis flow works.
+This page is the simplest current source view of how Polymarket US now fits into the stock-analysis and operator surfaces.
 
 ```mermaid
 flowchart LR
     A["OpenClaw cron or operator run"] --> B["run_market_intel.sh"]
     B --> C["TypeScript market-intel package"]
-    C --> D["Fetch Polymarket public markets"]
-    C --> E["Score and filter macro/event signals"]
-    E --> F["Write compact report + watchlist artifacts"]
-    F --> G["Python backtester"]
-    G --> H["Market regime + stock scoring"]
-    H --> I["CANSLIM alert"]
-    H --> J["Dip Buyer alert"]
-    H --> L["Quick check command"]
-    H --> S["Nightly discovery command"]
-    H --> N["Experimental alpha research (paper only)"]
-    S --> T["Broader overnight universe review"]
-    N --> P["Persist snapshots"]
-    P --> Q["Settle forward returns"]
-    Q --> R["Calibration + promotion gate"]
-    I --> K["Operator reads final stock-market summary"]
-    J --> K["Operator reads final stock-market summary"]
-    L --> M["Operator gets fast stock or coin verdict"]
-    R --> O["Operator reviews research-only alpha output"]
+    C --> D["Fetch and normalize Polymarket US context"]
+    C --> E["Write compact report + watchlist artifacts"]
+    E --> F["Python backtester"]
+    E --> X["Mission Control Trading Ops"]
+    X --> Y["External-service Polymarket US runtime"]
+    Y --> Z["Live account, focus, pins, results"]
+    F --> G["Market regime + stock scoring"]
+    G --> H["CANSLIM alert"]
+    G --> I["Dip Buyer alert"]
+    G --> J["Quick check command"]
+    G --> K["Nightly discovery command"]
+    G --> L["Experimental alpha research (paper only)"]
+    K --> M["Broader overnight universe review"]
+    L --> N["Persist snapshots"]
+    N --> O["Settle forward returns"]
+    O --> P["Calibration + promotion gate"]
+    H --> Q["Operator reads final stock-market summary"]
+    I --> Q
+    J --> R["Operator gets fast stock or coin verdict"]
+    P --> S["Operator reviews research-only alpha output"]
 ```
 
 ## Plain-English version
 
 - OpenClaw or an operator starts the scheduled run.
 - The `run_market_intel.sh` bridge runs the TypeScript Polymarket intelligence layer first.
-- That layer fetches public Polymarket markets, keeps only high-signal macro/event context, and writes artifact files.
-- The Python backtester then reads those artifacts together with its own market-regime and stock-scoring logic.
-- The final thing the user sees is either a CANSLIM/Dip Buyer stock-analysis alert, a fast quick-check verdict, a broader nightly discovery review, or a separate paper-only alpha research workflow with persistence, settlement, and calibration.
+- That layer now targets Polymarket US and writes artifact files that both the Python backtester and Mission Control can consume.
+- External-service owns the authenticated US account path, live market/private snapshots, top-event/top-sports discovery, pin persistence, and results/economics.
+- Mission Control Trading Ops uses those runtime surfaces to show live Polymarket boards, pinned markets, linked watchlists, and settled/open results.
+- The Python backtester still reads Polymarket artifacts as context for the equity regime, stock scoring, quick checks, nightly discovery, and paper-only alpha research.
+- The final thing the operator sees is still a stock-market summary or research surface, but now with Polymarket-aware context and a live Polymarket operator surface beside it.
 
 ## Mental model
 
 - OpenClaw: scheduler / runner
-- TypeScript layer: external macro and event intelligence
-- Python layer: stock analysis and alert generation
+- TypeScript market-intel: macro/event intelligence and artifact generation
+- External-service: authenticated Polymarket US runtime layer
+- Mission Control: live operator surface for account, focus boards, pinned markets, and results
+- Python backtester: stock analysis and alert generation
 - Nightly discovery: broader overnight candidate sweep
 - Experimental alpha research: paper-only validation surface with persistence, settlement, and promotion gates
-- Final output: better-informed alerts, quick checks, and research views, not automatic trades
+
+## Current boundary
+
+This stack is currently:
+
+- live
+- authenticated
+- monitored
+- backtester-aware
+
+It is not yet:
+
+- an order-entry system
+- a Polymarket-specific decision engine
+- a thesis/paper-trade recorder for prediction-market orders
+
+Those next steps are tracked in:
+
+- `backtester/docs/source/roadmap/polymarket-v2-trade-loop.md`
+- `knowledge/domains/integrations/polymarket-us.md`

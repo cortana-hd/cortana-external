@@ -19,9 +19,11 @@ In the LLM wiki model:
 
 - [Study guide](./source/guide/backtester-study-guide.md)
 - [Roadmap](./source/roadmap/roadmap.md)
+- [Polymarket v2 trade loop](./source/roadmap/polymarket-v2-trade-loop.md)
 - [Session handoff](./source/guide/session-handoff.md)
 - [Market-data service reference](../knowledge/reference/market-data-service-reference.md)
 - [Trading cron base/enrichment/notify decoupling PRD](./source/prd/prd-trading-cron-base-enrichment-notify-decoupling.md)
 - [Polymarket market intelligence PRD](./source/prd/prd-polymarket-market-intelligence.md)
+- [Polymarket + backtester flow](./source/architecture/polymarket-backtester-flow.md)
 - [Schwab OAuth reauth runbook](./source/runbook/schwab-oauth-reauth-runbook.md)
 - [Trading Ops QA runbook](./source/runbook/trading-ops-qa-runbook.md)

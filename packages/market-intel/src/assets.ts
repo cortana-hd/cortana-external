@@ -26,7 +26,9 @@ const CRYPTO_PROXY_SYMBOLS = new Set([
 ]);
 
 const ETF_SYMBOLS = new Set([
+  "SPY",
   "QQQ",
+  "DIA",
   "IWM",
   "ARKK",
   "XLU",

@@ -71,8 +71,9 @@ describe("health", () => {
     );
 
     const fetchImpl: typeof fetch = async (input) => {
-      const url = typeof input === "string" ? new URL(input) : new URL(input.url);
-      if (url.pathname === "/markets") {
+      const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url = new URL(rawUrl);
+      if (url.pathname.endsWith("/markets")) {
         const slug = url.searchParams.get("slug");
         if (slug === "healthy-slug") {
           return new Response(
@@ -86,7 +87,7 @@ describe("health", () => {
         });
       }
 
-      if (url.pathname === "/events") {
+      if (url.pathname.endsWith("/events")) {
         return new Response(
           JSON.stringify([
             {
