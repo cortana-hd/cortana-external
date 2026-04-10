@@ -22,15 +22,23 @@ def _is_regular_market_session(now: datetime | None = None) -> bool:
     return (9 * 60 + 30) <= minutes <= (16 * 60)
 
 
-def _quote_batch(symbols: list[str], *, service_base_url: str, chunk_size: int = 120) -> tuple[list[dict[str, Any]], list[str]]:
+def _quote_batch(
+    symbols: list[str],
+    *,
+    service_base_url: str,
+    chunk_size: int = 120,
+) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
     items: list[dict[str, Any]] = []
     warnings: list[str] = []
+    provider_modes: list[str] = []
+    provider_mode_reasons: list[str] = []
+    fallback_engaged = False
     for start in range(0, len(symbols), chunk_size):
         chunk = symbols[start:start + chunk_size]
         try:
             response = requests.get(
                 f"{service_base_url}/market-data/quote/batch",
-                params={"symbols": ",".join(chunk)},
+                params={"symbols": ",".join(chunk), "subsystem": "intraday_breadth"},
                 timeout=15,
             )
             response.raise_for_status()
@@ -38,10 +46,26 @@ def _quote_batch(symbols: list[str], *, service_base_url: str, chunk_size: int =
         except Exception as exc:
             warnings.append(f"quote_batch_failed[{start}:{start + len(chunk)}]: {exc}")
             continue
+        provider_mode = str(payload.get("providerMode", "") or "").strip()
+        if provider_mode:
+            provider_modes.append(provider_mode)
+        provider_mode_reason = str(payload.get("providerModeReason", "") or "").strip()
+        if provider_mode_reason:
+            provider_mode_reasons.append(provider_mode_reason)
+        fallback_engaged = fallback_engaged or bool(payload.get("fallbackEngaged", False))
         chunk_items = payload.get("data", {}).get("items", []) if isinstance(payload.get("data"), dict) else []
         if isinstance(chunk_items, list):
             items.extend([item for item in chunk_items if isinstance(item, dict)])
-    return items, warnings
+    unique_modes = sorted({mode for mode in provider_modes if mode})
+    provider_mode = unique_modes[0] if len(unique_modes) == 1 else "multi_mode" if unique_modes else "unavailable"
+    provider_mode_reason = provider_mode_reasons[0] if provider_mode_reasons else ""
+    if len(unique_modes) > 1:
+        provider_mode_reason = "Intraday breadth used more than one provider mode across quote batches."
+    return items, warnings, {
+        "provider_mode": provider_mode,
+        "fallback_engaged": fallback_engaged,
+        "provider_mode_reason": provider_mode_reason,
+    }
 
 
 def _load_base_universe_symbols(*, service_base_url: str) -> tuple[list[str], str | None]:
@@ -157,7 +181,16 @@ def build_intraday_breadth_snapshot(
     base_symbols, base_error = _load_base_universe_symbols(service_base_url=service_base_url)
     growth_symbols = sorted({str(symbol).strip().upper() for symbol in GROWTH_WATCHLIST if str(symbol).strip()})
     quote_symbols = sorted({*TAPE_SYMBOLS, *base_symbols, *growth_symbols})
-    items, batch_warnings = _quote_batch(quote_symbols, service_base_url=service_base_url)
+    batch_result = _quote_batch(quote_symbols, service_base_url=service_base_url)
+    if len(batch_result) == 3:
+        items, batch_warnings, provider_meta = batch_result
+    else:
+        items, batch_warnings = batch_result
+        provider_meta = {
+            "provider_mode": "unknown",
+            "fallback_engaged": False,
+            "provider_mode_reason": "",
+        }
     change_map, change_warnings = _collect_change_map(items)
 
     tape = {symbol: change_map.get(symbol) for symbol in TAPE_SYMBOLS if symbol in change_map}
@@ -202,6 +235,9 @@ def build_intraday_breadth_snapshot(
         "narrow_rally_flag": bool(
             float(tape.get("SPY", 0.0) or 0.0) >= 1.0 and sp500["pct_up"] < 0.60
         ),
+        "provider_mode": str(provider_meta.get("provider_mode", "unknown") or "unknown"),
+        "fallback_engaged": bool(provider_meta.get("fallback_engaged", False)),
+        "provider_mode_reason": str(provider_meta.get("provider_mode_reason", "") or ""),
         "warnings": warnings,
     }
 

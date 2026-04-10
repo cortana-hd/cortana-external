@@ -38,6 +38,9 @@ class MarketHistoryResult:
     status: str = "ok"  # ok|degraded
     degraded_reason: str = ""
     staleness_seconds: float = 0.0
+    provider_mode: str = "unknown"
+    fallback_engaged: bool = False
+    provider_mode_reason: str = ""
 
 
 @dataclass
@@ -47,6 +50,9 @@ class MarketQuoteResult:
     status: str = "ok"
     degraded_reason: str = ""
     staleness_seconds: float = 0.0
+    provider_mode: str = "unknown"
+    fallback_engaged: bool = False
+    provider_mode_reason: str = ""
 
 
 class MarketDataProvider:
@@ -75,7 +81,14 @@ class MarketDataProvider:
             os.getenv("MARKET_DATA_STALE_FALLBACK_MAX_AGE_HOURS", str(stale_fallback_max_age_hours))
         )
 
-    def get_history(self, symbol: str, period: str = "1y", auto_adjust: bool = False) -> MarketHistoryResult:
+    def get_history(
+        self,
+        symbol: str,
+        period: str = "1y",
+        auto_adjust: bool = False,
+        *,
+        subsystem: str | None = None,
+    ) -> MarketHistoryResult:
         symbol = symbol.upper().strip()
         providers_tried: list[str] = []
         transient_failures: list[str] = []
@@ -84,12 +97,23 @@ class MarketDataProvider:
         for provider in self.providers:
             providers_tried.append(provider)
             try:
-                frame, metadata = self._fetch_with_retries(provider, symbol, period, auto_adjust=auto_adjust)
+                frame, metadata = self._fetch_with_retries(
+                    provider,
+                    symbol,
+                    period,
+                    auto_adjust=auto_adjust,
+                    subsystem=subsystem,
+                )
                 self._validate_frame(frame, symbol=symbol, provider=provider)
                 source = str(metadata.get("source") or provider)
                 status = str(metadata.get("status") or "ok")
                 degraded_reason = str(metadata.get("degraded_reason") or metadata.get("degradedReason") or "")
                 staleness_seconds = float(metadata.get("staleness_seconds") or metadata.get("stalenessSeconds") or 0.0)
+                provider_mode = str(metadata.get("provider_mode") or metadata.get("providerMode") or "unknown")
+                fallback_engaged = bool(metadata.get("fallback_engaged") or metadata.get("fallbackEngaged") or False)
+                provider_mode_reason = str(
+                    metadata.get("provider_mode_reason") or metadata.get("providerModeReason") or ""
+                )
                 if status not in {"ok", "degraded"}:
                     status = "ok"
                 if source == "service":
@@ -101,6 +125,9 @@ class MarketDataProvider:
                     status=status,
                     degraded_reason=degraded_reason,
                     staleness_seconds=staleness_seconds,
+                    provider_mode=provider_mode,
+                    fallback_engaged=fallback_engaged,
+                    provider_mode_reason=provider_mode_reason,
                 )
             except MarketDataError as exc:
                 if exc.transient:
@@ -125,6 +152,9 @@ class MarketDataProvider:
                 status="degraded",
                 degraded_reason=f"Live providers unavailable; using {cache_note}",
                 staleness_seconds=age_seconds,
+                provider_mode="cache_fallback",
+                fallback_engaged=True,
+                provider_mode_reason="History used the local cache fallback lane.",
             )
         if transient_failures:
             cached = self._read_cache_with_compatible_periods(symbol, period, allow_stale_recent=True)
@@ -143,6 +173,9 @@ class MarketDataProvider:
                     status="degraded",
                     degraded_reason=f"Live providers unavailable; using {cache_note}",
                     staleness_seconds=age_seconds,
+                    provider_mode="cache_fallback",
+                    fallback_engaged=True,
+                    provider_mode_reason="History used the stale cache fallback lane.",
                 )
 
         reason_chunks = []
@@ -156,7 +189,7 @@ class MarketDataProvider:
             transient=bool(transient_failures) and not fatal_failures,
         )
 
-    def get_quote(self, symbol: str) -> MarketQuoteResult:
+    def get_quote(self, symbol: str, *, subsystem: str | None = None) -> MarketQuoteResult:
         symbol = symbol.upper().strip()
         providers_tried: list[str] = []
         transient_failures: list[str] = []
@@ -165,11 +198,16 @@ class MarketDataProvider:
         for provider in self.providers:
             providers_tried.append(provider)
             try:
-                quote, metadata = self._fetch_quote_with_retries(provider, symbol)
+                quote, metadata = self._fetch_quote_with_retries(provider, symbol, subsystem=subsystem)
                 source = str(metadata.get("source") or provider)
                 status = str(metadata.get("status") or "ok")
                 degraded_reason = str(metadata.get("degraded_reason") or metadata.get("degradedReason") or "")
                 staleness_seconds = float(metadata.get("staleness_seconds") or metadata.get("stalenessSeconds") or 0.0)
+                provider_mode = str(metadata.get("provider_mode") or metadata.get("providerMode") or "unknown")
+                fallback_engaged = bool(metadata.get("fallback_engaged") or metadata.get("fallbackEngaged") or False)
+                provider_mode_reason = str(
+                    metadata.get("provider_mode_reason") or metadata.get("providerModeReason") or ""
+                )
                 if status not in {"ok", "degraded"}:
                     status = "ok"
                 if source == "service":
@@ -180,6 +218,9 @@ class MarketDataProvider:
                     status=status,
                     degraded_reason=degraded_reason,
                     staleness_seconds=staleness_seconds,
+                    provider_mode=provider_mode,
+                    fallback_engaged=fallback_engaged,
+                    provider_mode_reason=provider_mode_reason,
                 )
             except MarketDataError as exc:
                 if exc.transient:
@@ -211,15 +252,33 @@ class MarketDataProvider:
             allow_stale_recent=allow_stale_recent,
         ) is not None
 
-    def _fetch_with_retries(self, provider: str, symbol: str, period: str, auto_adjust: bool = False) -> tuple[pd.DataFrame, dict]:
+    def _fetch_with_retries(
+        self,
+        provider: str,
+        symbol: str,
+        period: str,
+        auto_adjust: bool = False,
+        *,
+        subsystem: str | None = None,
+    ) -> tuple[pd.DataFrame, dict]:
         if provider not in {"service", "schwab", "alpaca"}:
             raise MarketDataError(f"Unknown provider '{provider}'", transient=False)
         attempt = 0
         while True:
             try:
                 if provider == "service":
+                    if subsystem:
+                        return self._fetch_service_history(symbol, period, auto_adjust=auto_adjust, subsystem=subsystem)
                     return self._fetch_service_history(symbol, period, auto_adjust=auto_adjust)
                 if provider in {"schwab", "alpaca"}:
+                    if subsystem:
+                        return self._fetch_service_history(
+                            symbol,
+                            period,
+                            auto_adjust=auto_adjust,
+                            provider=provider,
+                            subsystem=subsystem,
+                        )
                     return self._fetch_service_history(symbol, period, auto_adjust=auto_adjust, provider=provider)
                 raise MarketDataError(f"Unknown provider '{provider}'", transient=False)
             except MarketDataError as exc:
@@ -229,12 +288,24 @@ class MarketDataProvider:
                 time.sleep(max(delay, 0))
                 attempt += 1
 
-    def _fetch_quote_with_retries(self, provider: str, symbol: str) -> tuple[dict, dict]:
+    def _fetch_quote_with_retries(
+        self,
+        provider: str,
+        symbol: str,
+        *,
+        subsystem: str | None = None,
+    ) -> tuple[dict, dict]:
         if provider not in {"service", "schwab", "alpaca"}:
             raise MarketDataError(f"Unknown provider '{provider}'", transient=False)
         attempt = 0
         while True:
             try:
+                if subsystem:
+                    return self._fetch_service_quote(
+                        symbol,
+                        provider=None if provider == "service" else provider,
+                        subsystem=subsystem,
+                    )
                 return self._fetch_service_quote(symbol, provider=None if provider == "service" else provider)
             except MarketDataError as exc:
                 if attempt >= self.max_retries or not exc.transient:
@@ -249,12 +320,15 @@ class MarketDataProvider:
         period: str,
         auto_adjust: bool = False,
         provider: str | None = None,
+        subsystem: str | None = None,
     ) -> tuple[pd.DataFrame, dict]:
         safe_symbol = quote(symbol)
         url = f"{self.service_base_url}/market-data/history/{safe_symbol}"
         params = {"period": period, "auto_adjust": str(bool(auto_adjust)).lower()}
         if provider and provider != "service":
             params["provider"] = provider
+        if subsystem:
+            params["subsystem"] = subsystem
 
         try:
             resp = requests.get(url, params=params, timeout=15)
@@ -280,12 +354,20 @@ class MarketDataProvider:
             "status": str(payload.get("status") or "ok"),
             "degradedReason": str(payload.get("degradedReason") or payload.get("degraded_reason") or ""),
             "stalenessSeconds": float(payload.get("stalenessSeconds") or payload.get("staleness_seconds") or 0.0),
+            "providerMode": str(payload.get("providerMode") or payload.get("provider_mode") or "unknown"),
+            "fallbackEngaged": bool(payload.get("fallbackEngaged") or payload.get("fallback_engaged") or False),
+            "providerModeReason": str(payload.get("providerModeReason") or payload.get("provider_mode_reason") or ""),
             "sourceData": payload.get("sourceData", {}),
             "availability": payload.get("availability"),
         }
         return frame, metadata
 
-    def _fetch_service_quote(self, symbol: str, provider: str | None = None) -> tuple[dict, dict]:
+    def _fetch_service_quote(
+        self,
+        symbol: str,
+        provider: str | None = None,
+        subsystem: str | None = None,
+    ) -> tuple[dict, dict]:
         if symbol.startswith("/"):
             safe_symbol = quote(symbol.lstrip("/"), safe="")
             url = f"{self.service_base_url}/market-data/futures/{safe_symbol}"
@@ -295,6 +377,8 @@ class MarketDataProvider:
         params = {}
         if provider and provider != "service":
             params["provider"] = provider
+        if subsystem:
+            params["subsystem"] = subsystem
 
         try:
             resp = requests.get(url, params=params, timeout=15)
@@ -322,6 +406,9 @@ class MarketDataProvider:
             "status": str(payload.get("status") or "ok"),
             "degradedReason": str(payload.get("degradedReason") or payload.get("degraded_reason") or ""),
             "stalenessSeconds": float(payload.get("stalenessSeconds") or payload.get("staleness_seconds") or 0.0),
+            "providerMode": str(payload.get("providerMode") or payload.get("provider_mode") or "unknown"),
+            "fallbackEngaged": bool(payload.get("fallbackEngaged") or payload.get("fallback_engaged") or False),
+            "providerModeReason": str(payload.get("providerModeReason") or payload.get("provider_mode_reason") or ""),
         }
         return data, metadata
 

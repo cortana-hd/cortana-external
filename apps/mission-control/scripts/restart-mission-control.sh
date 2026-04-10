@@ -27,6 +27,85 @@ log() {
   printf '[mission-control-restart] %s\n' "$*"
 }
 
+mission_control_related_pids() {
+  local pid="" command="" cwd=""
+
+  while IFS= read -r line; do
+    pid="${line%% *}"
+    command="${line#* }"
+    [[ -z "${pid}" || -z "${command}" ]] && continue
+    cwd="$(/usr/sbin/lsof -a -p "${pid}" -d cwd -Fn 2>/dev/null | awk '/^n/ {print substr($0, 2); exit}')"
+    if [[ "${cwd}" == "${APP_DIR}" ]]; then
+      printf '%s\n' "${pid}"
+    fi
+  done < <(
+    ps -axo pid=,command= | awk '
+      /next-server/ ||
+      /next\/dist\/bin\/next start/ ||
+      /[p]npm start/ {
+        sub(/^[[:space:]]+/, "", $0);
+        print $0;
+      }
+    '
+  )
+}
+
+load_related_pids() {
+  RELATED_PIDS=()
+  local pid=""
+
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] && RELATED_PIDS+=("${pid}")
+  done < <(mission_control_related_pids | sort -u)
+}
+
+kill_pid_list() {
+  local signal="$1"
+  shift || true
+  local pid=""
+
+  for pid in "$@"; do
+    [[ -n "${pid}" ]] && kill "-${signal}" "${pid}" 2>/dev/null || true
+  done
+}
+
+wait_for_port_clear() {
+  local attempts="${1:-10}"
+  local listener_pids=""
+
+  for _ in $(seq 1 "${attempts}"); do
+    listener_pids="$(/usr/sbin/lsof -tiTCP:3000 -sTCP:LISTEN 2>/dev/null || true)"
+    if [[ -z "${listener_pids}" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  return 1
+}
+
+wait_for_pids_clear() {
+  local attempts="${1:-10}"
+  local pid=""
+  local still_running=0
+
+  for _ in $(seq 1 "${attempts}"); do
+    still_running=0
+    for pid in "${RELATED_PIDS[@]:-}"; do
+      if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+        still_running=1
+        break
+      fi
+    done
+    if [[ "${still_running}" -eq 0 ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  return 1
+}
+
 notify_failure() {
   local title="$1"
   local detail="$2"
@@ -96,8 +175,7 @@ DEV_ROOT="$(cd "${REPO_ROOT}/.." && pwd)"
 CORTANA_REPO="${CORTANA_SOURCE_REPO:-${DEV_ROOT}/cortana}"
 
 if [[ ! -f "${PLIST_PATH}" ]]; then
-  echo "Mission Control LaunchAgent plist not found at ${PLIST_PATH}" >&2
-  exit 1
+  log "LaunchAgent plist missing at ${PLIST_PATH}; it will be recreated."
 fi
 
 if [[ "${BUILD}" -eq 1 ]]; then
@@ -113,21 +191,51 @@ else
   log "Skipping build"
 fi
 
+log "Installing direct Mission Control LaunchAgent"
+installed_plist="$(
+  cd "${APP_DIR}"
+  pnpm exec tsx scripts/install-launch-agent.ts
+)"
+PLIST_PATH="${installed_plist}"
+
 log "Stopping existing Mission Control processes"
 launchctl bootout "gui/$(id -u)" "${PLIST_PATH}" 2>/dev/null || true
 launchctl remove "${SERVICE_LABEL}" 2>/dev/null || true
 
-if pids="$(/usr/sbin/lsof -tiTCP:3000 -sTCP:LISTEN 2>/dev/null)" && [[ -n "${pids}" ]]; then
+listener_pids="$(/usr/sbin/lsof -tiTCP:3000 -sTCP:LISTEN 2>/dev/null || true)"
+if [[ -n "${listener_pids}" ]]; then
   while IFS= read -r pid; do
     [[ -n "${pid}" ]] && kill "${pid}" 2>/dev/null || true
-  done <<< "${pids}"
+  done <<< "${listener_pids}"
 fi
 
-pkill -f "${REPO_ROOT}/apps/mission-control" || true
-pkill -f next-server || true
+load_related_pids
+if [[ "${#RELATED_PIDS[@]}" -gt 0 ]]; then
+  kill_pid_list TERM "${RELATED_PIDS[@]}"
+fi
+
+if ! wait_for_port_clear 10 || ! wait_for_pids_clear 5; then
+  log "Mission Control processes are still alive after graceful stop; forcing remaining processes down"
+  if [[ -n "${listener_pids:-}" ]]; then
+    while IFS= read -r pid; do
+      [[ -n "${pid}" ]] && kill -9 "${pid}" 2>/dev/null || true
+    done <<< "${listener_pids}"
+  fi
+  if [[ "${#RELATED_PIDS[@]}" -gt 0 ]]; then
+    kill_pid_list KILL "${RELATED_PIDS[@]}"
+  fi
+  wait_for_port_clear 5 || {
+    echo "Mission Control restart aborted because port 3000 never cleared." >&2
+    exit 1
+  }
+  wait_for_pids_clear 5 || {
+    echo "Mission Control restart aborted because stale Mission Control processes never exited." >&2
+    exit 1
+  }
+fi
 
 log "Starting ${SERVICE_LABEL} via launchd"
-launchctl bootstrap "gui/$(id -u)" "${PLIST_PATH}" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "${PLIST_PATH}"
 launchctl kickstart -k "gui/$(id -u)/${SERVICE_LABEL}"
 
 log "Waiting for Mission Control health check at ${HEALTH_URL}"

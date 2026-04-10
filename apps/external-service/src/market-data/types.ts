@@ -1,4 +1,11 @@
 export type MarketDataStatus = "ok" | "degraded" | "error" | "unavailable";
+export type MarketDataProviderMode =
+  | "schwab_primary"
+  | "alpaca_fallback"
+  | "cache_fallback"
+  | "coinmarketcap_primary"
+  | "multi_mode"
+  | "unavailable";
 
 export interface MarketDataComparison {
   source: string;
@@ -13,6 +20,9 @@ export interface MarketDataResponseMetadata {
   status: MarketDataStatus;
   degradedReason?: string | null;
   stalenessSeconds: number | null;
+  providerMode: MarketDataProviderMode;
+  fallbackEngaged: boolean;
+  providerModeReason?: string | null;
 }
 
 export interface MarketDataResponse<T = Record<string, unknown>> extends MarketDataResponseMetadata {

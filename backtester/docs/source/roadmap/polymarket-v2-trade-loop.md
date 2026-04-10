@@ -15,22 +15,28 @@ The important difference from v1 is that v2 is not just a market browser. It is 
 - submit intentionally
 - keep the thesis and outcome on file
 
+## Recommended sequencing
+
+The direction in this roadmap is right, but the order matters.
+
+V2 should not start with a live trade button. It should start with a decision-support loop:
+
+1. `trade dossier`
+2. `opinion`
+3. `preview`
+4. `submit`
+5. `tracking`
+6. `postmortem`
+
+That keeps the first live-trading version disciplined and inspectable.
+
 ## V2 pillars
 
-### 1. Order workflow
+### 1. Trade dossier
 
-Add a server-owned order path in external-service:
+Before order entry, every candidate contract should have a compact operator dossier.
 
-- preview order
-- submit order
-- cancel order
-- close position support
-
-Guardrails should live server-side only.
-
-### 2. Evidence packet
-
-Every potential Polymarket order should have a compact evidence packet before submission.
+This should exist even if the operator never submits the trade.
 
 Minimum contents:
 
@@ -42,7 +48,7 @@ Minimum contents:
 - supporting and conflicting facts
 - explicit risks and invalidation conditions
 
-### 3. Decision support
+### 2. Decision support
 
 The current backtester decision engine is stock-first. V2 should add a prediction-market opinion layer that is still evidence-led.
 
@@ -61,6 +67,24 @@ That output should be justified by:
 - historical context from similar contracts
 - alignment or conflict with the equity regime
 
+The opinion layer should be hybrid:
+
+- deterministic scorecard first
+- compact LLM explanation second
+
+The LLM should explain the facts, not invent the trade.
+
+### 3. Order workflow
+
+Add a server-owned order path in external-service:
+
+- preview order
+- submit order
+- cancel order
+- close position support
+
+Guardrails should live server-side only.
+
 ### 4. Record keeping
 
 Polymarket trade decisions should produce durable artifacts the same way stock watchlists and Telegram messages do.
@@ -78,14 +102,16 @@ Suggested home:
 - `var/polymarket/`
 - or a dedicated sub-tree under the existing backtest/run artifact layout
 
+I would lean toward a dedicated Polymarket run family rather than forcing these records into the stock run layout. The two systems should be linked, but not collapsed into the same lifecycle.
+
 ## Proposed operator flow
 
 ```mermaid
 flowchart LR
-    A["Top events / Top sports card"] --> B["Open order ticket"]
-    B --> C["Preview order in external-service"]
-    C --> D["Build evidence packet"]
-    D --> E["Show AI / rules-based opinion"]
+    A["Top events / Top sports card"] --> B["Open trade dossier"]
+    B --> C["Build evidence packet"]
+    C --> D["Show AI / rules-based opinion"]
+    D --> E["Preview order in external-service"]
     E --> F["Operator confirms side, price, size"]
     F --> G["Submit order"]
     G --> H["Persist thesis + order artifact"]
@@ -114,6 +140,8 @@ That keeps the system inspectable and avoids a pure-vibes trade assistant.
 
 The first safe slice should be:
 
+- read-only trade dossier
+- opinion scorecard
 - order preview only
 - no live order submit from the browser yet
 - full evidence packet
@@ -127,6 +155,8 @@ After that:
 - cancel
 - position review
 - settlement / postmortem
+
+This means the first V2 milestone is decision quality, not button wiring.
 
 ## Open questions
 

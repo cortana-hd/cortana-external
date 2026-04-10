@@ -1,3 +1,5 @@
+import NodeWebSocket, { type RawData } from "ws";
+
 import type { AppLogger } from "../lib/logger.js";
 import type { MarketDataFuturesQuote, MarketDataQuote, SchwabAccountActivityEvent } from "./types.js";
 import {
@@ -1394,11 +1396,46 @@ export class SchwabStreamerSession {
 }
 
 function defaultWebSocketFactory(url: string): WebSocketLike {
-  const ctor = (globalThis as typeof globalThis & { WebSocket?: new (url: string) => WebSocketLike }).WebSocket;
-  if (!ctor) {
-    throw new Error("Global WebSocket is not available in this runtime");
+  return new NodeWebSocketAdapter(url);
+}
+
+class NodeWebSocketAdapter implements WebSocketLike {
+  onopen: ((event: unknown) => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: ((event: unknown) => void) | null = null;
+  onclose: ((event: { code?: number; reason?: string }) => void) | null = null;
+
+  private readonly ws: InstanceType<typeof NodeWebSocket>;
+
+  constructor(url: string) {
+    this.ws = new NodeWebSocket(url, { perMessageDeflate: false });
+    this.ws.on("open", () => {
+      this.onopen?.(undefined);
+    });
+    this.ws.on("message", (data: RawData) => {
+      const text = typeof data === "string" ? data : data.toString();
+      this.onmessage?.({ data: text });
+    });
+    this.ws.on("error", (error: Error) => {
+      this.onerror?.(error);
+    });
+    this.ws.on("close", (code: number, reasonBuffer: Buffer) => {
+      const reason = typeof reasonBuffer === "string" ? reasonBuffer : reasonBuffer.toString();
+      this.onclose?.({ code, reason });
+    });
   }
-  return new ctor(url) as unknown as WebSocketLike;
+
+  get readyState(): number {
+    return this.ws.readyState;
+  }
+
+  send(data: string): void {
+    this.ws.send(data);
+  }
+
+  close(code?: number, reason?: string): void {
+    this.ws.close(code, reason);
+  }
 }
 
 function sleep(ms: number): Promise<void> {

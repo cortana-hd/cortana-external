@@ -49,6 +49,7 @@ export type RuntimeOverview = {
   preOpenGateDetail: string | null;
   preOpenGateFreshness: string | null;
   cooldownSummary: string | null;
+  providerModeSummary: string | null;
   incidents: Array<{ incidentType: string; severity: string; operatorAction: string }>;
 };
 
@@ -358,12 +359,14 @@ async function loadRuntimeOverview(
     const preOpenGateFreshness = humanizeOperatorText(stringValue(asRecord(data?.pre_open_gate_freshness)?.detail));
     const operatorAction = humanizeOperatorText(stringValue(service?.operator_action) ?? "No operator action required.");
     const cooldownSummary = humanizeOperatorText(stringValue(asRecord(data?.provider_cooldown_summary)?.detail));
+    const providerModeSummary = humanizeOperatorText(stringValue(asRecord(data?.provider_mode_summary)?.summary_line));
 
     return {
       state,
       label: operatorState,
       message:
         operatorAction ??
+        providerModeSummary ??
         cooldownSummary ??
         preOpenGateFreshness ??
         preOpenGateDetail ??
@@ -375,6 +378,7 @@ async function loadRuntimeOverview(
         preOpenGateDetail,
         preOpenGateFreshness,
         cooldownSummary,
+        providerModeSummary,
         incidents,
       },
       source: scriptPath,

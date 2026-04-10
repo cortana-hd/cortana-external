@@ -112,13 +112,16 @@ describe("trading ops loader", () => {
         return {
           generated_at: "2026-04-03T23:25:53.853293+00:00",
           pre_open_gate_status: "warn",
-          pre_open_gate_freshness: {
-            status: "fresh",
-            detail: "Last pre-open readiness check ran 11m ago at 2026-04-03T23:15:22.659140+00:00.",
-          },
-          provider_cooldown_summary: {
-            active: true,
-            detail: "Cooldown is active now. Watchdog still sees provider health, quote smoke failing since 2026-04-03T23:02:00.000000+00:00.",
+        pre_open_gate_freshness: {
+          status: "fresh",
+          detail: "Last pre-open readiness check ran 11m ago at 2026-04-03T23:15:22.659140+00:00.",
+        },
+        provider_mode_summary: {
+          summary_line: "Live quotes: schwab_primary | history: cache_or_alpaca_fallback | fundamentals: schwab_primary | metadata: schwab_primary",
+        },
+        provider_cooldown_summary: {
+          active: true,
+          detail: "Cooldown is active now. Watchdog still sees provider health, quote smoke failing since 2026-04-03T23:02:00.000000+00:00.",
           },
           service_health: {
             operator_state: "provider_cooldown",
@@ -152,6 +155,7 @@ describe("trading ops loader", () => {
     expect(data.runtime.data?.preOpenGateStatus).toBe("Warn");
     expect(data.runtime.data?.preOpenGateDetail).toBeNull();
     expect(data.runtime.data?.preOpenGateFreshness).toContain("Last pre-open readiness check ran");
+    expect(data.runtime.data?.providerModeSummary).toContain("Live quotes: schwab_primary");
     expect(data.runtime.data?.cooldownSummary).toContain("Cooldown is active now");
     expect(data.canary.data?.warningCount).toBe(1);
     expect(data.canary.data?.checkedAt).toBe("2026-04-03T23:15:22.659140+00:00");

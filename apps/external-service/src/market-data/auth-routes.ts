@@ -47,6 +47,9 @@ export class SchwabAuthRoutes {
         status: "ok",
         degradedReason: null,
         stalenessSeconds: 0,
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "OAuth helper is using the configured Schwab primary credentials.",
         data: {
           url: this.schwabRestClient.createAuthorizationUrl(state),
           state,
@@ -99,6 +102,9 @@ export class SchwabAuthRoutes {
           status: "ok",
           degradedReason: null,
           stalenessSeconds: 0,
+          providerMode: "schwab_primary",
+          fallbackEngaged: false,
+          providerModeReason: "OAuth callback stored tokens for the configured Schwab lane.",
           data: {
             message: "Schwab tokens saved successfully.",
             tokenPath: this.tokenPath,
@@ -126,6 +132,9 @@ export class SchwabAuthRoutes {
         status: "ok",
         degradedReason: null,
         stalenessSeconds: 0,
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "OAuth status reflects the configured Schwab lane.",
         data: this.schwabRestClient.getStatus(this.getPendingState()),
       },
     };

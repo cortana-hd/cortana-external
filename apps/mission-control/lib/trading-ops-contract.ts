@@ -33,6 +33,7 @@ export type RuntimeOverview = {
   preOpenGateDetail: string | null;
   preOpenGateFreshness: string | null;
   cooldownSummary: string | null;
+  providerModeSummary: string | null;
   incidents: Array<{ incidentType: string; severity: string; operatorAction: string }>;
 };
 

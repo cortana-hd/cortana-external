@@ -75,6 +75,9 @@ describe("trading ops live loader", () => {
       if (url.includes("/market-data/quote/batch")) {
         return new Response(
           JSON.stringify({
+            providerMode: "schwab_primary",
+            fallbackEngaged: false,
+            providerModeReason: "Quotes stayed on the Schwab primary lane.",
             data: {
               items: [
                 item("SPY", 510.12, 1.25, "schwab_streamer"),
@@ -104,6 +107,7 @@ describe("trading ops live loader", () => {
 
     expect(data.streamer.connected).toBe(true);
     expect(data.tape.freshnessMessage).toContain("Schwab streamer");
+    expect(data.tape.providerMode).toBe("schwab_primary");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.sourceSymbol).toBe("DIA");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.changePercent).toBe(2.55);
     expect(data.tape.rows.find((row) => row.symbol === "NASDAQ")?.sourceSymbol).toBe("QQQ");
@@ -111,6 +115,11 @@ describe("trading ops live loader", () => {
     expect(data.watchlists.canslim.buy.map((row) => row.symbol)).toEqual(["NVDA"]);
     expect(data.meta.runId).toBe("20260408-163130");
     expect(data.meta.runLabel).toBe("Apr 8, 12:31 PM");
+    expect(
+      (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.some(([input]) =>
+        String(input).includes("subsystem=live_watchlists"),
+      ),
+    ).toBe(true);
   });
 
   it("keeps symbols visible and marks them degraded when streamer is down or quotes are missing", async () => {
@@ -169,6 +178,9 @@ describe("trading ops live loader", () => {
       if (url.includes("/market-data/quote/batch")) {
         return new Response(
           JSON.stringify({
+            providerMode: "alpaca_fallback",
+            fallbackEngaged: true,
+            providerModeReason: "Quotes entered the declared Alpaca fallback lane for live watchlists.",
             data: {
               items: [
                 item("SPY", 500.1, -1.2, "schwab"),
@@ -211,7 +223,8 @@ describe("trading ops live loader", () => {
 
     expect(data.streamer.connected).toBe(false);
     expect(data.streamer.cooldownSummary).toContain("REST cooldown");
-    expect(data.tape.freshnessMessage).toContain("REST fallback");
+    expect(data.tape.freshnessMessage).toContain("declared Alpaca fallback lane");
+    expect(data.tape.providerMode).toBe("alpaca_fallback");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.state).toBe("error");
     expect(data.watchlists.dipBuyer.watch[0]).toMatchObject({
       symbol: "ABBV",

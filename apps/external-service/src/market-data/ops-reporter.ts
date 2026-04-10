@@ -64,6 +64,21 @@ export function getServiceOperatorAction(schwabRestClient: SchwabRestClient): st
 }
 
 export async function buildOpsPayload(args: OpsPayloadArgs): Promise<Record<string, unknown>> {
+  const sharedState = await args.streamerRuntime.readSharedState();
+  const streamerHealth = args.streamerRuntime.getStreamer()?.getHealth() ?? sharedState?.health ?? null;
+  const streamerConnected = Boolean((streamerHealth as { connected?: unknown } | null)?.connected);
+  const restCooldownActive =
+    args.serviceOperatorState === "provider_cooldown" || Boolean(args.providerMetrics.schwabCooldownUntil);
+  const historyLaneMode = restCooldownActive ? "cache_or_alpaca_fallback" : "schwab_primary";
+  const historyLaneReason = restCooldownActive
+    ? "Schwab REST is cooling down, so history callers should prefer recent Schwab cache first and Alpaca only where explicitly allowed."
+    : "Schwab REST is healthy enough for primary history reads.";
+  const liveQuoteLaneMode = streamerConnected ? "schwab_primary" : restCooldownActive ? "alpaca_fallback" : "schwab_primary";
+  const liveQuoteLaneReason = streamerConnected
+    ? "Live quote lane is using the Schwab streamer primary path."
+    : restCooldownActive
+      ? "Streamer is not connected and Schwab REST is cooling down; approved live quote subsystems may need Alpaca fallback."
+      : "Live quote lane is relying on Schwab REST/shared state because the streamer is not connected.";
   return {
     streamerRoleConfigured: args.streamerRuntime.getConfiguredRole(),
     streamerRoleActive: args.streamerRuntime.getActiveRole(),
@@ -73,6 +88,28 @@ export async function buildOpsPayload(args: OpsPayloadArgs): Promise<Record<stri
     sharedStateBackend: args.streamerRuntime.getSharedStateBackend(),
     sharedStateUpdatedAt: await args.streamerRuntime.getSharedStateUpdatedAt(),
     providerMetrics: args.providerMetrics,
+    providerLaneGuidance: {
+      liveQuotes: {
+        providerMode: liveQuoteLaneMode,
+        fallbackEngaged: liveQuoteLaneMode !== "schwab_primary",
+        providerModeReason: liveQuoteLaneReason,
+      },
+      history: {
+        providerMode: historyLaneMode,
+        fallbackEngaged: historyLaneMode !== "schwab_primary",
+        providerModeReason: historyLaneReason,
+      },
+      fundamentals: {
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Fundamentals remain on the Schwab-primary-or-cache lane.",
+      },
+      metadata: {
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Metadata remains on the Schwab-primary-or-cache lane.",
+      },
+    },
     health: args.health,
     universe: {
       latest: args.latestUniverse,

@@ -1,4 +1,4 @@
-import type { MarketDataComparison, MarketDataResponse, MarketDataStatus } from "./types.js";
+import type { MarketDataComparison, MarketDataProviderMode, MarketDataResponse, MarketDataStatus } from "./types.js";
 
 export function normalizeMarketSymbol(rawSymbol: string): string {
   return String(rawSymbol).trim().toUpperCase();
@@ -46,13 +46,21 @@ export function parseBatchSymbols(url: string): string[] {
 export function marketDataErrorResponse<T>(
   message: string,
   status: MarketDataStatus,
-  options: { reason: string },
+  options: {
+    reason: string;
+    providerMode?: MarketDataProviderMode;
+    fallbackEngaged?: boolean;
+    providerModeReason?: string | null;
+  },
 ): MarketDataResponse<T> {
   return {
     source: "service",
     status,
     degradedReason: message,
     stalenessSeconds: null,
+    providerMode: options.providerMode ?? "unavailable",
+    fallbackEngaged: options.fallbackEngaged ?? false,
+    providerModeReason: options.providerModeReason ?? options.reason,
     data: { error: options.reason } as T,
   };
 }

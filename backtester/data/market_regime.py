@@ -35,6 +35,9 @@ class MarketStatus:
     position_sizing: float
     notes: str
     data_source: str = "unknown"  # schwab|schwab_streamer|alpaca|cache
+    provider_mode: str = "unknown"
+    fallback_engaged: bool = False
+    provider_mode_reason: str = ""
     status: str = "ok"  # ok|degraded
     degraded_reason: str = ""
     snapshot_age_seconds: float = 0.0
@@ -169,6 +172,9 @@ class MarketRegimeDetector:
             cooldown_seconds=self.cooldown_seconds,
         )
         self.last_data_source = "unknown"
+        self.last_provider_mode = "unknown"
+        self.last_fallback_engaged = False
+        self.last_provider_mode_reason = ""
         self.last_data_staleness_seconds = 0.0
         self.last_fetch_status = "ok"
         self.last_degraded_reason = ""
@@ -198,6 +204,9 @@ class MarketRegimeDetector:
                 "position_sizing": status.position_sizing,
                 "notes": status.notes,
                 "data_source": status.data_source,
+                "provider_mode": status.provider_mode,
+                "fallback_engaged": status.fallback_engaged,
+                "provider_mode_reason": status.provider_mode_reason,
                 "status": status.status,
                 "degraded_reason": status.degraded_reason,
                 "snapshot_age_seconds": status.snapshot_age_seconds,
@@ -275,6 +284,9 @@ class MarketRegimeDetector:
                 f"{' beyond live TTL' if age_seconds > ttl_seconds else ''}]"
             ).strip(),
             data_source="cache",
+            provider_mode="cache_fallback",
+            fallback_engaged=True,
+            provider_mode_reason="Market regime used the cached history fallback lane.",
             status=str(cached.get("status") or "degraded"),
             degraded_reason=(
                 f"{cached.get('degraded_reason') + ' ' if cached.get('degraded_reason') else ''}"
@@ -301,6 +313,9 @@ class MarketRegimeDetector:
             position_sizing=0.0,
             notes="Market inputs unavailable. Defaulting to defensive posture until fresh data is restored.",
             data_source="unknown",
+            provider_mode="unavailable",
+            fallback_engaged=True,
+            provider_mode_reason="Market regime could not produce a live or cached provider mode.",
             status="degraded",
             degraded_reason=f"{failure_reason}. No snapshot cache available; using conservative emergency fallback.",
             snapshot_age_seconds=0.0,
@@ -353,9 +368,12 @@ class MarketRegimeDetector:
 
     def fetch_data(self, days: int = 90) -> pd.DataFrame:
         try:
-            result = self.data_provider.get_history(self.symbol, period=f"{days}d")
+            result = self.data_provider.get_history(self.symbol, period=f"{days}d", subsystem="market_regime")
             self._data = result.frame
             self.last_data_source = result.source
+            self.last_provider_mode = result.provider_mode
+            self.last_fallback_engaged = result.fallback_engaged
+            self.last_provider_mode_reason = result.provider_mode_reason
             self.last_data_staleness_seconds = result.staleness_seconds
             self.last_fetch_status = result.status
             self.last_degraded_reason = result.degraded_reason
@@ -565,6 +583,9 @@ class MarketRegimeDetector:
             position_sizing=sizing,
             notes=notes,
             data_source=self.last_data_source,
+            provider_mode=self.last_provider_mode,
+            fallback_engaged=self.last_fallback_engaged,
+            provider_mode_reason=self.last_provider_mode_reason,
             snapshot_age_seconds=self.last_data_staleness_seconds,
             regime_score=scorecard.regime_score,
             drawdown_pct=scorecard.drawdown_pct,

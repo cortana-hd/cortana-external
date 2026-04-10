@@ -23,7 +23,15 @@ def _disable_polymarket_artifacts(monkeypatch, tmp_path):
     monkeypatch.setattr("dipbuyer_alert._resolve_context_overlays", lambda **kwargs: ({}, {}))
     monkeypatch.setattr(
         "dipbuyer_alert.build_intraday_breadth_snapshot",
-        lambda: {"status": "inactive", "override_state": "inactive", "override_reason": "outside regular market session", "warnings": []},
+        lambda: {
+            "status": "inactive",
+            "override_state": "inactive",
+            "override_reason": "outside regular market session",
+            "warnings": [],
+            "provider_mode": "schwab_primary",
+            "fallback_engaged": False,
+            "provider_mode_reason": "Intraday breadth stayed on the Schwab primary lane.",
+        },
     )
 
 
@@ -252,7 +260,13 @@ def test_format_alert_uses_no_qualifying_setup_wording_when_market_is_healthy():
     analyzer = MagicMock()
     with patch("dipbuyer_alert.TradingAdvisor", return_value=_HealthyAdvisor()), patch(
         "dipbuyer_alert.XSentimentAnalyzer", return_value=analyzer
-    ), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
+    ), patch.dict(
+        "os.environ",
+        {
+            "TRADING_INCLUDE_WATCHLIST_PRIORITY": "0",
+            "TRADING_INCLUDE_LEADER_BASKET_PRIORITY": "0",
+        },
+    ):
         text = format_alert(limit=5, min_score=6, universe_size=2)
 
     assert "Final action: no qualifying dip setups right now — wait for a stronger reversal setup" in text
@@ -285,7 +299,13 @@ def test_format_alert_reports_analysis_failed_when_all_dip_scans_error():
     analyzer = MagicMock()
     with patch("dipbuyer_alert.TradingAdvisor", return_value=_ErrorAdvisor()), patch(
         "dipbuyer_alert.XSentimentAnalyzer", return_value=analyzer
-    ), patch.dict("os.environ", {"TRADING_INCLUDE_WATCHLIST_PRIORITY": "0"}):
+    ), patch.dict(
+        "os.environ",
+        {
+            "TRADING_INCLUDE_WATCHLIST_PRIORITY": "0",
+            "TRADING_INCLUDE_LEADER_BASKET_PRIORITY": "0",
+        },
+    ):
         text = format_alert(limit=5, min_score=6, universe_size=2)
 
     assert "Final action: analysis failed for 2 scanned names — no valid dip setups were produced" in text
@@ -309,6 +329,9 @@ def test_format_alert_allows_bounded_selective_buys_when_intraday_breadth_is_str
             "override_state": "selective-buy",
             "override_reason": "broad intraday rally with strong participation despite the defensive daily regime",
             "warnings": [],
+            "provider_mode": "schwab_primary",
+            "fallback_engaged": False,
+            "provider_mode_reason": "Intraday breadth stayed on the Schwab primary lane.",
             "tape": {"SPY": 1.7, "QQQ": 2.3},
             "s_and_p": {"pct_up": 0.78, "up": 392, "total": 502},
             "growth": {"pct_up": 0.71, "up": 68, "total": 96},

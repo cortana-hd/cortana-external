@@ -40,6 +40,18 @@ uv run python runtime_health_snapshot.py --pretty
 uv run python ops_highway_snapshot.py --pretty
 ```
 
+## Linked Trading Ops runbooks
+
+- `backtester/docs/source/runbook/trading-ops-qa-runbook.md`
+- `backtester/docs/source/runbook/streamer-failure-modes-runbook.md`
+- `knowledge/domains/mission-control/current-state.md`
+
+## Launchd assumptions
+
+- Mission Control should be restarted through `apps/mission-control/scripts/restart-mission-control.sh`
+- the external market-data service is still the `com.cortana.fitness-service` LaunchAgent
+- watchdog restart paths assume those labels remain stable
+
 ## Install
 
 ```bash

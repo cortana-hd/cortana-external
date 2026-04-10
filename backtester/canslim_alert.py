@@ -580,6 +580,9 @@ def _serialize_market_state(market: object) -> dict[str, Any]:
         "notes": str(getattr(market, "notes", "") or ""),
         "status": str(getattr(market, "status", "ok") or "ok"),
         "data_source": str(getattr(market, "data_source", "unknown") or "unknown"),
+        "provider_mode": str(getattr(market, "provider_mode", "unknown") or "unknown"),
+        "fallback_engaged": bool(getattr(market, "fallback_engaged", False)),
+        "provider_mode_reason": str(getattr(market, "provider_mode_reason", "") or "") or None,
         "degraded_reason": str(getattr(market, "degraded_reason", "") or "") or None,
         "snapshot_age_seconds": float(getattr(market, "snapshot_age_seconds", 0.0) or 0.0),
         "next_action": str(getattr(market, "next_action", "") or "") or None,
@@ -673,6 +676,10 @@ def _finalize_alert_payload(
     )
     payload = {
         "strategy": strategy,
+        "provider_mode": str(market_payload.get("provider_mode") or "unknown"),
+        "subsystem_provider_modes": {
+            "market_regime": str(market_payload.get("provider_mode") or "unknown"),
+        },
         "summary": dict(summary),
         "signals": _serialize_signal_records(signals),
         "market": market_payload,
@@ -680,6 +687,7 @@ def _finalize_alert_payload(
             "source_counts": dict(source_counts),
             "max_input_staleness_seconds": float(max_input_staleness_seconds or 0.0),
             "analysis_error_count": int(analysis_error_count or 0),
+            "provider_mode": str(market_payload.get("provider_mode") or "unknown"),
         },
         "selection": _serialize_selection(selection, priority_count),
         "overlays": {

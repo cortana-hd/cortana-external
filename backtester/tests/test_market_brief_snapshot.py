@@ -18,6 +18,9 @@ def make_status(**overrides):
         "position_sizing": 0.0,
         "notes": "Stay defensive.",
         "data_source": "schwab",
+        "provider_mode": "schwab_primary",
+        "fallback_engaged": False,
+        "provider_mode_reason": "Market regime stayed on the Schwab primary lane.",
         "status": "ok",
         "degraded_reason": "",
         "snapshot_age_seconds": 0.0,
@@ -103,6 +106,7 @@ def test_load_cached_tape_quotes_uses_previous_session_history(monkeypatch, tmp_
 
     assert snapshot["status"] == "degraded"
     assert snapshot["primary_source"] == "cache"
+    assert snapshot["provider_mode"] == "cache_fallback"
     assert "Previous session fallback" in snapshot["summary_line"]
     assert snapshot["symbols"][0]["symbol"] == "SPY"
 
@@ -116,6 +120,9 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
             "status": "ok",
             "override_state": "inactive",
             "override_reason": "outside regular market session",
+            "provider_mode": "schwab_primary",
+            "fallback_engaged": False,
+            "provider_mode_reason": "Intraday breadth stayed on the Schwab primary lane.",
             "warnings": [],
         },
     )
@@ -177,6 +184,10 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
                             {"symbol": "TLT", "source": "schwab", "status": "ok", "data": {"price": 95, "changePercent": 0.1}},
                         ]
                     }
+                    ,
+                    "providerMode": "schwab_primary",
+                    "fallbackEngaged": False,
+                    "providerModeReason": "Tape stayed on the Schwab primary lane.",
                 },
             )
         ),
@@ -194,6 +205,9 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
     assert snapshot["session"]["phase"] in {"PREMARKET", "OPEN", "AFTER_HOURS", "CLOSED"}
     assert snapshot["macro"]["summary_line"].startswith("Polymarket neutral")
     assert snapshot["tape"]["primary_source"] == "schwab"
+    assert snapshot["provider_mode"] == "schwab_primary"
+    assert snapshot["subsystem_provider_modes"]["market_regime"] == "schwab_primary"
+    assert snapshot["subsystem_provider_modes"]["market_brief_tape"] == "schwab_primary"
     assert snapshot["focus"]["symbols"] == ["OXY", "FANG", "NVDA"]
     assert snapshot["regime"]["display"] == "CORRECTION"
     assert snapshot["intraday_breadth"]["override_state"] == "inactive"
@@ -210,6 +224,7 @@ def test_build_snapshot_collects_expected_sections(monkeypatch):
     assert snapshot["operator_summary"]["read_this_as"]["research"].startswith("Research plane has no hot-path artifacts yet")
     assert snapshot["operator_summary"]["read_this_as"]["focus"].startswith("OXY, FANG, NVDA.")
     assert snapshot["freshness"]["tape_primary_source"] == "schwab"
+    assert snapshot["freshness"]["provider_mode"] == "schwab_primary"
 
 
 def test_format_operator_text_renders_human_summary():
@@ -267,6 +282,38 @@ def test_build_operator_summary_prefers_underlying_age_for_cached_regime():
     assert summary["read_this_as"]["regime"] == (
         "Market regime is CORRECTION using cached history (underlying inputs ~97.3h old)."
     )
+
+
+def test_build_operator_summary_calls_out_alpaca_fallback_mode():
+    summary = module.build_operator_summary(
+        session_phase="OPEN",
+        posture={"action": "WATCH", "reason": "Stay selective."},
+        regime={
+            "display": "UPTREND UNDER PRESSURE",
+            "position_sizing_pct": 50.0,
+            "status": "degraded",
+            "data_source": "alpaca",
+            "provider_mode": "alpaca_fallback",
+            "snapshot_age_seconds": 120.0,
+            "notes": "Fallback active.",
+            "degraded_reason": "Schwab REST cooldown.",
+        },
+        tape={
+            "primary_source": "alpaca",
+            "provider_mode": "alpaca_fallback",
+        },
+        macro={"state": "watch", "freshness_hours": 2.0},
+        breadth={
+            "override_state": "watch_only",
+            "override_reason": "breadth is constructive",
+            "provider_mode": "alpaca_fallback",
+        },
+        focus={"symbols": ["NVDA"], "reason": "Focus names came from the leader-priority list."},
+    )
+
+    assert summary["read_this_as"]["regime"] == "Market regime is UPTREND UNDER PRESSURE using the declared Alpaca fallback lane."
+    assert summary["read_this_as"]["tape"] == "Tape is using the declared Alpaca fallback lane, not the live Schwab quote lane."
+    assert "declared Alpaca fallback lane" in summary["read_this_as"]["breadth"]
 
 
 def test_format_operator_text_prefers_shared_operator_payload():

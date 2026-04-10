@@ -23,6 +23,9 @@ class _FakeCanSlimAdvisor:
             notes="trend intact",
             status="ok",
             data_source="schwab",
+            provider_mode="schwab_primary",
+            fallback_engaged=False,
+            provider_mode_reason="Market regime stayed on the Schwab primary lane.",
             snapshot_age_seconds=0.0,
         )
         self.screener = SimpleNamespace(get_universe=lambda: ["MSFT", "AAPL"])
@@ -68,6 +71,9 @@ class _FakeDipBuyerAdvisor:
             notes="stay selective",
             status="ok",
             data_source="schwab",
+            provider_mode="schwab_primary",
+            fallback_engaged=False,
+            provider_mode_reason="Market regime stayed on the Schwab primary lane.",
             snapshot_age_seconds=0.0,
         )
         self.screener = SimpleNamespace(get_universe=lambda: ["MSFT"])
@@ -104,6 +110,9 @@ class _CacheFallbackCanSlimAdvisor(_FakeCanSlimAdvisor):
             notes="Fresh live market data is unavailable.",
             status="degraded",
             data_source="unknown",
+            provider_mode="cache_fallback",
+            fallback_engaged=True,
+            provider_mode_reason="Market regime used the cache fallback lane.",
             snapshot_age_seconds=0.0,
             degraded_reason="provider cooldown",
             next_action="Retry after cooldown",
@@ -140,6 +149,9 @@ class _CacheFallbackDipBuyerAdvisor(_FakeDipBuyerAdvisor):
             notes="Fresh live market data is unavailable.",
             status="degraded",
             data_source="unknown",
+            provider_mode="cache_fallback",
+            fallback_engaged=True,
+            provider_mode_reason="Market regime used the cache fallback lane.",
             snapshot_age_seconds=0.0,
             degraded_reason="provider cooldown",
             next_action="Retry after cooldown",
@@ -184,6 +196,8 @@ def test_canslim_build_alert_payload_emits_strategy_artifact(monkeypatch):
     assert payload["schema_version"] == ARTIFACT_SCHEMA_VERSION
     assert payload["producer"] == canslim_alert.CANSLIM_ALERT_PRODUCER
     assert payload["strategy"] == "canslim"
+    assert payload["provider_mode"] == "schwab_primary"
+    assert payload["subsystem_provider_modes"]["market_regime"] == "schwab_primary"
     assert payload["outcome_class"] == "healthy_candidates_found"
     assert payload["degraded_status"] == "healthy"
     assert payload["summary"]["scanned"] == 2
@@ -206,7 +220,15 @@ def test_dipbuyer_build_alert_payload_emits_strategy_artifact(monkeypatch):
     monkeypatch.setattr("dipbuyer_alert.build_alert_context_lines", lambda watchlist: [])
     monkeypatch.setattr(
         "dipbuyer_alert.build_intraday_breadth_snapshot",
-        lambda: {"status": "inactive", "override_state": "inactive", "override_reason": "outside regular market session", "warnings": []},
+        lambda: {
+            "status": "inactive",
+            "override_state": "inactive",
+            "override_reason": "outside regular market session",
+            "warnings": [],
+            "provider_mode": "schwab_primary",
+            "fallback_engaged": False,
+            "provider_mode_reason": "Intraday breadth stayed on the Schwab primary lane.",
+        },
     )
     analyzer = MagicMock()
     analyzer.analyze.return_value = {"sentiment": "NEUTRAL"}
@@ -220,6 +242,9 @@ def test_dipbuyer_build_alert_payload_emits_strategy_artifact(monkeypatch):
     assert payload["schema_version"] == ARTIFACT_SCHEMA_VERSION
     assert payload["producer"] == dipbuyer_alert.DIPBUYER_ALERT_PRODUCER
     assert payload["strategy"] == "dip_buyer"
+    assert payload["provider_mode"] == "schwab_primary"
+    assert payload["subsystem_provider_modes"]["market_regime"] == "schwab_primary"
+    assert payload["subsystem_provider_modes"]["intraday_breadth"] == "schwab_primary"
     assert payload["outcome_class"] == "healthy_candidates_found"
     assert payload["degraded_status"] == "healthy"
     assert payload["summary"]["buy_count"] == 1
@@ -343,7 +368,15 @@ def test_dipbuyer_build_alert_payload_marks_market_gate_blocked(monkeypatch):
     monkeypatch.setattr("dipbuyer_alert.build_alert_context_lines", lambda watchlist: [])
     monkeypatch.setattr(
         "dipbuyer_alert.build_intraday_breadth_snapshot",
-        lambda: {"status": "inactive", "override_state": "inactive", "override_reason": "outside regular market session", "warnings": []},
+        lambda: {
+            "status": "inactive",
+            "override_state": "inactive",
+            "override_reason": "outside regular market session",
+            "warnings": [],
+            "provider_mode": "schwab_primary",
+            "fallback_engaged": False,
+            "provider_mode_reason": "Intraday breadth stayed on the Schwab primary lane.",
+        },
     )
     analyzer = MagicMock()
     analyzer.analyze.return_value = {"sentiment": "NEUTRAL"}
@@ -382,7 +415,15 @@ def test_dipbuyer_build_alert_payload_prefers_cache_backed_universe_when_live_da
     monkeypatch.setattr("dipbuyer_alert.build_alert_context_lines", lambda watchlist: [])
     monkeypatch.setattr(
         "dipbuyer_alert.build_intraday_breadth_snapshot",
-        lambda: {"status": "inactive", "override_state": "inactive", "override_reason": "outside regular market session", "warnings": []},
+        lambda: {
+            "status": "inactive",
+            "override_state": "inactive",
+            "override_reason": "outside regular market session",
+            "warnings": [],
+            "provider_mode": "schwab_primary",
+            "fallback_engaged": False,
+            "provider_mode_reason": "Intraday breadth stayed on the Schwab primary lane.",
+        },
     )
     analyzer = MagicMock()
     analyzer.analyze.return_value = {"sentiment": "NEUTRAL"}
@@ -439,7 +480,15 @@ def test_dipbuyer_persisted_prediction_records_include_explicit_contract_fields(
     monkeypatch.setattr("dipbuyer_alert.build_alert_context_lines", lambda watchlist: [])
     monkeypatch.setattr(
         "dipbuyer_alert.build_intraday_breadth_snapshot",
-        lambda: {"status": "inactive", "override_state": "inactive", "override_reason": "outside regular market session", "warnings": []},
+        lambda: {
+            "status": "inactive",
+            "override_state": "inactive",
+            "override_reason": "outside regular market session",
+            "warnings": [],
+            "provider_mode": "schwab_primary",
+            "fallback_engaged": False,
+            "provider_mode_reason": "Intraday breadth stayed on the Schwab primary lane.",
+        },
     )
     analyzer = MagicMock()
     analyzer.analyze.return_value = {"sentiment": "NEUTRAL"}
@@ -490,7 +539,15 @@ def test_dipbuyer_analysis_failure_predictions_include_contract_placeholders(mon
     monkeypatch.setattr("dipbuyer_alert.build_alert_context_lines", lambda watchlist: [])
     monkeypatch.setattr(
         "dipbuyer_alert.build_intraday_breadth_snapshot",
-        lambda: {"status": "inactive", "override_state": "inactive", "override_reason": "outside regular market session", "warnings": []},
+        lambda: {
+            "status": "inactive",
+            "override_state": "inactive",
+            "override_reason": "outside regular market session",
+            "warnings": [],
+            "provider_mode": "schwab_primary",
+            "fallback_engaged": False,
+            "provider_mode_reason": "Intraday breadth stayed on the Schwab primary lane.",
+        },
     )
     analyzer = MagicMock()
     analyzer.analyze.return_value = {"sentiment": "NEUTRAL"}

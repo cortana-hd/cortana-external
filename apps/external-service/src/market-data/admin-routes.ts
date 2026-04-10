@@ -73,6 +73,9 @@ export class MarketDataAdminRoutes {
         status: "ok",
         degradedReason: null,
         stalenessSeconds: 0,
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Ops reporting is reflecting the current primary service lanes.",
         data: await buildOpsPayload({
           cacheDir: this.cacheDir,
           latestUniverse,
@@ -113,6 +116,9 @@ export class MarketDataAdminRoutes {
           status: ready ? "ok" : "degraded",
           degradedReason: ready ? null : `service not ready (${operatorState})`,
           stalenessSeconds: 0,
+          providerMode: "schwab_primary",
+          fallbackEngaged: false,
+          providerModeReason: "Readiness reflects the current primary service lane health.",
           data: {
             ready,
             checkedAt: new Date().toISOString(),

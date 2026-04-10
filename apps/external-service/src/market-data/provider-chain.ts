@@ -9,6 +9,7 @@ import type {
   MarketDataComparison,
   MarketDataGenericPayload,
   MarketDataHistoryPoint,
+  MarketDataProviderMode,
   MarketDataQuote,
   MarketDataSnapshot,
   MarketDataStatus,
@@ -19,6 +20,9 @@ interface ServiceMetadata {
   status: MarketDataStatus;
   degradedReason?: string | null;
   stalenessSeconds: number | null;
+  providerMode: MarketDataProviderMode;
+  fallbackEngaged: boolean;
+  providerModeReason?: string | null;
 }
 
 export interface HistoryFetchResult extends ServiceMetadata {
@@ -31,6 +35,11 @@ export interface QuoteFetchResult extends ServiceMetadata {
 
 export interface SnapshotFetchResult extends ServiceMetadata {
   snapshot: MarketDataSnapshot;
+}
+
+export interface ProviderRouteContext {
+  subsystem?: string;
+  allowAlpacaFallback?: boolean;
 }
 
 interface ProviderChainConfig {
@@ -56,7 +65,13 @@ export class ProviderChain {
     this.providerMetrics = config.providerMetrics;
   }
 
-  async fetchPrimaryHistory(symbol: string, period: string, interval: HistoryInterval, provider: HistoryProvider = "service"): Promise<HistoryFetchResult> {
+  async fetchPrimaryHistory(
+    symbol: string,
+    period: string,
+    interval: HistoryInterval,
+    provider: HistoryProvider = "service",
+    context: ProviderRouteContext = {},
+  ): Promise<HistoryFetchResult> {
     if (extractCoinMarketCapSymbol(symbol)) {
       if (provider !== "service") {
         throw new Error(`provider '${provider}' is not supported for crypto symbol ${symbol}`);
@@ -65,18 +80,45 @@ export class ProviderChain {
         throw new Error("CoinMarketCap API key is not configured");
       }
       const rows = await this.coinMarketCap.fetchHistory(symbol, period, interval);
-      return { source: "coinmarketcap", status: "ok", stalenessSeconds: 0, rows };
+      return {
+        source: "coinmarketcap",
+        status: "ok",
+        stalenessSeconds: 0,
+        providerMode: "coinmarketcap_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Crypto history stayed on the CoinMarketCap primary lane.",
+        rows,
+      };
     }
     if (provider === "schwab") {
       if (!this.schwabRestClient.isConfigured()) {
         throw new Error("Schwab credentials are not configured");
       }
       const rows = await this.schwabRestClient.fetchHistory(symbol, period, interval);
-      return { source: "schwab", status: "ok", stalenessSeconds: 0, rows };
+      return {
+        source: "schwab",
+        status: "ok",
+        stalenessSeconds: 0,
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "History stayed on the explicit Schwab primary lane.",
+        rows,
+      };
     }
     if (provider === "alpaca") {
       const rows = await this.alpacaClient.fetchHistory(symbol, period, interval);
-      return { source: "alpaca", status: "ok", stalenessSeconds: 0, rows };
+      return {
+        source: "alpaca",
+        status: "ok",
+        stalenessSeconds: 0,
+        providerMode: "alpaca_fallback",
+        fallbackEngaged: true,
+        providerModeReason: "History used the explicit Alpaca fallback lane.",
+        rows,
+      };
+    }
+    if (context.allowAlpacaFallback && !this.schwabRestClient.isRestAvailable()) {
+      return this.fetchAlpacaHistoryFallback(symbol, period, interval, context);
     }
     if (!this.schwabRestClient.isConfigured()) {
       throw new Error("Schwab credentials are not configured");
@@ -86,21 +128,40 @@ export class ProviderChain {
     }
     try {
       const rows = await this.schwabRestClient.fetchHistory(symbol, period, interval);
-      return { source: "schwab", status: "ok", stalenessSeconds: 0, rows };
+      return {
+        source: "schwab",
+        status: "ok",
+        stalenessSeconds: 0,
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "History stayed on the Schwab primary lane.",
+        rows,
+      };
     } catch (error) {
       this.schwabRestClient.recordFailure(error);
+      if (context.allowAlpacaFallback && !this.schwabRestClient.isRestAvailable()) {
+        return this.fetchAlpacaHistoryFallback(symbol, period, interval, context);
+      }
       throw error;
     }
   }
 
-  async fetchPrimaryQuote(symbol: string): Promise<QuoteFetchResult> {
+  async fetchPrimaryQuote(symbol: string, context: ProviderRouteContext = {}): Promise<QuoteFetchResult> {
     await this.streamerRuntime.enforceFailurePolicy();
     if (extractCoinMarketCapSymbol(symbol)) {
       if (!this.coinMarketCap.isConfigured()) {
         throw new Error("CoinMarketCap API key is not configured");
       }
       const quote = await this.coinMarketCap.fetchQuote(symbol);
-      return { source: "coinmarketcap", status: "ok", stalenessSeconds: 0, quote };
+      return {
+        source: "coinmarketcap",
+        status: "ok",
+        stalenessSeconds: 0,
+        providerMode: "coinmarketcap_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Crypto quote stayed on the CoinMarketCap primary lane.",
+        quote,
+      };
     }
     const isFuturesSymbol = symbol.startsWith("/");
     if (!this.schwabRestClient.isConfigured()) {
@@ -112,7 +173,15 @@ export class ProviderChain {
         ? await streamer?.getFuturesQuote(symbol)
         : await streamer?.getQuote(symbol);
       if (streamed?.price != null) {
-        return { source: "schwab_streamer", status: "ok", stalenessSeconds: 0, quote: streamed };
+        return {
+          source: "schwab_streamer",
+          status: "ok",
+          stalenessSeconds: 0,
+          providerMode: "schwab_primary",
+          fallbackEngaged: false,
+          providerModeReason: "Quote used the Schwab streamer primary lane.",
+          quote: streamed,
+        };
       }
     } catch {
       // Shared state / REST fallback below remains the source of truth when streamer reads fail.
@@ -121,7 +190,18 @@ export class ProviderChain {
       ? await this.streamerRuntime.readSharedFuturesQuote(symbol)
       : await this.streamerRuntime.readSharedQuote(symbol);
     if (shared?.price != null) {
-      return { source: "schwab_streamer_shared", status: "ok", stalenessSeconds: 0, quote: shared };
+      return {
+        source: "schwab_streamer_shared",
+        status: "ok",
+        stalenessSeconds: 0,
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Quote used the shared Schwab streamer state.",
+        quote: shared,
+      };
+    }
+    if (context.allowAlpacaFallback && this.isAlpacaSupportedSymbol(symbol) && !this.schwabRestClient.isRestAvailable()) {
+      return this.fetchAlpacaQuoteFallback(symbol, context);
     }
     if (isFuturesSymbol) {
       throw new Error(`No live Schwab futures quote available for ${symbol}`);
@@ -131,11 +211,68 @@ export class ProviderChain {
     }
     try {
       const quote = (await this.schwabRestClient.fetchQuoteEnvelope(symbol)).quote;
-      return { source: "schwab", status: "ok", stalenessSeconds: 0, quote };
+      return {
+        source: "schwab",
+        status: "ok",
+        stalenessSeconds: 0,
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Quote used the Schwab REST primary lane.",
+        quote,
+      };
     } catch (error) {
       this.schwabRestClient.recordFailure(error);
+      if (context.allowAlpacaFallback && this.isAlpacaSupportedSymbol(symbol) && !this.schwabRestClient.isRestAvailable()) {
+        return this.fetchAlpacaQuoteFallback(symbol, context);
+      }
       throw error;
     }
+  }
+
+  async fetchSchwabLiveQuoteOnly(symbol: string): Promise<QuoteFetchResult | null> {
+    await this.streamerRuntime.enforceFailurePolicy();
+    if (extractCoinMarketCapSymbol(symbol)) {
+      return null;
+    }
+    const isFuturesSymbol = symbol.startsWith("/");
+    const streamer = this.streamerRuntime.getStreamer();
+    try {
+      const streamed = isFuturesSymbol
+        ? await streamer?.getFuturesQuote(symbol)
+        : await streamer?.getQuote(symbol);
+      if (streamed?.price != null) {
+        return {
+          source: "schwab_streamer",
+          status: "ok",
+          stalenessSeconds: 0,
+          providerMode: "schwab_primary",
+          fallbackEngaged: false,
+          providerModeReason: "Quote used the Schwab streamer primary lane.",
+          quote: streamed,
+        };
+      }
+    } catch {
+      // Shared-state check below remains the next Schwab-primary lane.
+    }
+    const shared = isFuturesSymbol
+      ? await this.streamerRuntime.readSharedFuturesQuote(symbol)
+      : await this.streamerRuntime.readSharedQuote(symbol);
+    if (shared?.price != null) {
+      return {
+        source: "schwab_streamer_shared",
+        status: "ok",
+        stalenessSeconds: 0,
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Quote used the shared Schwab streamer state.",
+        quote: shared,
+      };
+    }
+    return null;
+  }
+
+  isSchwabRestAvailable(): boolean {
+    return this.schwabRestClient.isRestAvailable();
   }
 
   async fetchPrimarySnapshot(symbol: string): Promise<SnapshotFetchResult> {
@@ -146,14 +283,21 @@ export class ProviderChain {
         ? null
         : (await streamer?.getChartEquity(symbol).catch(() => null)) ?? (await this.streamerRuntime.readSharedChart(symbol));
     const [metadata, fundamentals] = await Promise.all([
-      symbol.startsWith("/") ? Promise.resolve({}) : this.fetchPrimaryMetadata(symbol).catch(() => ({})),
-      symbol.startsWith("/") ? Promise.resolve({}) : this.fetchPrimaryFundamentals(symbol).then((result) => result.payload).catch(() => ({})),
+      symbol.startsWith("/")
+        ? Promise.resolve({})
+        : this.fetchPrimaryMetadata(symbol).then((result) => result.payload).catch(() => ({})),
+      symbol.startsWith("/")
+        ? Promise.resolve({})
+        : this.fetchPrimaryFundamentals(symbol).then((result) => result.payload).catch(() => ({})),
     ]);
     return {
       source: quote.source,
       status: quote.status,
       degradedReason: quote.degradedReason ?? null,
       stalenessSeconds: quote.stalenessSeconds,
+      providerMode: quote.providerMode,
+      fallbackEngaged: quote.fallbackEngaged,
+      providerModeReason: quote.providerModeReason ?? null,
       snapshot: {
         symbol,
         quote: quote.quote as unknown as Record<string, unknown>,
@@ -170,7 +314,16 @@ export class ProviderChain {
         throw new Error("CoinMarketCap API key is not configured");
       }
       const payload = await this.coinMarketCap.fetchFundamentals(symbol);
-      return { source: "coinmarketcap", status: "ok", degradedReason: null, stalenessSeconds: 0, payload };
+      return {
+        source: "coinmarketcap",
+        status: "ok",
+        degradedReason: null,
+        stalenessSeconds: 0,
+        providerMode: "coinmarketcap_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Fundamentals stayed on the CoinMarketCap primary lane.",
+        payload,
+      };
     }
     const reasons: string[] = [];
     const targetAsOfDate = asOfDate || new Date().toISOString().slice(0, 10);
@@ -193,18 +346,30 @@ export class ProviderChain {
         status: reasons.length ? "degraded" : "ok",
         degradedReason: reasons.length ? reasons[0] : null,
         stalenessSeconds: 0,
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Fundamentals stayed on the Schwab-primary-or-cache lane.",
         payload: schwabPayload,
       };
     }
     throw new Error(reasons[0] ?? `Unable to fetch fundamentals for ${symbol}`);
   }
 
-  async fetchPrimaryMetadata(symbol: string): Promise<Record<string, unknown>> {
+  async fetchPrimaryMetadata(symbol: string): Promise<ServiceMetadata & { payload: Record<string, unknown> }> {
     if (extractCoinMarketCapSymbol(symbol)) {
       if (!this.coinMarketCap.isConfigured()) {
         throw new Error("CoinMarketCap API key is not configured");
       }
-      return this.coinMarketCap.fetchMetadata(symbol);
+      return {
+        source: "coinmarketcap",
+        status: "ok",
+        degradedReason: null,
+        stalenessSeconds: 0,
+        providerMode: "coinmarketcap_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Metadata stayed on the CoinMarketCap primary lane.",
+        payload: await this.coinMarketCap.fetchMetadata(symbol),
+      };
     }
     const reasons: string[] = [];
     let schwabPayload: Record<string, unknown> = {};
@@ -221,7 +386,16 @@ export class ProviderChain {
       }
     }
     if (Object.keys(schwabPayload).length) {
-      return schwabPayload;
+      return {
+        source: "schwab",
+        status: "ok",
+        degradedReason: reasons.length ? reasons[0] : null,
+        stalenessSeconds: 0,
+        providerMode: "schwab_primary",
+        fallbackEngaged: false,
+        providerModeReason: "Metadata stayed on the Schwab-primary-or-cache lane.",
+        payload: schwabPayload,
+      };
     }
     throw new Error(reasons[0] ?? `Unable to fetch metadata for ${symbol}`);
   }
@@ -284,6 +458,51 @@ export class ProviderChain {
 
   recordSourceUsage(source: string): void {
     this.providerMetrics.sourceUsage[source] = (this.providerMetrics.sourceUsage[source] ?? 0) + 1;
+  }
+
+  private isAlpacaSupportedSymbol(symbol: string): boolean {
+    return !extractCoinMarketCapSymbol(symbol) && !symbol.startsWith("/");
+  }
+
+  private async fetchAlpacaHistoryFallback(
+    symbol: string,
+    period: string,
+    interval: HistoryInterval,
+    context: ProviderRouteContext,
+  ): Promise<HistoryFetchResult> {
+    if (!this.isAlpacaSupportedSymbol(symbol)) {
+      throw new Error(`Alpaca fallback is not supported for ${symbol}`);
+    }
+    const rows = await this.alpacaClient.fetchHistory(symbol, period, interval);
+    const subsystemLabel = context.subsystem ? ` for ${context.subsystem}` : "";
+    return {
+      source: "alpaca",
+      status: "degraded",
+      degradedReason: `Schwab history was unavailable${subsystemLabel}; using declared Alpaca fallback.`,
+      stalenessSeconds: 0,
+      providerMode: "alpaca_fallback",
+      fallbackEngaged: true,
+      providerModeReason: `History entered the declared Alpaca fallback lane${subsystemLabel}.`,
+      rows,
+    };
+  }
+
+  async fetchAlpacaQuoteFallback(symbol: string, context: ProviderRouteContext = {}): Promise<QuoteFetchResult> {
+    if (!this.isAlpacaSupportedSymbol(symbol)) {
+      throw new Error(`Alpaca fallback is not supported for ${symbol}`);
+    }
+    const quote = await this.alpacaClient.fetchQuote(symbol);
+    const subsystemLabel = context.subsystem ? ` for ${context.subsystem}` : "";
+    return {
+      source: "alpaca",
+      status: "degraded",
+      degradedReason: `Schwab live quote was unavailable${subsystemLabel}; using declared Alpaca fallback.`,
+      stalenessSeconds: 0,
+      providerMode: "alpaca_fallback",
+      fallbackEngaged: true,
+      providerModeReason: `Quote entered the declared Alpaca fallback lane${subsystemLabel}.`,
+      quote,
+    };
   }
 }
 

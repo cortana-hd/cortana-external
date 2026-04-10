@@ -2,9 +2,11 @@
 
 [![CI](https://github.com/hd719/cortana-external/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/hd719/cortana-external/actions/workflows/ci.yml)
 
-Runtime edge for Cortana: services, apps, and reliability infrastructure that support the `~/clawd` command brain.
+Runtime edge for Cortana: the external-service front door, Trading Ops truth surfaces, and reliability infrastructure that support the `~/clawd` command brain.
 
 If `~/clawd` is strategy/memory/policy, **cortana-external is execution runtime**.
+
+It carries Schwab market-data, streamer-backed quotes, and the live Trading Ops surfaces that Mission Control reads from.
 
 Documentation placement and authoring rules live in [`docs/source/architecture/documentation-authoring-guide.md`](docs/source/architecture/documentation-authoring-guide.md).
 
@@ -14,12 +16,21 @@ Documentation follows a Karpathy-style LLM wiki split:
 - compiled current-truth pages live in `knowledge/`
 - archived repo-level leftovers live in `docs/archive/`
 
+## 0) Read this first if you are trading
+
+If you need the current live shape, read in this order:
+
+- `apps/mission-control/README.md` for live Trading Ops routes, live stream, and restart behavior
+- `knowledge/domains/mission-control/current-state.md` for Mission Control runtime truth
+- `knowledge/domains/backtester/current-state.md` for backtester runtime truth
+- `backtester/README.md` for the backtester operator manual and market-data workflow
+
 ---
 
 ## 1) What this repo contains
 
-- TypeScript Hono service (`@cortana/external-service`) exposing **Whoop + Tonal + Alpaca** APIs (loopback on port `3033`)
-- Mission Control dashboard app (`apps/mission-control`, Next.js)
+- TypeScript Hono service (`@cortana/external-service`) exposing **Whoop + Tonal + Schwab market-data + streamer-backed quotes + Polymarket + Alpaca** APIs (loopback on port `3033`)
+- Mission Control dashboard app (`apps/mission-control`, live Trading Ops truth surfaces + task/agent telemetry)
 - CANSLIM backtester/advisor (`backtester/`)
 - Read-only Polymarket market-intel + quick-check overlay path for the backtester
 - Watchdog reliability service (`watchdog/`, launchd)
@@ -94,6 +105,8 @@ Plain-English backtester model:
 Single HTTP service for:
 - Whoop auth + data
 - Tonal health/data
+- Schwab auth + market-data + streamer-backed live tape
+- Polymarket market-intel and pinned-market surfaces
 - Alpaca account/positions/portfolio/trade tracking
 
 ### Entry points
@@ -108,6 +121,8 @@ Single HTTP service for:
 ### API surface
 - Aggregate health: `/health`
 - Whoop: `/auth/url`, `/auth/callback`, `/auth/status`, `/whoop/health`, `/whoop/data`, `/whoop/recovery`, `/whoop/recovery/latest`
+- Schwab + market-data: `/auth/schwab/url`, `/auth/schwab/callback`, `/auth/schwab/status`, `/auth/schwab/streamer/url`, `/auth/schwab/streamer/status`, `/market-data/ready`, `/market-data/ops`, `/market-data/history/:symbol`, `/market-data/history/batch`, `/market-data/quote/:symbol`, `/market-data/quote/batch`, `/market-data/snapshot/:symbol`, `/market-data/fundamentals/:symbol`, `/market-data/metadata/:symbol`, `/market-data/universe/base`, `/market-data/universe/audit`, `/market-data/universe/refresh`, `/market-data/risk/history`, `/market-data/risk/snapshot`
+- Polymarket: `/polymarket/health`, `/polymarket/balances`, `/polymarket/positions`, `/polymarket/orders`, `/polymarket/focus`, `/polymarket/live`, `/polymarket/board/live`, `/polymarket/results`, `/polymarket/pins`
 - Tonal: `/tonal/health`, `/tonal/data`
 - Alpaca: `/alpaca/health`, `/alpaca/account`, `/alpaca/positions`, `/alpaca/portfolio`, `/alpaca/earnings`, `/alpaca/quote/:symbol`, `/alpaca/snapshot/:symbol`, `/alpaca/bars/:symbol`, `/alpaca/trades` (GET/POST), `/alpaca/trades/:id` (PUT), `/alpaca/stats`, `/alpaca/performance`
 
@@ -200,11 +215,14 @@ Next.js dashboard for agent/runs/events/task-board visibility and lifecycle tele
 ```bash
 cd ~/Developer/cortana-external/apps/mission-control
 pnpm install
-cp .env.example .env.local
+# create .env.local with at least DATABASE_URL=...
 pnpm db:migrate
 pnpm db:seed
 pnpm dev
 ```
+
+Use `pnpm dev` or `pnpm start` only for a foreground/manual run.
+For the local launchd-managed app that the watchdog and Trading Ops smoke checks expect, use `./apps/mission-control/scripts/restart-mission-control.sh`.
 
 ### Port/access
 - Local: `http://127.0.0.1:3000`
@@ -221,6 +239,8 @@ Quick path:
 ```bash
 ./apps/mission-control/scripts/restart-mission-control.sh
 ```
+
+That restart script rewrites the LaunchAgent to a direct `next start` entrypoint before every relaunch, then uses `launchctl kickstart -k` on the updated agent. That prevents `pnpm start` wrapper leaks from leaving stale Prisma pools behind.
 
 Skip the rebuild when you only want to bounce the already-built app:
 ```bash
@@ -269,10 +289,17 @@ Expected: JSON with `ok: true` and current heartbeat status.
 
 ### What it shows
 - Dashboard (`/`): system metrics + recent activity
+- Trading Ops (`/trading-ops`): latest-run truth, live tape, streamer/runtime health, watchlists, and Polymarket overlay
 - Council (`/council`): deliberation sessions, weighted votes, and decision rationale timeline
 - Approvals (`/approvals`): risk-tiered approval inbox with Telegram deep links into Mission Control plus resume/execution controls
 - Feedback (`/feedback`): correction/remediation dashboard with action tracking and recurrence visibility
 - Mjolnir (`/mjolnir`): recovery dashboard with Whoop recovery/sleep/strain, workout cards, 14-day trend bars, threshold alerts + alert history
+
+Trading Ops operator facts:
+- latest run truth is DB-backed from `mc_trading_runs` when available
+- explicit file fallback is surfaced instead of pretending the card is current
+- live data comes from `/api/trading-ops/live` and `/api/trading-ops/live/stream`
+- live tape and watchlists read through the external service boundary, not directly from the browser
 
 ### Council deliberation system (new)
 - Mission Control includes a multi-member Council workflow for important decisions.
@@ -331,12 +358,12 @@ Python CANSLIM advisor/backtesting engine with Telegram-ready alert output.
 - The backtester now ranks live candidates by final runtime action first, then by uncertainty-aware confidence quality, instead of letting a high raw score outrank a cleaner buyable setup.
 - In plain English: a `BUY` with solid evidence now surfaces ahead of a higher-score `WATCH` that is abstaining because the inputs are stale, degraded, or conflicted.
 - Phase 2 adds a bounded downside proxy (63-day drawdown + worst-loss blend) and clearer churn proxies so sketchier left-tail / flip-prone setups get smaller size and worse runtime ranking without weakening any veto gates.
-- Doc: [`backtester/docs/source/reference/uncertainty-confidence-runtime-wiring.md`](backtester/docs/source/reference/uncertainty-confidence-runtime-wiring.md)
+- Doc: [`backtester/knowledge/reference/uncertainty-confidence-runtime-wiring.md`](backtester/knowledge/reference/uncertainty-confidence-runtime-wiring.md)
 
 ### Start here
 - Operator workflow + output guide: [`backtester/README.md`](backtester/README.md)
-- Runtime wiring note: [`backtester/docs/source/reference/uncertainty-confidence-runtime-wiring.md`](backtester/docs/source/reference/uncertainty-confidence-runtime-wiring.md)
-- Calibration reference: [`backtester/docs/source/reference/scoring-calibration.md`](backtester/docs/source/reference/scoring-calibration.md)
+- Runtime wiring note: [`backtester/knowledge/reference/uncertainty-confidence-runtime-wiring.md`](backtester/knowledge/reference/uncertainty-confidence-runtime-wiring.md)
+- Calibration reference: [`backtester/knowledge/reference/scoring-calibration.md`](backtester/knowledge/reference/scoring-calibration.md)
 
 ### Core files
 - `advisor.py` (market/symbol analysis)
@@ -427,10 +454,12 @@ curl -s http://127.0.0.1:3033/tonal/health
 
 ## Mission Control
 ```bash
+# preferred local production-style restart
+./apps/mission-control/scripts/restart-mission-control.sh
+
+# foreground local dev only
 cd apps/mission-control
-pnpm build
-pnpm start
-# or pnpm dev for local dev
+pnpm dev
 ```
 
 ## Watchdog
@@ -455,11 +484,22 @@ python canslim_alert.py --limit 8 --min-score 6
 - `WHOOP_REDIRECT_URL`
 - `TONAL_EMAIL`
 - `TONAL_PASSWORD`
+- `SCHWAB_CLIENT_ID`
+- `SCHWAB_CLIENT_SECRET`
+- `SCHWAB_REDIRECT_URL`
+- `SCHWAB_CLIENT_STREAMER_ID`
+- `SCHWAB_CLIENT_STREAMER_SECRET`
 - `PORT` (optional; defaults to `3033`)
 
 ## Mission Control `.env.local`
 - `DATABASE_URL` (typically `mission_control` DB)
 - `CORTANA_DATABASE_URL` (typically `cortana` DB)
+- optional path overrides if local repos live somewhere else:
+  - `CORTANA_SOURCE_REPO`
+  - `DOCS_PATH`
+  - `AGENT_MODELS_PATH`
+  - `HEARTBEAT_STATE_PATH`
+  - `TELEGRAM_USAGE_HANDLER_PATH`
 
 ## Local file-based credentials/tokens
 - `whoop_tokens.json`
@@ -476,9 +516,13 @@ python canslim_alert.py --limit 8 --min-score 6
 # External service
 curl -s http://127.0.0.1:3033/tonal/health
 curl -s http://127.0.0.1:3033/alpaca/health
+curl -s http://127.0.0.1:3033/market-data/ready
+curl -s http://127.0.0.1:3033/market-data/ops
 
 # Mission Control
 curl -s http://127.0.0.1:3000/api/dashboard | head
+curl -s http://127.0.0.1:3000/api/heartbeat-status
+curl -s http://127.0.0.1:3000/api/trading-ops/live | head
 
 # Watchdog
 tail -n 30 ~/Developer/cortana-external/watchdog/logs/watchdog.log

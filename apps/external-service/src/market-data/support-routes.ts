@@ -69,7 +69,16 @@ export class MarketDataSupportRoutes {
       const result = await this.coinMarketCap.refreshDailyCache(symbols, ["1", "true", "yes", "on"].includes(force));
       return {
         status: 200,
-        body: { source: "service", status: "ok", degradedReason: null, stalenessSeconds: 0, data: result },
+        body: {
+          source: "service",
+          status: "ok",
+          degradedReason: null,
+          stalenessSeconds: 0,
+          providerMode: "coinmarketcap_primary",
+          fallbackEngaged: false,
+          providerModeReason: "Direct crypto refresh uses the CoinMarketCap primary lane.",
+          data: result,
+        },
       };
     } catch (error) {
       return this.toErrorRoute(error, { symbols, refreshed: [] });
@@ -89,6 +98,9 @@ export class MarketDataSupportRoutes {
           status: "ok",
           degradedReason: null,
           stalenessSeconds: secondsSince(payload.updatedAt),
+          providerMode: "cache_fallback",
+          fallbackEngaged: true,
+          providerModeReason: "Universe artifact is served from the local cached ownership lane.",
           data: payload,
         },
       };
@@ -105,7 +117,16 @@ export class MarketDataSupportRoutes {
       }
       return {
         status: 200,
-        body: { source: payload.source, status: "ok", degradedReason: null, stalenessSeconds: 0, data: payload },
+        body: {
+          source: payload.source,
+          status: "ok",
+          degradedReason: null,
+          stalenessSeconds: 0,
+          providerMode: "cache_fallback",
+          fallbackEngaged: true,
+          providerModeReason: "Universe refresh writes and serves the local ownership artifact.",
+          data: payload,
+        },
       };
     } catch (error) {
       return this.toErrorRoute(error, { symbols: [], source: "error", updatedAt: null });
@@ -117,7 +138,16 @@ export class MarketDataSupportRoutes {
     const audit = this.universeManager.readAudit(limit);
     return {
       status: 200,
-      body: { source: "service", status: "ok", degradedReason: null, stalenessSeconds: 0, data: { entries: audit } },
+      body: {
+        source: "service",
+        status: "ok",
+        degradedReason: null,
+        stalenessSeconds: 0,
+        providerMode: "cache_fallback",
+        fallbackEngaged: true,
+        providerModeReason: "Universe audit reads from the local artifact lane.",
+        data: { entries: audit },
+      },
     };
   }
 
@@ -132,6 +162,9 @@ export class MarketDataSupportRoutes {
           status: payload.meta.status,
           degradedReason: payload.meta.degradedReason ?? null,
           stalenessSeconds: payload.meta.stalenessSeconds,
+          providerMode: "schwab_primary",
+          fallbackEngaged: false,
+          providerModeReason: "Risk history uses the macro risk stack primary lane.",
           data: { rows: payload.rows as unknown as Array<Record<string, unknown>> },
         },
       };
@@ -152,6 +185,9 @@ export class MarketDataSupportRoutes {
           status: payload.meta.status,
           degradedReason: payload.meta.degradedReason ?? null,
           stalenessSeconds: payload.meta.stalenessSeconds,
+          providerMode: "schwab_primary",
+          fallbackEngaged: false,
+          providerModeReason: "Risk snapshot uses the macro risk stack primary lane.",
           data: {
             snapshotDate: latest?.date ?? new Date().toISOString(),
             mFactor: latest?.fear_greed ?? 50,

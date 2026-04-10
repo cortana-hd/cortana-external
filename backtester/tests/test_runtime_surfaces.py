@@ -41,7 +41,17 @@ def test_runtime_health_snapshot_captures_readiness_and_incident_paths(monkeypat
             )
         return SimpleNamespace(
             raise_for_status=lambda: None,
-            json=lambda: {"data": {"serviceOperatorState": "healthy"}},
+            json=lambda: {
+                "data": {
+                    "serviceOperatorState": "healthy",
+                    "providerLaneGuidance": {
+                        "liveQuotes": {"providerMode": "schwab_primary"},
+                        "history": {"providerMode": "schwab_primary"},
+                        "fundamentals": {"providerMode": "schwab_primary"},
+                        "metadata": {"providerMode": "schwab_primary"},
+                    },
+                }
+            },
         )
 
     monkeypatch.setattr("operator_surfaces.runtime_health.requests.get", fake_get)
@@ -57,6 +67,9 @@ def test_runtime_health_snapshot_captures_readiness_and_incident_paths(monkeypat
     assert payload["cron_health"]["pre_open_canary_result"] == "warn"
     assert payload["pre_open_gate_freshness"]["status"] == "fresh"
     assert payload["watchdog_health"]["state_present"] is True
+    assert payload["provider_mode_summary"]["summary_line"] == (
+        "Live quotes: schwab_primary | history: schwab_primary | fundamentals: schwab_primary | metadata: schwab_primary"
+    )
     assert payload["inspection_paths"]["readiness_artifact"] == str(readiness_path)
 
 

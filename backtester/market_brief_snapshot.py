@@ -129,7 +129,7 @@ def summarize_macro(report: dict[str, Any] | None) -> dict[str, Any]:
 def fetch_tape_quotes(service_base_url: str = SERVICE_BASE_URL, symbols: tuple[str, ...] = TAPE_SYMBOLS) -> dict[str, Any]:
     url = f"{service_base_url}/market-data/quote/batch"
     try:
-        response = requests.get(url, params={"symbols": ",".join(symbols)}, timeout=12)
+        response = requests.get(url, params={"symbols": ",".join(symbols), "subsystem": "market_brief_tape"}, timeout=12)
         response.raise_for_status()
         payload = response.json() or {}
     except Exception as exc:
@@ -138,6 +138,9 @@ def fetch_tape_quotes(service_base_url: str = SERVICE_BASE_URL, symbols: tuple[s
             "summary_line": f"Tape unavailable from TS market-data service: {exc}",
             "risk_tone": "unknown",
             "primary_source": "unavailable",
+            "provider_mode": "unavailable",
+            "fallback_engaged": False,
+            "provider_mode_reason": "Tape could not produce a provider mode.",
             "symbols": [],
             "warnings": [f"tape_fetch_failed: {exc}"],
         }
@@ -179,6 +182,9 @@ def fetch_tape_quotes(service_base_url: str = SERVICE_BASE_URL, symbols: tuple[s
         "summary_line": build_tape_summary(normalized),
         "risk_tone": classify_tape_risk(normalized),
         "primary_source": primary_source(sources),
+        "provider_mode": str(payload.get("providerMode", "unknown") or "unknown"),
+        "fallback_engaged": bool(payload.get("fallbackEngaged", False)),
+        "provider_mode_reason": str(payload.get("providerModeReason", "") or ""),
         "symbols": normalized,
         "warnings": warnings,
     }
@@ -292,6 +298,9 @@ def load_cached_tape_quotes(symbols: tuple[str, ...] = TAPE_SYMBOLS) -> dict[str
             "summary_line": "Previous-session tape fallback unavailable.",
             "risk_tone": "unknown",
             "primary_source": "unavailable",
+            "provider_mode": "unavailable",
+            "fallback_engaged": False,
+            "provider_mode_reason": "Previous-session tape fallback could not produce a provider mode.",
             "symbols": [],
             "warnings": ["tape_cached_fallback_unavailable"],
         }
@@ -300,6 +309,9 @@ def load_cached_tape_quotes(symbols: tuple[str, ...] = TAPE_SYMBOLS) -> dict[str
         "summary_line": build_tape_summary(normalized) + " Previous session fallback.",
         "risk_tone": classify_tape_risk(normalized),
         "primary_source": "cache",
+        "provider_mode": "cache_fallback",
+        "fallback_engaged": True,
+        "provider_mode_reason": "Tape used the previous-session cache fallback lane.",
         "symbols": normalized,
         "warnings": ["tape_previous_session_fallback"],
     }
@@ -484,7 +496,9 @@ def build_operator_summary(
     narrative_overlay: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     tape_source = str(tape.get("primary_source") or "unknown")
+    tape_mode = str(tape.get("provider_mode") or "unknown")
     breadth_state = str(breadth.get("override_state") or "unknown")
+    breadth_mode = str(breadth.get("provider_mode") or "unknown")
     macro_age = _format_age_hours(macro.get("freshness_hours"))
     focus_names = focus.get("symbols") or []
     if focus_names:
@@ -492,14 +506,21 @@ def build_operator_summary(
     else:
         focus_line = "None yet. No names qualified for focus."
 
-    if tape_source == "cache":
+    if tape_mode == "alpaca_fallback":
+        tape_read = "Tape is using the declared Alpaca fallback lane, not the live Schwab quote lane."
+    elif tape_source == "cache":
         tape_read = "Tape is using previous-session fallback data, not fresh live quotes."
     elif tape_source == "unavailable":
         tape_read = "Tape is unavailable right now."
     else:
         tape_read = "Tape is using fresh live quotes."
 
-    if breadth_state == "inactive":
+    if breadth_mode == "alpaca_fallback":
+        breadth_read = (
+            f"Intraday breadth is using the declared Alpaca fallback lane because "
+            f"{breadth.get('override_reason', 'the live Schwab quote lane is unavailable')}."
+        )
+    elif breadth_state == "inactive":
         breadth_read = f"Intraday breadth is inactive because {breadth.get('override_reason', 'the market is not in a live session')}."
     elif breadth_state == "unavailable":
         breadth_read = f"Intraday breadth is unavailable because {breadth.get('override_reason', 'live breadth inputs are missing')}."
@@ -512,12 +533,15 @@ def build_operator_summary(
 
     regime_status = str(regime.get("status") or "unknown")
     regime_source = str(regime.get("data_source") or "unknown")
+    regime_mode = str(regime.get("provider_mode") or "unknown")
     underlying_age = _extract_underlying_regime_age(regime)
     if regime_status == "degraded" and regime_source == "unknown":
         regime_read = (
             f"Market regime is {regime['display']}. Fresh live regime is unavailable; "
             "using conservative emergency fallback."
         )
+    elif regime_mode == "alpaca_fallback":
+        regime_read = f"Market regime is {regime['display']} using the declared Alpaca fallback lane."
     elif regime_source == "cache":
         if underlying_age:
             regime_read = (
@@ -609,6 +633,9 @@ def normalize_regime(status: MarketStatus) -> dict[str, Any]:
         "notes": status.notes,
         "status": status.status,
         "data_source": status.data_source,
+        "provider_mode": status.provider_mode,
+        "fallback_engaged": status.fallback_engaged,
+        "provider_mode_reason": status.provider_mode_reason or None,
         "degraded_reason": status.degraded_reason or None,
         "snapshot_age_seconds": status.snapshot_age_seconds,
     }
@@ -643,6 +670,11 @@ def load_last_known_regime_status(
                 else f"{market_status.get('notes', '')} [LAST KNOWN SNAPSHOT {stale_hours:.1f}h old]".strip()
             ),
             data_source=str(market_status.get("data_source", "cache")),
+            provider_mode=str(market_status.get("provider_mode", "cache_fallback")),
+            fallback_engaged=bool(market_status.get("fallback_engaged", True)),
+            provider_mode_reason=str(
+                market_status.get("provider_mode_reason", "Market regime used the cached snapshot fallback lane.")
+            ),
             status="ok" if session_baseline else "degraded",
             degraded_reason=(
                 ""
@@ -778,6 +810,19 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
     leader_symbols = load_leader_priority_symbols(max_age_hours=72.0)
     focus = build_focus_names(leader_symbols, macro.get("focus_tickers", []))
     regime_payload = normalize_regime(status)
+    subsystem_modes = {
+        "market_regime": str(regime_payload.get("provider_mode", "unknown") or "unknown"),
+        "market_brief_tape": str(tape.get("provider_mode", "unknown") or "unknown"),
+        "intraday_breadth": str(breadth.get("provider_mode", "unknown") or "unknown"),
+    }
+    unique_provider_modes = sorted({mode for mode in subsystem_modes.values() if mode})
+    overall_provider_mode = (
+        unique_provider_modes[0]
+        if len(unique_provider_modes) == 1
+        else "multi_mode"
+        if unique_provider_modes
+        else "unknown"
+    )
     comparison_artifact, calibration_artifact, shadow_input_warnings = load_shadow_inputs()
     warnings.extend(shadow_input_warnings)
     research_runtime = build_surface_research_runtime(generated_at=generated_at)
@@ -823,6 +868,8 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
             "is_regular_hours": session_phase == "OPEN",
         },
         "status": taxonomy.status,
+        "provider_mode": overall_provider_mode,
+        "subsystem_provider_modes": subsystem_modes,
         "operator_summary": operator_summary,
         "warnings": warnings,
         "regime": regime_payload,
@@ -840,6 +887,7 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
             "regime_snapshot_age_seconds": status.snapshot_age_seconds,
             "polymarket_age_hours": macro.get("freshness_hours"),
             "tape_primary_source": tape.get("primary_source"),
+            "provider_mode": overall_provider_mode,
         },
     }
     annotated = annotate_artifact(

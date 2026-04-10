@@ -13,9 +13,18 @@ import type {
   MarketDataRouteResult,
   MarketDataSnapshot,
 } from "./types.js";
-import type { ProviderChain } from "./provider-chain.js";
+import type { ProviderChain, ProviderRouteContext, QuoteFetchResult } from "./provider-chain.js";
 
 const DEFAULT_INTERVAL = "1d";
+const QUOTE_ALPACA_FALLBACK_SUBSYSTEMS = new Set([
+  "market_brief_tape",
+  "live_watchlists",
+  "intraday_breadth",
+  "clive",
+  "cwatch",
+  "pre_open_canary",
+]);
+const HISTORY_ALPACA_FALLBACK_SUBSYSTEMS = new Set(["market_regime"]);
 
 interface QueryRoutesConfig {
   providerChain: ProviderChain;
@@ -35,6 +44,113 @@ export class MarketDataQueryRoutes {
     this.ensureRuntimeReady = config.ensureRuntimeReady;
     this.toErrorRoute = config.toErrorRoute;
     this.toBatchRouteResult = config.toBatchRouteResult;
+  }
+
+  private async buildQuoteBatchItem(
+    symbol: string,
+    primary: QuoteFetchResult,
+    compareProvider: string | undefined,
+  ): Promise<Record<string, unknown>> {
+    this.providerChain.recordSourceUsage(primary.source);
+    const compare = await this.providerChain.buildQuoteComparison(symbol, compareProvider ?? undefined, primary.quote);
+    return {
+      symbol,
+      source: primary.source,
+      status: primary.status,
+      degradedReason: primary.degradedReason ?? null,
+      stalenessSeconds: primary.stalenessSeconds,
+      providerMode: primary.providerMode,
+      fallbackEngaged: primary.fallbackEngaged,
+      providerModeReason: primary.providerModeReason ?? null,
+      data: primary.quote,
+      ...(compare ? { compare_with: compare } : {}),
+    };
+  }
+
+  private async resolveQuoteBatchItems(
+    symbols: string[],
+    compareProvider: string | undefined,
+    context: ProviderRouteContext,
+  ): Promise<Array<Record<string, unknown>>> {
+    if (!context.allowAlpacaFallback) {
+      return Promise.all(
+        symbols.map(async (symbol) => {
+          try {
+            const primary = await this.providerChain.fetchPrimaryQuote(symbol, context);
+            return this.buildQuoteBatchItem(symbol, primary, compareProvider);
+          } catch (error) {
+            return {
+              symbol,
+              source: "service",
+              status: "error",
+              degradedReason: summarizeError(error),
+              stalenessSeconds: null,
+              providerMode: "unavailable",
+              fallbackEngaged: false,
+              providerModeReason: "Quote batch could not produce a provider mode for this symbol.",
+              data: { symbol },
+            };
+          }
+        }),
+      );
+    }
+
+    const restUnavailable = !this.providerChain.isSchwabRestAvailable();
+    if (!restUnavailable) {
+      return Promise.all(
+        symbols.map(async (symbol) => {
+          try {
+            const primary = await this.providerChain.fetchPrimaryQuote(symbol, { ...context, allowAlpacaFallback: false });
+            return this.buildQuoteBatchItem(symbol, primary, compareProvider);
+          } catch (error) {
+            return {
+              symbol,
+              source: "service",
+              status: "error",
+              degradedReason: summarizeError(error),
+              stalenessSeconds: null,
+              providerMode: "unavailable",
+              fallbackEngaged: false,
+              providerModeReason: "Quote batch could not produce a provider mode for this symbol.",
+              data: { symbol },
+            };
+          }
+        }),
+      );
+    }
+
+    const schwabPrimary = await Promise.all(
+      symbols.map(async (symbol) => ({
+        symbol,
+        primary: await this.providerChain.fetchSchwabLiveQuoteOnly(symbol),
+      })),
+    );
+    if (schwabPrimary.every((item) => item.primary?.quote?.price != null)) {
+      return Promise.all(
+        schwabPrimary.map(async ({ symbol, primary }) => this.buildQuoteBatchItem(symbol, primary as QuoteFetchResult, compareProvider)),
+      );
+    }
+
+    return Promise.all(
+      symbols.map(async (symbol) => {
+        try {
+          const primary = await this.providerChain.fetchAlpacaQuoteFallback(symbol, context);
+          return this.buildQuoteBatchItem(symbol, primary, compareProvider);
+        } catch (error) {
+          return {
+            symbol,
+            source: "service",
+            status: "error",
+            degradedReason: summarizeError(error),
+            stalenessSeconds: null,
+            providerMode: "unavailable",
+            fallbackEngaged: false,
+            providerModeReason: "Quote batch could not keep a single fallback mode for this symbol.",
+            data: { symbol },
+          };
+        }
+      }),
+    );
   }
 
   async handleHistory(request: Request, rawSymbol: string, compareWith?: string): Promise<MarketDataRouteResult<MarketDataHistory>> {
@@ -73,7 +189,14 @@ export class MarketDataQueryRoutes {
       };
     }
     try {
-      const primary = await this.providerChain.fetchPrimaryHistory(symbol, period, interval, provider);
+      const subsystem = resolveSubsystem(request.url);
+      const primary = await this.providerChain.fetchPrimaryHistory(
+        symbol,
+        period,
+        interval,
+        provider,
+        buildHistoryRouteContext(subsystem),
+      );
       this.providerChain.recordSourceUsage(primary.source);
       const compareProvider = resolveCompareProvider(compareWith);
       if (compareProvider === null) {
@@ -87,6 +210,9 @@ export class MarketDataQueryRoutes {
           status: primary.status,
           degradedReason: primary.degradedReason ?? null,
           stalenessSeconds: primary.stalenessSeconds,
+          providerMode: primary.providerMode,
+          fallbackEngaged: primary.fallbackEngaged,
+          providerModeReason: primary.providerModeReason ?? null,
           data: { symbol, period, interval, rows: primary.rows, comparisonHint: compare?.source },
           ...(compare ? { compare_with: compare } : {}),
         },
@@ -103,7 +229,8 @@ export class MarketDataQueryRoutes {
       return { status: 400, body: marketDataErrorResponse("invalid symbol", "error", { reason: "symbol required" }) };
     }
     try {
-      const primary = await this.providerChain.fetchPrimaryQuote(symbol);
+      const subsystem = resolveSubsystem(_request.url);
+      const primary = await this.providerChain.fetchPrimaryQuote(symbol, buildQuoteRouteContext(subsystem));
       this.providerChain.recordSourceUsage(primary.source);
       const compareProvider = resolveCompareProvider(compareWith);
       if (compareProvider === null) {
@@ -117,6 +244,9 @@ export class MarketDataQueryRoutes {
           status: primary.status,
           degradedReason: primary.degradedReason ?? null,
           stalenessSeconds: primary.stalenessSeconds,
+          providerMode: primary.providerMode,
+          fallbackEngaged: primary.fallbackEngaged,
+          providerModeReason: primary.providerModeReason ?? null,
           data: primary.quote,
           ...(compare ? { compare_with: compare } : {}),
         },
@@ -137,33 +267,8 @@ export class MarketDataQueryRoutes {
     if (compareProvider === null) {
       return invalidCompareProvider();
     }
-    const items = await Promise.all(
-      symbols.map(async (symbol) => {
-        try {
-          const primary = await this.providerChain.fetchPrimaryQuote(symbol);
-          this.providerChain.recordSourceUsage(primary.source);
-          const compare = await this.providerChain.buildQuoteComparison(symbol, compareProvider ?? undefined, primary.quote);
-          return {
-            symbol,
-            source: primary.source,
-            status: primary.status,
-            degradedReason: primary.degradedReason ?? null,
-            stalenessSeconds: primary.stalenessSeconds,
-            data: primary.quote,
-            ...(compare ? { compare_with: compare } : {}),
-          };
-        } catch (error) {
-          return {
-            symbol,
-            source: "service",
-            status: "error",
-            degradedReason: summarizeError(error),
-            stalenessSeconds: null,
-            data: { symbol },
-          };
-        }
-      }),
-    );
+    const subsystem = resolveSubsystem(request.url);
+    const items = await this.resolveQuoteBatchItems(symbols, compareProvider ?? undefined, buildQuoteRouteContext(subsystem));
     return this.toBatchRouteResult(items);
   }
 
@@ -188,6 +293,9 @@ export class MarketDataQueryRoutes {
           status: primary.status,
           degradedReason: primary.degradedReason ?? null,
           stalenessSeconds: primary.stalenessSeconds,
+          providerMode: primary.providerMode,
+          fallbackEngaged: primary.fallbackEngaged,
+          providerModeReason: primary.providerModeReason ?? null,
           data: primary.snapshot,
           ...(compare ? { compare_with: compare } : {}),
         },
@@ -236,7 +344,22 @@ export class MarketDataQueryRoutes {
     const items = await Promise.all(
       symbols.map(async (symbol) => {
         try {
-          const primary = await this.providerChain.fetchPrimaryHistory(symbol, period, interval, provider);
+          const subsystem = resolveSubsystem(request.url);
+          const effectiveProvider =
+            provider === "service" &&
+            HISTORY_ALPACA_FALLBACK_SUBSYSTEMS.has(subsystem ?? "") &&
+            !this.providerChain.isSchwabRestAvailable()
+              ? "alpaca"
+              : provider;
+          const primary = await this.providerChain.fetchPrimaryHistory(
+            symbol,
+            period,
+            interval,
+            effectiveProvider,
+            effectiveProvider === "service"
+              ? { subsystem, allowAlpacaFallback: false }
+              : buildHistoryRouteContext(subsystem),
+          );
           this.providerChain.recordSourceUsage(primary.source);
           const compare = await this.providerChain.buildHistoryComparison(symbol, period, interval, compareWith, primary.rows);
           return {
@@ -245,6 +368,9 @@ export class MarketDataQueryRoutes {
             status: primary.status,
             degradedReason: primary.degradedReason ?? null,
             stalenessSeconds: primary.stalenessSeconds,
+            providerMode: primary.providerMode,
+            fallbackEngaged: primary.fallbackEngaged,
+            providerModeReason: primary.providerModeReason ?? null,
             data: { symbol, period, interval, rows: primary.rows, comparisonHint: compare?.source },
             ...(compare ? { compare_with: compare } : {}),
           };
@@ -255,6 +381,9 @@ export class MarketDataQueryRoutes {
             status: "error",
             degradedReason: summarizeError(error),
             stalenessSeconds: null,
+            providerMode: "unavailable",
+            fallbackEngaged: false,
+            providerModeReason: "History batch could not produce a provider mode for this symbol.",
             data: { symbol, period, interval, rows: [] },
           };
         }
@@ -284,6 +413,9 @@ export class MarketDataQueryRoutes {
           status: primary.status,
           degradedReason: primary.degradedReason ?? null,
           stalenessSeconds: primary.stalenessSeconds,
+          providerMode: primary.providerMode,
+          fallbackEngaged: primary.fallbackEngaged,
+          providerModeReason: primary.providerModeReason ?? null,
           data: { symbol, payload: primary.payload },
           ...(compare ? { compare_with: compare } : {}),
         },
@@ -299,7 +431,8 @@ export class MarketDataQueryRoutes {
       return { status: 400, body: marketDataErrorResponse("invalid symbol", "error", { reason: "symbol required" }) };
     }
     try {
-      const payload = await this.providerChain.fetchPrimaryMetadata(symbol);
+      const primary = await this.providerChain.fetchPrimaryMetadata(symbol);
+      this.providerChain.recordSourceUsage(primary.source);
       const compareProvider = resolveCompareProvider(compareWith);
       if (compareProvider === null) {
         return invalidCompareProvider<MarketDataGenericPayload>();
@@ -308,11 +441,14 @@ export class MarketDataQueryRoutes {
       return {
         status: 200,
         body: {
-          source: "service",
-          status: "ok",
-          degradedReason: null,
-          stalenessSeconds: 0,
-          data: { symbol, payload },
+          source: primary.source,
+          status: primary.status,
+          degradedReason: primary.degradedReason ?? null,
+          stalenessSeconds: primary.stalenessSeconds,
+          providerMode: primary.providerMode,
+          fallbackEngaged: primary.fallbackEngaged,
+          providerModeReason: primary.providerModeReason ?? null,
+          data: { symbol, payload: primary.payload },
           ...(compare ? { compare_with: compare } : {}),
         },
       };
@@ -358,4 +494,23 @@ function invalidCompareProvider<T>(): MarketDataRouteResult<T> {
 
 function summarizeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function resolveSubsystem(rawUrl: string): string | undefined {
+  const value = resolveQuery(rawUrl, "subsystem", "").trim().toLowerCase();
+  return value || undefined;
+}
+
+function buildQuoteRouteContext(subsystem?: string): ProviderRouteContext {
+  return {
+    subsystem,
+    allowAlpacaFallback: QUOTE_ALPACA_FALLBACK_SUBSYSTEMS.has(subsystem ?? ""),
+  };
+}
+
+function buildHistoryRouteContext(subsystem?: string): ProviderRouteContext {
+  return {
+    subsystem,
+    allowAlpacaFallback: HISTORY_ALPACA_FALLBACK_SUBSYSTEMS.has(subsystem ?? ""),
+  };
 }

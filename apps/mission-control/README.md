@@ -1,6 +1,6 @@
 # Mission Control
 
-Next.js + PostgreSQL dashboard for Cortana agents. Provides a unified view of agents, runs/jobs, and alerts/events with shadcn/ui components.
+Next.js + PostgreSQL dashboard for Cortana agents and Trading Ops truth surfaces. Provides a unified view of agents, runs/jobs, alerts/events, and live market ops with shadcn/ui components.
 
 ## Stack
 - Next.js (App Router, TypeScript)
@@ -15,7 +15,9 @@ pnpm install
 ```
 2) Configure the database
 ```bash
-cp .env.example .env.local
+cat > .env.local <<'EOF'
+DATABASE_URL=postgresql://hd@localhost:5432/mission_control
+EOF
 # Update DATABASE_URL for your Postgres instance
 # e.g., createdb mission_control
 # Required for governance/task reads: CORTANA_DATABASE_URL
@@ -40,7 +42,7 @@ pnpm dev
 
 ## Scripts
 - `pnpm dev` — start Next.js dev server
-- `pnpm build` / `pnpm start` — production build & start
+- `pnpm build` / `pnpm start` — production build & manual foreground start
 - `pnpm lint` — lint
 - `pnpm db:migrate` — apply Prisma migrations
 - `pnpm db:deploy` — deploy migrations in production
@@ -48,6 +50,9 @@ pnpm dev
 - `pnpm db:generate` — regenerate Prisma client
 - `pnpm task-autoclose:post-merge` — close mapped `cortana_tasks` for a merged PR and enforce verification gate
 - `pnpm test:task-autoclose` — regression test for PR→task mapping
+
+Use `scripts/restart-mission-control.sh` for the launchd-managed local app.
+That path rewrites the LaunchAgent to a direct `next start` entrypoint, clears stale Mission Control `next-server` processes, waits for `/api/heartbeat-status`, and can run the Trading Ops smoke guard.
 
 ## Data model (Prisma)
 - `Agent`: id, name, role, description, capabilities, status (active/idle/degraded/offline), healthScore, lastSeen, timestamps.
@@ -69,6 +74,8 @@ pnpm dev
 - `PATCH /api/feedback/:id` — update workflow and remediation fields (`status`, `owner`, `remediationStatus`, `remediationNotes`, `resolvedBy`)
 - `GET /api/task-board` — task board slices (ready, blocked, due, pillar rollups, recent outcomes)
 - `GET /api/live` — SSE stream for near-live UI refresh ticks
+- `GET /api/trading-ops/live` — Trading Ops live summary payload
+- `GET /api/trading-ops/live/stream` — Trading Ops SSE stream
 - `GET /api/trading-ops/polymarket` — Polymarket Trading Ops summary payload
 - `GET /api/trading-ops/polymarket/live` — Polymarket live snapshot
 - `GET /api/trading-ops/polymarket/live/stream` — Polymarket SSE stream
@@ -78,7 +85,7 @@ pnpm dev
 
 ## Pages
 - `/` — Dashboard with stats, agent health widgets, runs table, and alerts feed
-- `/trading-ops` — live market operator surface including Schwab tape and Polymarket boards
+- `/trading-ops` — latest-run truth, live tape, streamer health, watchlists, system health, deep dive, and Polymarket boards
 - `/task-board` — Task board cards (Ready now, Blocked, Due soon/Overdue, By pillar, and Recent execution log)
 - `/agents` — Agent overview
 - `/approvals` — Approvals inbox with Mission Control review flow, Telegram deep links, and resume/execution controls
@@ -127,25 +134,61 @@ curl -X POST http://localhost:3000/api/openclaw/subagent-events \
   -d '{"runId":"sub-123","status":"queued","agentName":"Huragok","jobType":"mission-control-sync"}'
 ```
 
-## Polymarket Trading Ops
+## Trading Ops
 
-Trading Ops now includes a dedicated Polymarket tab with:
+Trading Ops is the main market operator surface.
 
-- live stream status
-- pinned markets
-- top events
-- top sports
-- account
-- signal overlay
-- linked watchlist
-- results
+It combines:
+- latest-run truth from `mc_trading_runs`
+- explicit file fallback when DB-backed truth is unavailable
+- live tape and watchlist prices from `/api/trading-ops/live`
+- live SSE updates from `/api/trading-ops/live/stream`
+- streamer/runtime health from the external service
+- a dedicated Polymarket tab for account, pinned markets, top events, top sports, linked watchlists, and results
+
+Primary operator tabs:
+- `Overview`
+- `Live`
+- `Watchlists`
+- `System Health`
+- `Deep Dive`
+- `Polymarket`
 
 Operational notes:
+- `DB-backed` means the latest run card came from Mission Control's stored run state
+- `fallback` means the card had to fall back to file/artifact truth instead of the preferred DB path
+- live quote rows can be `live`, `rest`, `cache`, or degraded depending on provider state
+- restart the app with `apps/mission-control/scripts/restart-mission-control.sh`; it uses the launchd direct-start pattern by rewriting the LaunchAgent to a direct `next start` entrypoint, then `kickstart`s the updated agent so stale wrapper processes do not leak Prisma pools
 
-- quote changes use green/red motion
-- roster changes use amber motion
-- pinned markets stay live while visible
-- restart the app with `apps/mission-control/scripts/restart-mission-control.sh` so the UI refreshes without spawning extra Next.js processes
+## Live data sources and fallback rules
+
+- Mission Control does not call Schwab or Polymarket directly from the browser.
+- The browser-facing boundary is Mission Control itself.
+- Mission Control reads live trading data from the external service:
+  - `/market-data/quote/batch`
+  - `/market-data/ops`
+  - Polymarket live endpoints
+- If the streamer is down but REST still works, the UI should show that as degraded, not healthy.
+- If latest-run DB truth is unavailable, the UI can fall back to artifact truth, but it should say so explicitly.
+
+## Launchd / restart
+
+Preferred local production-style restart:
+
+```bash
+./apps/mission-control/scripts/restart-mission-control.sh
+```
+
+Manual install/update of the LaunchAgent plist:
+
+```bash
+cd apps/mission-control
+pnpm exec tsx scripts/install-launch-agent.ts
+```
+
+Verification:
+- `curl http://127.0.0.1:3000/api/heartbeat-status`
+- `pnpm exec tsx scripts/check-trading-ops-smoke.ts`
 
 
 ## Governance integration notes

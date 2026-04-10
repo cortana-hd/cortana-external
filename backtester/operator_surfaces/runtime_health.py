@@ -94,6 +94,12 @@ def build_runtime_health_snapshot(
         operator_state=operator_state,
         watchdog_state=watchdog_state,
     )
+    provider_lane_guidance = (
+        (ops_data or {}).get("providerLaneGuidance")
+        if isinstance((ops_data or {}).get("providerLaneGuidance"), dict)
+        else {}
+    )
+    provider_mode_summary = _build_provider_mode_summary(provider_lane_guidance)
 
     incident_markers = []
     if ready_error:
@@ -137,6 +143,8 @@ def build_runtime_health_snapshot(
         service_health["operator_state"] = operator_state
     if operator_action:
         service_health["operator_action"] = operator_action
+    if provider_mode_summary["summary_line"]:
+        service_health["provider_mode_summary"] = provider_mode_summary["summary_line"]
 
     pre_open_gate_status = canary_result
     pre_open_gate_detail = canary_freshness["detail"]
@@ -152,6 +160,7 @@ def build_runtime_health_snapshot(
             "watchdog_health": watchdog_health,
             "delivery_health": delivery_health,
             "provider_cooldown_summary": cooldown_summary,
+            "provider_mode_summary": provider_mode_summary,
             "incident_markers": incident_markers,
             "inspection_paths": {
                 "readiness_artifact": str(readiness_path),
@@ -283,6 +292,29 @@ def _build_provider_cooldown_summary(
         "last_alert_at": last_alert_at,
         "active_for_seconds": active_for_seconds,
         "detail": detail,
+    }
+
+
+def _build_provider_mode_summary(provider_lane_guidance: dict[str, Any]) -> dict[str, Any]:
+    live_quotes = provider_lane_guidance.get("liveQuotes") if isinstance(provider_lane_guidance, dict) else {}
+    history = provider_lane_guidance.get("history") if isinstance(provider_lane_guidance, dict) else {}
+    fundamentals = provider_lane_guidance.get("fundamentals") if isinstance(provider_lane_guidance, dict) else {}
+    metadata = provider_lane_guidance.get("metadata") if isinstance(provider_lane_guidance, dict) else {}
+
+    def _mode(row: Any) -> str:
+        return str(row.get("providerMode") or "unknown") if isinstance(row, dict) else "unknown"
+
+    return {
+        "live_quotes": live_quotes if isinstance(live_quotes, dict) else {},
+        "history": history if isinstance(history, dict) else {},
+        "fundamentals": fundamentals if isinstance(fundamentals, dict) else {},
+        "metadata": metadata if isinstance(metadata, dict) else {},
+        "summary_line": (
+            f"Live quotes: {_mode(live_quotes)} | "
+            f"history: {_mode(history)} | "
+            f"fundamentals: {_mode(fundamentals)} | "
+            f"metadata: {_mode(metadata)}"
+        ),
     }
 
 

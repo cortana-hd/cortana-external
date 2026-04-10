@@ -714,6 +714,9 @@ def _serialize_market_state(market: object) -> dict[str, Any]:
         "notes": str(getattr(market, "notes", "") or ""),
         "status": str(getattr(market, "status", "ok") or "ok"),
         "data_source": str(getattr(market, "data_source", "unknown") or "unknown"),
+        "provider_mode": str(getattr(market, "provider_mode", "unknown") or "unknown"),
+        "fallback_engaged": bool(getattr(market, "fallback_engaged", False)),
+        "provider_mode_reason": str(getattr(market, "provider_mode_reason", "") or "") or None,
         "degraded_reason": str(getattr(market, "degraded_reason", "") or "") or None,
         "snapshot_age_seconds": float(getattr(market, "snapshot_age_seconds", 0.0) or 0.0),
         "next_action": str(getattr(market, "next_action", "") or "") or None,
@@ -800,6 +803,19 @@ def _finalize_alert_payload(
     universe_size: int,
 ) -> dict[str, Any]:
     market_payload = _serialize_market_state(market)
+    breadth_provider_mode = str(breadth_snapshot.get("provider_mode", "unknown") or "unknown")
+    subsystem_provider_modes = {
+        "market_regime": str(market_payload.get("provider_mode") or "unknown"),
+        "intraday_breadth": breadth_provider_mode,
+    }
+    unique_provider_modes = sorted({mode for mode in subsystem_provider_modes.values() if mode})
+    overall_provider_mode = (
+        unique_provider_modes[0]
+        if len(unique_provider_modes) == 1
+        else "multi_mode"
+        if unique_provider_modes
+        else "unknown"
+    )
     taxonomy = classify_strategy_outcome(
         market_status=market_payload["status"],
         gate_active=gate_active,
@@ -810,6 +826,8 @@ def _finalize_alert_payload(
     )
     payload = {
         "strategy": strategy,
+        "provider_mode": overall_provider_mode,
+        "subsystem_provider_modes": subsystem_provider_modes,
         "summary": dict(summary),
         "signals": _serialize_signal_records(signals),
         "market": market_payload,
@@ -818,6 +836,7 @@ def _finalize_alert_payload(
             "max_input_staleness_seconds": float(max_input_staleness_seconds or 0.0),
             "risk_snapshot": dict(risk_snapshot or {}),
             "analysis_error_count": int(analysis_error_count or 0),
+            "provider_mode": overall_provider_mode,
         },
         "selection": _serialize_selection(selection, priority_count),
         "overlays": {

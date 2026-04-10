@@ -26,6 +26,7 @@ import { UniverseArtifactManager } from "./universe-manager.js";
 import type {
   MarketDataGenericPayload,
   MarketDataHistory,
+  MarketDataProviderMode,
   MarketDataQuote,
   MarketDataRiskHistory,
   MarketDataRiskSnapshot,
@@ -486,6 +487,28 @@ export class MarketDataService {
   private toBatchRouteResult(items: Array<Record<string, unknown>>): MarketDataRouteResult<Record<string, unknown>> {
     const successCount = items.filter((item) => String(item.status ?? "") !== "error").length;
     const status = successCount === items.length ? "ok" : successCount > 0 ? "degraded" : "error";
+    const declaredModes: MarketDataProviderMode[] = Array.from(
+      new Set(
+        items
+          .map((item) => (typeof item.providerMode === "string" ? (item.providerMode as MarketDataProviderMode) : null))
+          .filter((mode): mode is MarketDataProviderMode => Boolean(mode)),
+      ),
+    );
+    const fallbackEngaged = items.some((item) => Boolean(item.fallbackEngaged));
+    const providerMode: MarketDataProviderMode =
+      declaredModes.length === 1
+        ? declaredModes[0]
+        : declaredModes.length > 1
+          ? "multi_mode"
+          : "unavailable";
+    const providerModeReason =
+      providerMode === "multi_mode"
+        ? "Batch response contains more than one provider mode across its items."
+        : typeof items.find((item) => item.providerMode === providerMode)?.providerModeReason === "string"
+          ? String(items.find((item) => item.providerMode === providerMode)?.providerModeReason)
+          : successCount > 0
+            ? "Batch response produced at least one successful provider mode."
+            : "Batch response did not produce a successful provider mode.";
     return {
       status: successCount > 0 ? 200 : 503,
       body: {
@@ -493,6 +516,9 @@ export class MarketDataService {
         status,
         degradedReason: successCount === items.length ? null : `${items.length - successCount} batch item(s) failed`,
         stalenessSeconds: 0,
+        providerMode,
+        fallbackEngaged,
+        providerModeReason,
         data: { items },
       },
     };
@@ -506,6 +532,9 @@ export class MarketDataService {
         status: "error",
         degradedReason: summarizeError(error),
         stalenessSeconds: null,
+        providerMode: "unavailable",
+        fallbackEngaged: false,
+        providerModeReason: "Route failed before a provider mode could be declared.",
         data,
       },
     };

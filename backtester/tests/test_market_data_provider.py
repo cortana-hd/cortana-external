@@ -63,6 +63,9 @@ def test_service_metadata_and_status_passthrough(tmp_path):
             "status": "degraded",
             "degradedReason": "using fallback quote",
             "stalenessSeconds": 12.0,
+            "providerMode": "alpaca_fallback",
+            "fallbackEngaged": True,
+            "providerModeReason": "History entered the declared Alpaca fallback lane.",
         },
     )
 
@@ -72,6 +75,51 @@ def test_service_metadata_and_status_passthrough(tmp_path):
     assert result.status == "degraded"
     assert result.degraded_reason == "using fallback quote"
     assert result.staleness_seconds == 12.0
+    assert result.provider_mode == "alpaca_fallback"
+    assert result.fallback_engaged is True
+    assert "declared Alpaca fallback" in result.provider_mode_reason
+
+
+def test_service_history_forwards_subsystem_query_param(tmp_path, monkeypatch):
+    provider = MarketDataProvider(cache_dir=str(tmp_path), max_retries=0)
+    captured_params = {}
+
+    class _Response:
+        status_code = 200
+
+        def json(self):
+            return {
+                "source": "alpaca",
+                "status": "degraded",
+                "providerMode": "alpaca_fallback",
+                "fallbackEngaged": True,
+                "providerModeReason": "History entered the declared Alpaca fallback lane.",
+                "data": {
+                    "rows": [
+                        {
+                            "timestamp": "2026-04-10T00:00:00Z",
+                            "open": 1.0,
+                            "high": 2.0,
+                            "low": 0.5,
+                            "close": 1.5,
+                            "volume": 10,
+                        }
+                    ]
+                },
+            }
+
+    def _fake_get(url, params=None, timeout=0):
+        captured_params.update(params or {})
+        response = _Response()
+        response.text = ""
+        return response
+
+    monkeypatch.setattr("data.market_data_provider.requests.get", _fake_get)
+
+    result = provider.get_history("SPY", period="90d", subsystem="market_regime")
+
+    assert captured_params["subsystem"] == "market_regime"
+    assert result.provider_mode == "alpaca_fallback"
 
 
 def test_degraded_cache_path_when_live_providers_fail(tmp_path):
