@@ -95,11 +95,11 @@ export function createPrismaTradingRunStateStore(client: typeof prisma = prisma)
       const runDirs = await findLatestRunDirectories(runsRoot, TRADING_RUN_SYNC_LIMIT);
       const warnings: string[] = [];
 
-      await Promise.all(runDirs.map(async (entry) => {
+      for (const entry of runDirs) {
         const artifactRecord = await parseTradingRunArtifact(entry.path, entry.runId);
         if (!artifactRecord) {
           warnings.push(`Skipping ${entry.runId}: summary.json is missing or invalid.`);
-          return;
+          continue;
         }
 
         await delegate.upsert({
@@ -178,7 +178,7 @@ export function createPrismaTradingRunStateStore(client: typeof prisma = prisma)
             sourceHost: artifactRecord.sourceHost,
           },
         });
-      }));
+      }
 
       return warnings;
     },

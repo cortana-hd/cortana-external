@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadLatestArtifactRun } from "./trading-ops-smoke";
+import { loadLatestArtifactRun, shouldTolerateInFlightRunAheadOfArtifact } from "./trading-ops-smoke";
 
 const tempDirs: string[] = [];
 
@@ -57,5 +57,47 @@ describe("loadLatestArtifactRun", () => {
       completedAt: "2026-04-07T19:34:08.972Z",
       notifiedAt: "2026-04-07T19:34:17.849Z",
     });
+  });
+});
+
+describe("shouldTolerateInFlightRunAheadOfArtifact", () => {
+  it("allows a newer running DB run to lead the latest completed artifact", () => {
+    expect(
+      shouldTolerateInFlightRunAheadOfArtifact(
+        {
+          runId: "20260410-163223",
+          status: "running",
+          completedAt: null,
+          notifiedAt: null,
+        },
+        { runId: "20260410-133146" },
+      ),
+    ).toBe(true);
+  });
+
+  it("does not allow completed or older runs to bypass artifact parity", () => {
+    expect(
+      shouldTolerateInFlightRunAheadOfArtifact(
+        {
+          runId: "20260410-133146",
+          status: "running",
+          completedAt: null,
+          notifiedAt: null,
+        },
+        { runId: "20260410-163223" },
+      ),
+    ).toBe(false);
+
+    expect(
+      shouldTolerateInFlightRunAheadOfArtifact(
+        {
+          runId: "20260410-163223",
+          status: "success",
+          completedAt: "2026-04-10T16:45:00.000Z",
+          notifiedAt: null,
+        },
+        { runId: "20260410-133146" },
+      ),
+    ).toBe(false);
   });
 });

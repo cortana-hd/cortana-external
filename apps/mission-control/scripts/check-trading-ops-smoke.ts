@@ -1,6 +1,6 @@
 import path from "node:path";
 import { loadMissionControlScriptEnv } from "../lib/script-env";
-import { loadLatestArtifactRun } from "../lib/trading-ops-smoke";
+import { loadLatestArtifactRun, shouldTolerateInFlightRunAheadOfArtifact } from "../lib/trading-ops-smoke";
 
 async function main() {
   loadMissionControlScriptEnv(path.resolve(__dirname, ".."));
@@ -24,7 +24,14 @@ async function main() {
   if (data.tradingRun.state !== "ok") {
     throw new Error(`Trading Ops smoke check failed: latest run card is ${data.tradingRun.state}.`);
   }
+  const tolerateInFlightLag = shouldTolerateInFlightRunAheadOfArtifact(tradingRun, latestArtifact);
   if (latestArtifact.runId !== tradingRun.runId) {
+    if (tolerateInFlightLag) {
+      console.log("Trading Ops smoke check passed.");
+      console.log(`Latest DB run ${tradingRun.runId} is still in flight; latest completed artifact remains ${latestArtifact.runId}.`);
+      console.log(`Runtime: ${data.runtime.data?.operatorState ?? data.runtime.label} | ${data.runtime.message}`);
+      return;
+    }
     throw new Error(`Trading Ops smoke check failed: dashboard run ${tradingRun.runId} does not match artifact run ${latestArtifact.runId}.`);
   }
   if ((latestArtifact.status ?? "unknown") !== tradingRun.status) {

@@ -529,6 +529,84 @@ describe("trading ops loader", () => {
     expect(data.tradingRun.message).toContain("Using file fallback because DB-backed trading run state disagrees");
     expect(data.tradingRun.warnings).toContain("DB decision WATCH does not match file decision NO_TRADE for 20260407-160126.");
   });
+
+  it("keeps the DB-backed view when a newer run is still in flight ahead of the latest completed artifact", async () => {
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-db-inflight-"));
+    const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-db-inflight-cortana-"));
+    tempDirs.push(repoPath);
+    tempDirs.push(cortanaRepoPath);
+
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-133146", "summary.json"), {
+      runId: "20260410-133146",
+      status: "success",
+      createdAt: "2026-04-10T13:31:46.000Z",
+      startedAt: "2026-04-10T13:31:46.000Z",
+      completedAt: "2026-04-10T13:49:28.000Z",
+      notifiedAt: "2026-04-10T13:50:07.000Z",
+      metrics: { decision: "NO_TRADE", correctionMode: false, buy: 0, watch: 1, noBuy: 95 },
+    });
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-133146", "watchlist-full.json"), {
+      decision: "NO_TRADE",
+      correctionMode: false,
+      summary: { buy: 0, watch: 1, noBuy: 95 },
+      strategies: { dipBuyer: { buy: [], watch: ["SPY"], noBuy: [] }, canslim: { buy: [], watch: [], noBuy: [] } },
+    });
+    await mkdir(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-163223"), { recursive: true });
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath,
+      runJsonCommand: async () => {
+        throw new Error("script unavailable");
+      },
+      tradingRunStateStore: {
+        syncFromArtifacts: async () => [],
+        loadLatest: async () => ({
+          runId: "20260410-163223",
+          schemaVersion: 1,
+          strategy: "Trading market-session unified",
+          status: "running",
+          createdAt: "2026-04-10T16:32:23.000Z",
+          startedAt: "2026-04-10T16:32:23.000Z",
+          completedAt: null,
+          notifiedAt: null,
+          deliveryStatus: "pending",
+          decision: "WATCH",
+          confidence: 0.8,
+          risk: "LOW",
+          correctionMode: false,
+          buyCount: 0,
+          watchCount: 3,
+          noBuyCount: 92,
+          symbolsScanned: 240,
+          candidatesEvaluated: 3,
+          focusTicker: "SPY",
+          focusAction: "WATCH",
+          focusStrategy: "dipBuyer",
+          dipBuyerBuy: [],
+          dipBuyerWatch: ["SPY", "QQQ", "IWM"],
+          dipBuyerNoBuy: [],
+          canslimBuy: [],
+          canslimWatch: [],
+          canslimNoBuy: [],
+          artifactDirectory: path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-163223"),
+          summaryPath: path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-163223", "summary.json"),
+          messagePath: null,
+          watchlistPath: path.join(cortanaRepoPath, "var", "backtests", "runs", "20260410-163223", "watchlist-full.json"),
+          messagePreview: null,
+          metrics: { decision: "WATCH" },
+          lastError: null,
+          sourceHost: "Hs-Mac-mini.local",
+        }),
+      },
+    });
+
+    expect(data.tradingRun.state).toBe("ok");
+    expect(data.tradingRun.badgeText).toBeUndefined();
+    expect(data.tradingRun.data?.sourceType).toBe("db");
+    expect(data.tradingRun.data?.runId).toBe("20260410-163223");
+    expect(data.tradingRun.message).toContain("Notification pending.");
+  });
 });
 
 describe("formatRelativeAge", () => {

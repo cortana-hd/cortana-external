@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { formatOperatorTimestamp, formatRelativeAge } from "@/lib/format-utils";
 import { getBacktesterRepoPath, getCortanaSourceRepo } from "@/lib/runtime-paths";
+import { shouldTolerateInFlightRunAheadOfArtifact } from "@/lib/trading-ops-smoke";
 import {
   prismaTradingRunStateStore,
   type TradingRunStateRecord,
@@ -936,6 +937,7 @@ function compareTradingRunState(
   artifactData: TradingRunOverview | null,
 ): string | null {
   if (!dbRecord || !artifactData) return null;
+  if (shouldTolerateInFlightRunAheadOfArtifact(dbRecord, artifactData)) return null;
   if (dbRecord.runId !== artifactData.runId) return `DB latest run ${dbRecord.runId} does not match file latest run ${artifactData.runId}.`;
   if (dbRecord.status !== artifactData.status) return `DB status ${dbRecord.status} does not match file status ${artifactData.status} for ${artifactData.runId}.`;
   if ((dbRecord.decision ?? "unknown") !== artifactData.decision) {
