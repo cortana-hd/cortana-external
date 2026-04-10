@@ -12,6 +12,13 @@ export type LatestArtifactRun = {
   notifiedAt: string | null;
 };
 
+type TradingRunLike = {
+  runId: string;
+  status: string | null;
+  completedAt: string | null;
+  notifiedAt: string | null;
+};
+
 export async function loadLatestArtifactRun(cortanaRepoPath: string): Promise<LatestArtifactRun | null> {
   const runsRoot = path.join(cortanaRepoPath, "var", "backtests", "runs");
   const runDirectories = await findLatestRunDirectories(runsRoot);
@@ -22,6 +29,16 @@ export async function loadLatestArtifactRun(cortanaRepoPath: string): Promise<La
   }
 
   return null;
+}
+
+export function shouldTolerateInFlightRunAheadOfArtifact(
+  tradingRun: TradingRunLike,
+  latestArtifact: Pick<LatestArtifactRun, "runId">,
+): boolean {
+  if (tradingRun.runId === latestArtifact.runId) return false;
+  if (!isInFlightTradingRunStatus(tradingRun.status)) return false;
+  if (tradingRun.completedAt || tradingRun.notifiedAt) return false;
+  return tradingRun.runId > latestArtifact.runId;
 }
 
 async function findLatestRunDirectories(rootPath: string): Promise<Array<{ runId: string; path: string }>> {
@@ -82,4 +99,8 @@ function stringValue(value: unknown): string | null {
 
 function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function isInFlightTradingRunStatus(status: string | null): boolean {
+  return status === "queued" || status === "running" || status === "starting" || status === "finalizing";
 }
