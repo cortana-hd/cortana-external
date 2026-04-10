@@ -6,86 +6,23 @@ import { describe, expect, it } from "vitest";
 import { loadTradingOpsPolymarketLiveData } from "@/lib/trading-ops-polymarket-live";
 
 describe("loadTradingOpsPolymarketLiveData", () => {
-  it("keeps top events and top sports at five visible rows each while pinned markets stay separate", async () => {
+  it("maps the backend-owned board payload into trading ops live data", async () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-live-loader-"));
-    const reportDir = path.join(repoRoot, "var", "market-intel", "polymarket");
-    fs.mkdirSync(reportDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(reportDir, "latest-report.json"),
-      JSON.stringify({
-        topMarkets: [
-          { slug: "fallback-event-1", displayTitle: "Fallback Event 1", title: "Fallback Event 1" },
-          { slug: "fallback-event-2", displayTitle: "Fallback Event 2", title: "Fallback Event 2" },
-        ],
-      }),
-    );
-
-    const eventRows = Array.from({ length: 6 }, (_, index) => ({
-      marketSlug: `event-${index + 1}`,
-      marketTitle: `Event ${index + 1}`,
-      eventTitle: `Event Board ${index + 1}`,
-      league: null,
-    }));
-    const sportsRows = Array.from({ length: 6 }, (_, index) => ({
-      marketSlug: `sport-${index + 1}`,
-      marketTitle: `Sport ${index + 1}`,
-      eventTitle: `Sport Board ${index + 1}`,
-      league: "sports",
-    }));
-    const pinnedRows = [
-      {
-        marketSlug: "event-1",
-        bucket: "events",
-        title: "Event 1",
-        eventTitle: "Event Board 1",
-        league: null,
-        pinnedAt: "2026-04-10T11:00:00.000Z",
-      },
-      {
-        marketSlug: "sport-1",
-        bucket: "sports",
-        title: "Sport 1",
-        eventTitle: "Sport Board 1",
-        league: "sports",
-        pinnedAt: "2026-04-10T11:01:00.000Z",
-      },
-    ];
 
     const fetchImpl: typeof fetch = async (input) => {
       const url = String(input);
-      if (url.includes("/polymarket/focus?limit=20")) {
+      if (url.endsWith("/polymarket/board/live")) {
         return new Response(
           JSON.stringify({
-            pinned: pinnedRows,
-            events: eventRows,
-            sports: sportsRows,
-          }),
-          { status: 200 },
-        );
-      }
-
-      if (url.includes("/polymarket/pins")) {
-        return new Response(
-          JSON.stringify({
-            pinned: pinnedRows,
-          }),
-          { status: 200 },
-        );
-      }
-
-      if (url.includes("/polymarket/live?slugs=")) {
-        const slugsParam = new URL(url).searchParams.get("slugs") ?? "";
-        const slugs = slugsParam.split(",").filter(Boolean);
-        return new Response(
-          JSON.stringify({
+            generatedAt: "2026-04-10T15:00:00.000Z",
             streamer: {
               marketsConnected: true,
               privateConnected: true,
               operatorState: "healthy",
-              trackedMarketCount: slugs.length,
-              trackedMarketSlugs: slugs,
-              lastMarketMessageAt: "2026-04-10T11:05:00.000Z",
-              lastPrivateMessageAt: "2026-04-10T11:05:00.000Z",
+              trackedMarketCount: 12,
+              trackedMarketSlugs: ["event-1", "sport-1", "pin-1"],
+              lastMarketMessageAt: "2026-04-10T15:00:00.000Z",
+              lastPrivateMessageAt: "2026-04-10T15:00:00.000Z",
               lastError: null,
             },
             account: {
@@ -93,24 +30,79 @@ describe("loadTradingOpsPolymarketLiveData", () => {
               buyingPower: 0,
               openOrdersCount: 0,
               positionCount: 0,
-              lastBalanceUpdateAt: "2026-04-10T11:05:00.000Z",
-              lastOrdersUpdateAt: "2026-04-10T11:05:00.000Z",
-              lastPositionsUpdateAt: "2026-04-10T11:05:00.000Z",
+              lastBalanceUpdateAt: "2026-04-10T15:00:00.000Z",
+              lastOrdersUpdateAt: "2026-04-10T15:00:00.000Z",
+              lastPositionsUpdateAt: "2026-04-10T15:00:00.000Z",
             },
-            markets: slugs.map((slug) => ({
-              marketSlug: slug,
-              bestBid: 0.4,
-              bestAsk: 0.5,
-              lastTrade: 0.45,
-              spread: 0.1,
-              marketState: "MARKET_STATE_OPEN",
-              sharesTraded: 1000,
-              openInterest: 2000,
-              tradePrice: 0.45,
-              tradeQuantity: 10,
-              tradeTime: "2026-04-10T11:05:00.000Z",
-              updatedAt: "2026-04-10T11:05:00.000Z",
-            })),
+            markets: [
+              {
+                slug: "pin-1",
+                title: "Pinned Event",
+                bucket: "events",
+                pinned: true,
+                pinnedAt: "2026-04-10T14:59:00.000Z",
+                eventTitle: "Pinned Event Title",
+                league: null,
+                bestBid: 0.4,
+                bestAsk: 0.5,
+                lastTrade: 0.45,
+                spread: 0.1,
+                marketState: "MARKET_STATE_OPEN",
+                sharesTraded: 1000,
+                openInterest: 2000,
+                tradePrice: 0.45,
+                tradeQuantity: 10,
+                tradeTime: "2026-04-10T15:00:00.000Z",
+                updatedAt: "2026-04-10T15:00:00.000Z",
+              },
+              {
+                slug: "event-1",
+                title: "Top Event",
+                bucket: "events",
+                pinned: false,
+                pinnedAt: null,
+                eventTitle: "Top Event Title",
+                league: null,
+                bestBid: 0.6,
+                bestAsk: 0.7,
+                lastTrade: 0.65,
+                spread: 0.1,
+                marketState: "MARKET_STATE_OPEN",
+                sharesTraded: 2000,
+                openInterest: 3000,
+                tradePrice: 0.65,
+                tradeQuantity: 12,
+                tradeTime: "2026-04-10T15:00:00.000Z",
+                updatedAt: "2026-04-10T15:00:00.000Z",
+              },
+              {
+                slug: "sport-1",
+                title: "Top Sport",
+                bucket: "sports",
+                pinned: false,
+                pinnedAt: null,
+                eventTitle: "Top Sport Title",
+                league: "nba",
+                bestBid: null,
+                bestAsk: null,
+                lastTrade: null,
+                spread: null,
+                marketState: null,
+                sharesTraded: null,
+                openInterest: null,
+                tradePrice: null,
+                tradeQuantity: null,
+                tradeTime: null,
+                updatedAt: null,
+                warning: "waiting for first market update",
+              },
+            ],
+            warnings: ["upstream warning"],
+            roster: {
+              generatedAt: "2026-04-10T14:59:30.000Z",
+              candidateEventsCount: 10,
+              candidateSportsCount: 10,
+            },
           }),
           { status: 200 },
         );
@@ -125,121 +117,40 @@ describe("loadTradingOpsPolymarketLiveData", () => {
       fetchImpl,
     });
 
-    const pinned = result.markets.filter((market) => market.pinned);
-    const visibleEvents = result.markets.filter((market) => market.bucket === "events" && !market.pinned);
-    const visibleSports = result.markets.filter((market) => market.bucket === "sports" && !market.pinned);
-
-    expect(pinned).toHaveLength(2);
-    expect(visibleEvents).toHaveLength(5);
-    expect(visibleSports).toHaveLength(5);
-    expect(visibleEvents.map((market) => market.slug)).not.toContain("event-1");
-    expect(visibleSports.map((market) => market.slug)).not.toContain("sport-1");
-    expect(visibleEvents.map((market) => market.slug)).toContain("event-6");
-    expect(visibleSports.map((market) => market.slug)).toContain("sport-6");
+    expect(result.generatedAt).toBe("2026-04-10T15:00:00.000Z");
+    expect(result.streamer.operatorState).toBe("healthy");
+    expect(result.markets).toHaveLength(3);
+    expect(result.markets.filter((market) => market.pinned).map((market) => market.slug)).toEqual(["pin-1"]);
+    expect(result.markets.filter((market) => market.bucket === "events" && !market.pinned).map((market) => market.slug)).toEqual(["event-1"]);
+    expect(result.markets.filter((market) => market.bucket === "sports" && !market.pinned).map((market) => market.slug)).toEqual(["sport-1"]);
+    expect(result.warnings).toContain("upstream warning");
+    expect(result.warnings).toContain("waiting for first market update");
   });
 
-  it("keeps pinned titles out of the rotating top bucket even when a different slug shares the same label", async () => {
-    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-live-loader-title-"));
-    const reportDir = path.join(repoRoot, "var", "market-intel", "polymarket");
-    fs.mkdirSync(reportDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(reportDir, "latest-report.json"),
-      JSON.stringify({ topMarkets: [] }),
-    );
+  it("surfaces board route errors while preserving parsed payload details", async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-live-loader-error-"));
 
     const fetchImpl: typeof fetch = async (input) => {
       const url = String(input);
-      if (url.includes("/polymarket/focus?limit=20")) {
+      if (url.endsWith("/polymarket/board/live")) {
         return new Response(
           JSON.stringify({
-            pinned: [
-              {
-                marketSlug: "house-dem",
-                bucket: "events",
-                title: "Democratic Party",
-                eventTitle: "U.S. House Midterm Winner",
-                league: null,
-                pinnedAt: "2026-04-10T11:00:00.000Z",
-              },
-            ],
-            events: [
-              {
-                marketSlug: "senate-dem",
-                marketTitle: "Democratic Party",
-                eventTitle: "U.S. Senate Midterm Winner",
-                league: null,
-              },
-              {
-                marketSlug: "fed-maintains",
-                marketTitle: "Fed maintains rate",
-                eventTitle: "Fed Decision in April",
-                league: null,
-              },
-            ],
-            sports: [],
-          }),
-          { status: 200 },
-        );
-      }
-
-      if (url.includes("/polymarket/pins")) {
-        return new Response(
-          JSON.stringify({
-            pinned: [
-              {
-                marketSlug: "house-dem",
-                bucket: "events",
-                title: "Democratic Party",
-                eventTitle: "U.S. House Midterm Winner",
-                league: null,
-                pinnedAt: "2026-04-10T11:00:00.000Z",
-              },
-            ],
-          }),
-          { status: 200 },
-        );
-      }
-
-      if (url.includes("/polymarket/live?slugs=")) {
-        const slugsParam = new URL(url).searchParams.get("slugs") ?? "";
-        const slugs = slugsParam.split(",").filter(Boolean);
-        return new Response(
-          JSON.stringify({
+            error: "focus temporarily degraded",
             streamer: {
-              marketsConnected: true,
+              operatorState: "degraded",
+              trackedMarketCount: 0,
+              trackedMarketSlugs: [],
+              marketsConnected: false,
               privateConnected: true,
-              operatorState: "healthy",
-              trackedMarketCount: slugs.length,
-              trackedMarketSlugs: slugs,
-              lastMarketMessageAt: "2026-04-10T11:05:00.000Z",
-              lastPrivateMessageAt: "2026-04-10T11:05:00.000Z",
-              lastError: null,
+              lastMarketMessageAt: null,
+              lastPrivateMessageAt: "2026-04-10T15:01:00.000Z",
+              lastError: "rate limited upstream",
             },
-            account: {
-              balance: 0,
-              buyingPower: 0,
-              openOrdersCount: 0,
-              positionCount: 0,
-              lastBalanceUpdateAt: "2026-04-10T11:05:00.000Z",
-              lastOrdersUpdateAt: "2026-04-10T11:05:00.000Z",
-              lastPositionsUpdateAt: "2026-04-10T11:05:00.000Z",
-            },
-            markets: slugs.map((slug) => ({
-              marketSlug: slug,
-              bestBid: 0.4,
-              bestAsk: 0.5,
-              lastTrade: 0.45,
-              spread: 0.1,
-              marketState: "MARKET_STATE_OPEN",
-              sharesTraded: 1000,
-              openInterest: 2000,
-              tradePrice: 0.45,
-              tradeQuantity: 10,
-              tradeTime: "2026-04-10T11:05:00.000Z",
-              updatedAt: "2026-04-10T11:05:00.000Z",
-            })),
+            account: {},
+            markets: [],
+            warnings: ["using cached board discovery"],
           }),
-          { status: 200 },
+          { status: 503 },
         );
       }
 
@@ -252,11 +163,9 @@ describe("loadTradingOpsPolymarketLiveData", () => {
       fetchImpl,
     });
 
-    const pinned = result.markets.filter((market) => market.pinned);
-    const visibleEvents = result.markets.filter((market) => market.bucket === "events" && !market.pinned);
-
-    expect(pinned.map((market) => market.slug)).toContain("house-dem");
-    expect(visibleEvents.map((market) => market.slug)).not.toContain("senate-dem");
-    expect(visibleEvents.map((market) => market.slug)).toContain("fed-maintains");
+    expect(result.streamer.operatorState).toBe("degraded");
+    expect(result.warnings).toContain("HTTP 503: focus temporarily degraded");
+    expect(result.warnings).toContain("using cached board discovery");
+    expect(result.warnings).toContain("rate limited upstream");
   });
 });

@@ -322,6 +322,10 @@ export type TradingOpsPolymarketLiveData = {
   generatedAt: string;
   streamer: PolymarketLiveStreamerSummary;
   account: PolymarketLiveAccountOverview;
+  roster?: {
+    candidateEventsCount: number;
+    candidateSportsCount: number;
+  };
   markets: PolymarketLiveMarketRow[];
   warnings: string[];
 };

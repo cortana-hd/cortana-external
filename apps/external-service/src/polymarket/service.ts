@@ -1,24 +1,12 @@
 import type { Context } from "hono";
 import {
   AuthenticationError,
-  type MarketBBO,
-  type MarketSettlement,
   PolymarketUS,
   PolymarketUSError,
   RateLimitError,
-  type GetActivitiesParams,
-  type GetActivitiesResponse,
-  type GetMarketResponse,
-  type Event,
-  type EventsListParams,
-  type GetAccountBalancesResponse,
-  type GetEventsResponse,
   type GetOpenOrdersParams,
-  type GetOpenOrdersResponse,
   type GetUserPositionsParams,
-  type GetUserPositionsResponse,
   type PolymarketUSOptions,
-  type UserPosition,
 } from "polymarket-us";
 
 import { jsonError } from "../lib/response.js";
@@ -29,55 +17,39 @@ import {
   type PolymarketStreamRuntimeLike,
 } from "./streamer.js";
 import { PolymarketPinsStore, type PinnedPolymarketMarket } from "./pins.js";
+import {
+  BOARD_CANDIDATE_LIMIT,
+  BOARD_DISCOVERY_TTL_MS,
+  BOARD_TOP_LIMIT,
+  getBoardTitleKey,
+  selectBoardRows,
+  toBoardMarketRow,
+} from "./board.js";
+import {
+  dedupeFocusMarkets,
+  discoverEventFocusMarkets,
+  discoverSportsFocusMarkets,
+} from "./focus.js";
+import { buildPinnedResults } from "./results.js";
+import type {
+  BoardDiscoverySnapshot,
+  CachedBoardDiscovery,
+  PolymarketClient,
+  ServiceResult,
+  SportsFocusFilters,
+} from "./types.js";
+import {
+  compactStrings,
+  normalizeGatewayBaseUrl,
+  normalizeOptionalString,
+  normalizeRootBaseUrl,
+  parseNonNegativeNumber,
+  parsePositiveInt,
+  parseSlugs,
+  parseSportsSort,
+} from "./utils.js";
 
-export interface PolymarketClient {
-  account: {
-    balances(): Promise<GetAccountBalancesResponse>;
-  };
-  events: {
-    list(params?: EventsListParams): Promise<GetEventsResponse>;
-  };
-  portfolio: {
-    positions(params?: GetUserPositionsParams): Promise<GetUserPositionsResponse>;
-    activities(params?: GetActivitiesParams): Promise<GetActivitiesResponse>;
-  };
-  orders: {
-    list(params?: GetOpenOrdersParams): Promise<GetOpenOrdersResponse>;
-  };
-  markets: {
-    retrieveBySlug(slug: string): Promise<GetMarketResponse>;
-    bbo(slug: string): Promise<MarketBBO>;
-    settlement(slug: string): Promise<MarketSettlement>;
-  };
-}
-
-type PolymarketFocusMarket = {
-  bucket: "sports" | "events";
-  league: string | null;
-  eventSlug: string;
-  eventTitle: string;
-  eventStartTime: string | null;
-  marketSlug: string;
-  marketTitle: string;
-  liquidity: number | null;
-  volume: number | null;
-  openInterest: number | null;
-  hoursToStart: number | null;
-};
-
-type EventMarketCandidate = {
-  event: Event;
-  market: NonNullable<Event["markets"]>[number];
-};
-
-type SportsFocusFilters = {
-  limit: number;
-  sort: "composite" | "liquidity" | "volume" | "open_interest" | "nearest_start_time";
-  minLiquidity: number | null;
-  minVolume: number | null;
-  minOpenInterest: number | null;
-  maxStartHours: number | null;
-};
+export type { PolymarketClient } from "./types.js";
 
 export interface PolymarketServiceOptions {
   keyId?: string;
@@ -91,80 +63,6 @@ export interface PolymarketServiceOptions {
   pinsStore?: PolymarketPinsStore;
 }
 
-interface ServiceResult<T> {
-  status: number;
-  body: T;
-}
-
-function normalizeRootBaseUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/+$/u, "");
-}
-
-function normalizeGatewayBaseUrl(baseUrl: string): string {
-  return normalizeRootBaseUrl(baseUrl).replace(/\/v1$/u, "");
-}
-
-function normalizeOptionalString(value: string | undefined): string {
-  return value?.trim() ?? "";
-}
-
-function parsePositiveInt(raw: string | undefined, fallback?: number): number | undefined {
-  if (!raw?.trim()) {
-    return fallback;
-  }
-
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error("limit must be a positive integer");
-  }
-  return parsed;
-}
-
-function parseSlugs(raw: string | undefined): string[] | undefined {
-  if (!raw?.trim()) {
-    return undefined;
-  }
-
-  const slugs = raw
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-
-  return slugs.length > 0 ? slugs : undefined;
-}
-
-function parseNonNegativeNumber(raw: string | undefined, fieldName: string): number | null {
-  if (!raw?.trim()) {
-    return null;
-  }
-
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${fieldName} must be a non-negative number`);
-  }
-
-  return parsed;
-}
-
-function parseSportsSort(raw: string | undefined): SportsFocusFilters["sort"] {
-  const value = raw?.trim().toLowerCase();
-  if (!value) {
-    return "composite";
-  }
-
-  if (
-    value === "composite" ||
-    value === "liquidity" ||
-    value === "volume" ||
-    value === "open_interest" ||
-    value === "nearest_start_time"
-  ) {
-    return value;
-  }
-
-  throw new Error("sort must be one of composite, liquidity, volume, open_interest, nearest_start_time");
-}
-
 export class PolymarketService {
   private readonly keyId: string;
   private readonly secretKey: string;
@@ -175,6 +73,8 @@ export class PolymarketService {
   private readonly clientFactory: (options: PolymarketUSOptions) => PolymarketClient;
   private readonly streamRuntime: PolymarketStreamRuntimeLike;
   private readonly pinsStore: PolymarketPinsStore;
+  private boardDiscoveryCache: CachedBoardDiscovery | null = null;
+  private boardDiscoveryPromise: Promise<BoardDiscoverySnapshot> | null = null;
 
   constructor(options: PolymarketServiceOptions) {
     this.keyId = normalizeOptionalString(options.keyId);
@@ -310,9 +210,10 @@ export class PolymarketService {
 
     try {
       const filters = this.parseSportsFocusFilters(context);
+      const client = this.createClient();
       const [sports, events, pinned] = await Promise.all([
-        this.discoverSportsFocusMarkets(filters),
-        this.discoverEventFocusMarkets(filters),
+        discoverSportsFocusMarkets(client, filters),
+        discoverEventFocusMarkets(client, filters),
         this.pinsStore.list(),
       ]);
       return context.json(
@@ -508,6 +409,121 @@ export class PolymarketService {
     }
   }
 
+  async boardLiveHandler(context: Context): Promise<Response> {
+    const unconfigured = this.unconfiguredPayload();
+    if (unconfigured) {
+      return context.json(
+        {
+          ...unconfigured,
+          generatedAt: new Date().toISOString(),
+          streamer: {
+            marketsConnected: false,
+            privateConnected: false,
+            operatorState: "unconfigured",
+            trackedMarketCount: 0,
+            trackedMarketSlugs: [],
+            lastMarketMessageAt: null,
+            lastPrivateMessageAt: null,
+            lastError: null,
+          },
+          account: {
+            balance: null,
+            buyingPower: null,
+            openOrdersCount: null,
+            positionCount: null,
+            lastBalanceUpdateAt: null,
+            lastOrdersUpdateAt: null,
+            lastPositionsUpdateAt: null,
+          },
+          markets: [],
+          warnings: ["polymarket credentials are not configured"],
+        },
+        503 as never,
+      );
+    }
+
+    try {
+      const [discovery, pinned] = await Promise.all([
+        this.getBoardDiscoverySnapshot(),
+        this.pinsStore.list(),
+      ]);
+      const pinnedSlugs = new Set(pinned.map((entry) => entry.marketSlug));
+      const pinnedEventTitleKeys = new Set(
+        pinned
+          .filter((entry) => entry.bucket === "events")
+          .map((entry) => getBoardTitleKey({
+            bucket: "events",
+            title: entry.title,
+            eventTitle: entry.eventTitle,
+          })),
+      );
+      const pinnedSportsTitleKeys = new Set(
+        pinned
+          .filter((entry) => entry.bucket === "sports")
+          .map((entry) => getBoardTitleKey({
+            bucket: "sports",
+            title: entry.title,
+            eventTitle: entry.eventTitle,
+          })),
+      );
+
+      const candidatePool = dedupeFocusMarkets([
+        ...discovery.events,
+        ...discovery.sports,
+      ]);
+      const snapshot = await this.streamRuntime.getSnapshot([
+        ...pinned.map((entry) => entry.marketSlug),
+        ...candidatePool.map((entry) => entry.marketSlug),
+      ]);
+      const liveBySlug = new Map(snapshot.markets.map((entry) => [entry.marketSlug, entry]));
+
+      const pinnedRows = pinned.map((entry) => toBoardMarketRow({
+        slug: entry.marketSlug,
+        title: entry.title,
+        bucket: entry.bucket,
+        pinned: true,
+        pinnedAt: entry.pinnedAt,
+        eventTitle: entry.eventTitle,
+        league: entry.league,
+        live: liveBySlug.get(entry.marketSlug) ?? null,
+        liveStatus: snapshot.status,
+      }));
+
+      const eventRows = selectBoardRows({
+        candidates: discovery.events,
+        liveBySlug,
+        limit: BOARD_TOP_LIMIT,
+        excludeSlugs: pinnedSlugs,
+        excludeTitleKeys: pinnedEventTitleKeys,
+      });
+      const sportsRows = selectBoardRows({
+        candidates: discovery.sports,
+        liveBySlug,
+        limit: BOARD_TOP_LIMIT,
+        excludeSlugs: pinnedSlugs,
+        excludeTitleKeys: pinnedSportsTitleKeys,
+      });
+
+      return context.json(
+        {
+          generatedAt: new Date().toISOString(),
+          streamer: snapshot.streamer,
+          account: snapshot.account,
+          markets: [...pinnedRows, ...eventRows, ...sportsRows],
+          warnings: compactStrings([...discovery.warnings, ...snapshot.warnings]),
+          roster: {
+            generatedAt: discovery.generatedAt,
+            candidateEventsCount: discovery.events.length,
+            candidateSportsCount: discovery.sports.length,
+          },
+        },
+        snapshot.status === "error" ? (503 as never) : (200 as never),
+      );
+    } catch (error) {
+      return this.toErrorResponse(context, error, "polymarket board live fetch failed");
+    }
+  }
+
   private createClient(): PolymarketClient {
     return this.clientFactory({
       keyId: this.keyId,
@@ -518,141 +534,69 @@ export class PolymarketService {
     });
   }
 
-  private async discoverSportsFocusMarkets(filters: SportsFocusFilters): Promise<PolymarketFocusMarket[]> {
-    const client = this.createClient();
-    const response = await client.events.list({
-      active: true,
-      closed: false,
-      categories: ["sports"],
-      limit: Math.max(filters.limit * 4, 16),
-      orderDirection: "desc",
-      liquidityMin: filters.minLiquidity ?? undefined,
-      volumeMin: filters.minVolume ?? undefined,
-    });
-
-    const candidates = (
-      await Promise.all(
-        response.events.map(async (event) => toFocusMarket(event, client, "sports")),
-      )
-    ).filter((entry): entry is PolymarketFocusMarket => entry !== null);
-
-    return candidates
-      .filter((entry) => passesSportsFilters(entry, filters))
-      .sort((left, right) => compareSportsFocusMarkets(left, right, filters.sort))
-      .slice(0, filters.limit);
-  }
-
-  private async discoverEventFocusMarkets(filters: SportsFocusFilters): Promise<PolymarketFocusMarket[]> {
-    const client = this.createClient();
-    const events = await this.collectActiveEvents(client, {
-      active: true,
-      closed: false,
-      limit: 100,
-      orderDirection: "desc",
-      liquidityMin: filters.minLiquidity ?? undefined,
-      volumeMin: filters.minVolume ?? undefined,
-    });
-
-    const candidates = events
-      .filter((event) => !isSportsEvent(event))
-      .flatMap((event) => buildEventFocusCandidates(event))
-      .sort(compareEventMarketCandidates)
-      .slice(0, Math.max(filters.limit * 4, 20));
-
-    const focusMarkets = (
-      await Promise.all(
-        candidates.map(async (candidate) => toFocusMarketFromCandidate(candidate, client)),
-      )
-    ).filter((entry): entry is PolymarketFocusMarket => entry !== null);
-
-    return dedupeFocusMarkets(focusMarkets)
-      .filter((entry) => passesSportsFilters(entry, filters))
-      .sort((left, right) => compareSportsFocusMarkets(left, right, filters.sort))
-      .slice(0, filters.limit);
-  }
-
-  private async collectActiveEvents(
-    client: PolymarketClient,
-    params: EventsListParams,
-  ): Promise<Event[]> {
-    const limit = params.limit ?? 100;
-    const pages = 3;
-    const collected: Event[] = [];
-
-    for (let page = 0; page < pages; page += 1) {
-      const response = await client.events.list({
-        ...params,
-        limit,
-        offset: page * limit,
-      });
-      collected.push(...response.events);
-      if (response.events.length < limit) {
-        break;
-      }
+  private async getBoardDiscoverySnapshot(): Promise<BoardDiscoverySnapshot> {
+    const now = Date.now();
+    if (this.boardDiscoveryCache && now - this.boardDiscoveryCache.fetchedAt < BOARD_DISCOVERY_TTL_MS) {
+      return this.boardDiscoveryCache.snapshot;
     }
 
-    return collected;
+    if (this.boardDiscoveryPromise) {
+      return this.boardDiscoveryPromise;
+    }
+
+    this.boardDiscoveryPromise = this.refreshBoardDiscoverySnapshot().finally(() => {
+      this.boardDiscoveryPromise = null;
+    });
+    return this.boardDiscoveryPromise;
+  }
+
+  private async refreshBoardDiscoverySnapshot(): Promise<BoardDiscoverySnapshot> {
+    const filters: SportsFocusFilters = {
+      limit: BOARD_CANDIDATE_LIMIT,
+      sort: "composite",
+      minLiquidity: null,
+      minVolume: null,
+      minOpenInterest: null,
+      maxStartHours: null,
+    };
+
+    try {
+      const client = this.createClient();
+      const [sports, events] = await Promise.all([
+        discoverSportsFocusMarkets(client, filters),
+        discoverEventFocusMarkets(client, filters),
+      ]);
+      const snapshot: BoardDiscoverySnapshot = {
+        generatedAt: new Date().toISOString(),
+        events,
+        sports,
+        warnings: compactStrings([
+          sports.length === 0 ? "no active sports focus markets discovered" : null,
+          events.length === 0 ? "no active event focus markets discovered" : null,
+        ]),
+      };
+      this.boardDiscoveryCache = {
+        fetchedAt: Date.now(),
+        snapshot,
+      };
+      return snapshot;
+    } catch (error) {
+      if (this.boardDiscoveryCache) {
+        const warning = error instanceof Error ? error.message : String(error);
+        return {
+          ...this.boardDiscoveryCache.snapshot,
+          warnings: compactStrings([
+            ...this.boardDiscoveryCache.snapshot.warnings,
+            `using cached board discovery: ${warning}`,
+          ]),
+        };
+      }
+      throw error;
+    }
   }
 
   private async buildPinnedResults(pinnedMarkets: PinnedPolymarketMarket[]): Promise<Array<Record<string, unknown>>> {
-    const client = this.createClient();
-    const results = await Promise.all(
-      pinnedMarkets.map(async (market) => {
-        const [activities, detail, settlement, position] = await Promise.all([
-          safeActivities(client, market.marketSlug),
-          safeMarketDetail(client, market.marketSlug),
-          safeMarketSettlement(client, market.marketSlug),
-          safePosition(client, market.marketSlug),
-        ]);
-        const realizedPnl = calculateRealizedPnl(activities);
-        const settled = settlement !== null;
-        const closed = detail?.market.closed ?? false;
-        const outcome = detail?.market.outcome ?? null;
-        const netPosition = readPositionSize(position);
-        const costBasis = parseAmountValue(position?.cost);
-        const currentValue = parseAmountValue(position?.cashValue);
-        const unrealizedPnl =
-          currentValue != null && costBasis != null
-            ? Number((currentValue - costBasis).toFixed(4))
-            : null;
-
-        return {
-          marketSlug: market.marketSlug,
-          bucket: market.bucket,
-          title: market.title,
-          eventTitle: market.eventTitle,
-          league: market.league,
-          pinnedAt: market.pinnedAt,
-          status: settled ? "settled" : closed ? "closed" : "open",
-          traded: activities.activities.length > 0,
-          realizedPnl,
-          netPosition,
-          costBasis,
-          currentValue,
-          unrealizedPnl,
-          settledAt: settlement?.settledAt ?? null,
-          settlementPrice: parseAmountValue(settlement?.settlementPrice),
-          outcome,
-          lastActivityAt: latestActivityTimestamp(activities),
-          resultLabel: buildResultLabel({
-            title: market.title,
-            closed,
-            settled,
-            settlementPrice: parseAmountValue(settlement?.settlementPrice),
-            realizedPnl,
-          }),
-        };
-      }),
-    );
-
-    return results.sort((left, right) => {
-      const leftSettled = left.status === "settled" ? 0 : left.status === "closed" ? 1 : 2;
-      const rightSettled = right.status === "settled" ? 0 : right.status === "closed" ? 1 : 2;
-      return (
-        leftSettled - rightSettled ||
-        compareDescending(Date.parse(String(left.settledAt ?? left.lastActivityAt ?? 0)) || 0, Date.parse(String(right.settledAt ?? right.lastActivityAt ?? 0)) || 0)
-      );
-    });
+    return buildPinnedResults(this.createClient(), pinnedMarkets);
   }
 
   private unconfiguredPayload(): Record<string, unknown> | null {
@@ -737,315 +681,4 @@ export class PolymarketService {
 
     return jsonError(context, 500, error instanceof Error ? error.message : String(error), { status: "unhealthy" });
   }
-}
-
-async function toFocusMarket(
-  event: Event,
-  client: PolymarketClient,
-  bucket: "sports" | "events",
-): Promise<PolymarketFocusMarket | null> {
-  const markets = Array.isArray(event.markets) ? event.markets : [];
-  if (markets.length === 0) {
-    return null;
-  }
-
-  const representative =
-    (bucket === "sports"
-      ? markets.find((market) => market.active && market.slug.startsWith("aec-"))
-      : null) ??
-    markets
-      .filter((market) => market.active && !market.closed)
-      .sort((left, right) => compareDescending(parseNumber(left.liquidity), parseNumber(right.liquidity)))[0] ??
-    markets[0];
-
-  if (!representative?.slug) {
-    return null;
-  }
-
-  const bbo = await safeMarketBbo(client, representative.slug);
-
-  const league =
-    (bucket === "sports"
-      ? event.series?.slug?.trim() ||
-        event.tags?.map((tag) => tag.slug).find((tag) => tag && tag !== "sports" && tag !== "games")
-      : event.tags?.map((tag) => tag.slug).find((tag) => tag && tag !== "politics" && tag !== "economics")) ||
-    null;
-  const startTime = event.startTime?.trim() || null;
-
-  return {
-    bucket,
-    league,
-    eventSlug: event.slug,
-    eventTitle: event.title,
-    eventStartTime: startTime,
-    marketSlug: representative.slug,
-    marketTitle: representative.title,
-    liquidity: parseNumber(event.liquidity) ?? parseNumber(representative.liquidity),
-    volume: parseNumber(event.volume) ?? parseNumber(representative.volume),
-    openInterest: parseNumber(bbo?.openInterest),
-    hoursToStart: startTime ? hoursUntil(startTime) : null,
-  };
-}
-
-async function toFocusMarketFromCandidate(
-  candidate: EventMarketCandidate,
-  client: PolymarketClient,
-): Promise<PolymarketFocusMarket | null> {
-  const { event, market } = candidate;
-  if (!market.slug) {
-    return null;
-  }
-
-  const bbo = await safeMarketBbo(client, market.slug);
-  const league =
-    event.tags?.map((tag) => tag.slug).find((tag) => tag && tag !== "politics" && tag !== "economics") ||
-    null;
-  const startTime = event.startTime?.trim() || null;
-
-  return {
-    bucket: "events",
-    league,
-    eventSlug: event.slug,
-    eventTitle: event.title,
-    eventStartTime: startTime,
-    marketSlug: market.slug,
-    marketTitle: market.title,
-    liquidity: parseNumber(market.liquidity) ?? parseNumber(event.liquidity),
-    volume: parseNumber(market.volume) ?? parseNumber(event.volume),
-    openInterest: parseNumber(bbo?.openInterest),
-    hoursToStart: startTime ? hoursUntil(startTime) : null,
-  };
-}
-
-function buildEventFocusCandidates(event: Event): EventMarketCandidate[] {
-  const markets = Array.isArray(event.markets) ? event.markets : [];
-  return markets
-    .filter((market) => market.active && !market.closed && Boolean(market.slug))
-    .sort((left, right) => (
-      compareDescending(parseNumber(left.liquidity), parseNumber(right.liquidity)) ||
-      compareDescending(parseNumber(left.volume), parseNumber(right.volume))
-    ))
-    .slice(0, 3)
-    .map((market) => ({ event, market }));
-}
-
-function compareEventMarketCandidates(left: EventMarketCandidate, right: EventMarketCandidate): number {
-  return (
-    compareDescending(parseNumber(left.market.liquidity), parseNumber(right.market.liquidity)) ||
-    compareDescending(parseNumber(left.market.volume), parseNumber(right.market.volume)) ||
-    compareDescending(parseNumber(left.event.liquidity), parseNumber(right.event.liquidity)) ||
-    compareDescending(parseNumber(left.event.volume), parseNumber(right.event.volume))
-  );
-}
-
-function dedupeFocusMarkets(markets: PolymarketFocusMarket[]): PolymarketFocusMarket[] {
-  const deduped = new Map<string, PolymarketFocusMarket>();
-  for (const market of markets) {
-    if (!deduped.has(market.marketSlug)) {
-      deduped.set(market.marketSlug, market);
-    }
-  }
-  return Array.from(deduped.values());
-}
-
-async function safeMarketBbo(client: PolymarketClient, marketSlug: string): Promise<MarketBBO | null> {
-  try {
-    return await client.markets.bbo(marketSlug);
-  } catch {
-    return null;
-  }
-}
-
-async function safeActivities(client: PolymarketClient, marketSlug: string): Promise<GetActivitiesResponse> {
-  try {
-    return await client.portfolio.activities({
-      limit: 100,
-      marketSlug,
-      types: ["ACTIVITY_TYPE_TRADE", "ACTIVITY_TYPE_POSITION_RESOLUTION"],
-      sortOrder: "SORT_ORDER_DESCENDING",
-    });
-  } catch {
-    return { activities: [], eof: true };
-  }
-}
-
-async function safeMarketDetail(client: PolymarketClient, marketSlug: string): Promise<GetMarketResponse | null> {
-  try {
-    return await client.markets.retrieveBySlug(marketSlug);
-  } catch {
-    return null;
-  }
-}
-
-async function safeMarketSettlement(client: PolymarketClient, marketSlug: string): Promise<MarketSettlement | null> {
-  try {
-    return await client.markets.settlement(marketSlug);
-  } catch {
-    return null;
-  }
-}
-
-async function safePosition(client: PolymarketClient, marketSlug: string): Promise<UserPosition | null> {
-  try {
-    const response = await client.portfolio.positions({
-      market: marketSlug,
-      limit: 1,
-    });
-    return response.positions[marketSlug] ?? Object.values(response.positions)[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function parseAmountValue(value: { value?: string } | undefined | null): number | null {
-  return parseNumber(value?.value);
-}
-
-function readPositionSize(position: UserPosition | null | undefined): number | null {
-  const size = parseNumber(position?.netPosition);
-  return size == null ? null : Math.abs(size);
-}
-
-function calculateRealizedPnl(response: GetActivitiesResponse): number | null {
-  const deltas: number[] = [];
-
-  for (const activity of response.activities) {
-    const tradePnl = parseAmountValue(activity.trade?.realizedPnl);
-    if (tradePnl != null) {
-      deltas.push(tradePnl);
-    }
-
-    const beforeRealized = parseAmountValue(activity.positionResolution?.beforePosition?.realized);
-    const afterRealized = parseAmountValue(activity.positionResolution?.afterPosition?.realized);
-    if (beforeRealized != null && afterRealized != null) {
-      deltas.push(afterRealized - beforeRealized);
-    }
-  }
-
-  if (deltas.length === 0) {
-    return null;
-  }
-
-  return Number(deltas.reduce((sum, value) => sum + value, 0).toFixed(4));
-}
-
-function latestActivityTimestamp(response: GetActivitiesResponse): string | null {
-  for (const activity of response.activities) {
-    const timestamp =
-      activity.trade?.updateTime ??
-      activity.trade?.createTime ??
-      activity.positionResolution?.updateTime ??
-      null;
-    if (timestamp) {
-      return timestamp;
-    }
-  }
-  return null;
-}
-
-function buildResultLabel(options: {
-  title: string;
-  closed: boolean;
-  settled: boolean;
-  settlementPrice: number | null;
-  realizedPnl: number | null;
-}): string {
-  if (options.settled) {
-    const outcomeLabel =
-      options.settlementPrice == null
-        ? "Settled"
-        : options.settlementPrice >= 1
-          ? `${options.title} won`
-          : options.settlementPrice <= 0
-            ? `${options.title} lost`
-            : `Settled at $${options.settlementPrice.toFixed(4)}`;
-    const pnlLabel =
-      options.realizedPnl == null
-        ? null
-        : `${options.realizedPnl >= 0 ? "+" : ""}$${Math.abs(options.realizedPnl).toFixed(2)} realized`;
-    return [outcomeLabel, pnlLabel].filter(Boolean).join(" · ");
-  }
-
-  if (options.closed) {
-    return "Closed, awaiting settlement";
-  }
-
-  return "Still live";
-}
-
-function passesSportsFilters(entry: PolymarketFocusMarket, filters: SportsFocusFilters): boolean {
-  if (filters.minLiquidity != null && (entry.liquidity ?? -1) < filters.minLiquidity) {
-    return false;
-  }
-  if (filters.minVolume != null && (entry.volume ?? -1) < filters.minVolume) {
-    return false;
-  }
-  if (filters.minOpenInterest != null && (entry.openInterest ?? -1) < filters.minOpenInterest) {
-    return false;
-  }
-  if (filters.maxStartHours != null && (entry.hoursToStart == null || entry.hoursToStart > filters.maxStartHours)) {
-    return false;
-  }
-  return true;
-}
-
-function compareSportsFocusMarkets(
-  left: PolymarketFocusMarket,
-  right: PolymarketFocusMarket,
-  sort: SportsFocusFilters["sort"],
-): number {
-  if (sort === "liquidity") {
-    return compareDescending(left.liquidity, right.liquidity) || compareDescending(left.volume, right.volume);
-  }
-  if (sort === "volume") {
-    return compareDescending(left.volume, right.volume) || compareDescending(left.liquidity, right.liquidity);
-  }
-  if (sort === "open_interest") {
-    return compareDescending(left.openInterest, right.openInterest) || compareDescending(left.liquidity, right.liquidity);
-  }
-  if (sort === "nearest_start_time") {
-    return compareAscendingNullable(left.hoursToStart, right.hoursToStart) || compareDescending(left.liquidity, right.liquidity);
-  }
-
-  return (
-    compareDescending(left.liquidity, right.liquidity) ||
-    compareDescending(left.volume, right.volume) ||
-    compareDescending(left.openInterest, right.openInterest) ||
-    compareAscendingNullable(left.hoursToStart, right.hoursToStart)
-  );
-}
-
-function compareDescending(left: number | null | undefined, right: number | null | undefined): number {
-  const a = left ?? -1;
-  const b = right ?? -1;
-  return b - a;
-}
-
-function compareAscendingNullable(left: number | null | undefined, right: number | null | undefined): number {
-  const a = left ?? Number.POSITIVE_INFINITY;
-  const b = right ?? Number.POSITIVE_INFINITY;
-  return a - b;
-}
-
-function parseNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function hoursUntil(isoTimestamp: string): number | null {
-  const timestamp = Date.parse(isoTimestamp);
-  if (Number.isNaN(timestamp)) {
-    return null;
-  }
-  return (timestamp - Date.now()) / 3_600_000;
-}
-
-function isSportsEvent(event: Event): boolean {
-  return (event.tags ?? []).some((tag) => tag.slug === "sports");
 }

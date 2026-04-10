@@ -93,3 +93,7 @@ Backtester-facing source pages live in:
 
 - `backtester/docs/source/architecture/polymarket-backtester-flow.md`
 - `backtester/docs/source/roadmap/polymarket-v2-trade-loop.md`
+
+Board-flow explainer:
+
+- `docs/source/architecture/polymarket-board-flow.md`

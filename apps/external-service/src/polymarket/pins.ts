@@ -17,30 +17,37 @@ type PinsFilePayload = {
 };
 
 export class PolymarketPinsStore {
+  private writeChain: Promise<void> = Promise.resolve();
+
   constructor(private readonly filePath: string) {}
 
   async list(): Promise<PinnedPolymarketMarket[]> {
+    await this.writeChain;
     const payload = await this.read();
     return payload.markets;
   }
 
   async upsert(market: Omit<PinnedPolymarketMarket, "pinnedAt">): Promise<PinnedPolymarketMarket[]> {
-    const payload = await this.read();
-    const nextMarket: PinnedPolymarketMarket = {
-      ...market,
-      pinnedAt: new Date().toISOString(),
-    };
-    const deduped = payload.markets.filter((entry) => entry.marketSlug !== market.marketSlug);
-    deduped.unshift(nextMarket);
-    await this.write({ version: 1, markets: deduped });
-    return deduped;
+    return this.withWriteLock(async () => {
+      const payload = await this.read();
+      const nextMarket: PinnedPolymarketMarket = {
+        ...market,
+        pinnedAt: new Date().toISOString(),
+      };
+      const deduped = payload.markets.filter((entry) => entry.marketSlug !== market.marketSlug);
+      deduped.unshift(nextMarket);
+      await this.write({ version: 1, markets: deduped });
+      return deduped;
+    });
   }
 
   async remove(marketSlug: string): Promise<PinnedPolymarketMarket[]> {
-    const payload = await this.read();
-    const next = payload.markets.filter((entry) => entry.marketSlug !== marketSlug);
-    await this.write({ version: 1, markets: next });
-    return next;
+    return this.withWriteLock(async () => {
+      const payload = await this.read();
+      const next = payload.markets.filter((entry) => entry.marketSlug !== marketSlug);
+      await this.write({ version: 1, markets: next });
+      return next;
+    });
   }
 
   private async read(): Promise<PinsFilePayload> {
@@ -62,6 +69,21 @@ export class PolymarketPinsStore {
 
   private async write(payload: PinsFilePayload): Promise<void> {
     await writeJsonFileAtomic(this.filePath, payload);
+  }
+
+  private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.writeChain;
+    let release = () => {};
+    this.writeChain = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
   }
 }
 

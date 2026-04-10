@@ -13,4 +13,5 @@ export function registerPolymarketRoutes(app: Hono, service: PolymarketService):
   app.delete("/polymarket/pins/:marketSlug", (c) => service.removePinHandler(c));
   app.get("/polymarket/results", (c) => service.resultsHandler(c));
   app.get("/polymarket/live", (c) => service.liveHandler(c));
+  app.get("/polymarket/board/live", (c) => service.boardLiveHandler(c));
 }

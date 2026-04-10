@@ -13,4 +13,5 @@ Primary references:
 
 - [Architecture source](../../../docs/source/architecture/mission-control.md)
 - [Polymarket US source](../../../docs/source/architecture/polymarket-us-trading-ops.md)
+- [Polymarket board flow](./polymarket-board-flow.md)
 - [App docs index](../../../apps/mission-control/docs/README.md)

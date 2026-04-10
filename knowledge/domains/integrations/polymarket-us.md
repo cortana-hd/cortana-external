@@ -77,6 +77,7 @@ Missing v2 pieces:
 ## Raw source pages
 
 - [Repo-level source note](../../../docs/source/architecture/polymarket-us-trading-ops.md)
+- [Mission Control board flow](../mission-control/polymarket-board-flow.md)
 - [Backtester flow source](../../../backtester/docs/source/architecture/polymarket-backtester-flow.md)
 - [Polymarket v2 roadmap source](../../../backtester/docs/source/roadmap/polymarket-v2-trade-loop.md)
 

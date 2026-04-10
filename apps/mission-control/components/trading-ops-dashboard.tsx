@@ -53,7 +53,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   const [polymarketLiveData, setPolymarketLiveData] = useState<TradingOpsPolymarketLiveData | null>(null);
   const [polymarketLiveError, setPolymarketLiveError] = useState<string | null>(null);
   const [lastPolymarketLiveAt, setLastPolymarketLiveAt] = useState<string | null>(null);
-  const [polymarketPinPendingSlug, setPolymarketPinPendingSlug] = useState<string | null>(null);
+  const [polymarketPinPendingSlugs, setPolymarketPinPendingSlugs] = useState<string[]>([]);
 
   const applyLiveData = useCallback((payload: TradingOpsLiveData) => {
     setLiveData(payload);
@@ -134,7 +134,9 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
     action: "pin" | "remove",
   ) => {
     try {
-      setPolymarketPinPendingSlug(market.slug);
+      setPolymarketPinPendingSlugs((current) => (
+        current.includes(market.slug) ? current : [...current, market.slug]
+      ));
       const response = await fetch(
         action === "pin"
           ? "/api/trading-ops/polymarket/pins"
@@ -147,7 +149,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
               ? JSON.stringify({
                   marketSlug: market.slug,
                   bucket: market.bucket,
-                  title: market.title,
+                  title: market.title || "Untitled market",
                   eventTitle: market.eventTitle,
                   league: market.league,
                 })
@@ -160,13 +162,13 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         throw new Error(payload?.error ?? `Polymarket ${action} failed (${response.status})`);
       }
 
-      await Promise.all([fetchPolymarketLiveData(), fetchPolymarketData()]);
+      await fetchPolymarketLiveData();
     } catch (error) {
       setPolymarketLiveError(error instanceof Error ? error.message : `Polymarket ${action} failed`);
     } finally {
-      setPolymarketPinPendingSlug(null);
+      setPolymarketPinPendingSlugs((current) => current.filter((slug) => slug !== market.slug));
     }
-  }, [fetchPolymarketData, fetchPolymarketLiveData]);
+  }, [fetchPolymarketLiveData]);
 
   useEffect(() => {
     let stopped = false;
@@ -412,8 +414,24 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
     (symbol) => (liveData?.tape.rows ?? []).find((row) => row.symbol === symbol) ?? null,
   ).filter((row): row is LiveQuoteRow => Boolean(row));
   const polymarketPinnedRows = (polymarketLiveData?.markets ?? []).filter((market) => market.pinned);
+  const polymarketPinnedEventRows = polymarketPinnedRows.filter((market) => market.bucket === "events");
+  const polymarketPinnedSportsRows = polymarketPinnedRows.filter((market) => market.bucket === "sports");
   const polymarketEventRows = (polymarketLiveData?.markets ?? []).filter((market) => market.bucket === "events" && !market.pinned);
   const polymarketSportsRows = (polymarketLiveData?.markets ?? []).filter((market) => market.bucket === "sports" && !market.pinned);
+  const polymarketEventBoardEmptyState = describePolymarketBoardEmptyState({
+    bucket: "events",
+    visibleCount: polymarketEventRows.length,
+    pinnedCount: polymarketPinnedEventRows.length,
+    candidateCount: polymarketLiveData?.roster?.candidateEventsCount ?? 0,
+    warnings: polymarketLiveArtifact.warnings,
+  });
+  const polymarketSportsBoardEmptyState = describePolymarketBoardEmptyState({
+    bucket: "sports",
+    visibleCount: polymarketSportsRows.length,
+    pinnedCount: polymarketPinnedSportsRows.length,
+    candidateCount: polymarketLiveData?.roster?.candidateSportsCount ?? 0,
+    warnings: polymarketLiveArtifact.warnings,
+  });
   const polymarketEventRosterState = usePolymarketRosterState(
     polymarketEventRows,
     polymarketLiveData?.streamer.lastMarketMessageAt ?? polymarketLiveData?.generatedAt ?? null,
@@ -447,7 +465,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         ...polymarketLiveArtifact,
         message: polymarketEventRows.length > 0
           ? `${polymarketEventRows.length} live event contracts are rotating in the board now.`
-          : "Waiting for live event contracts.",
+          : polymarketEventBoardEmptyState.message,
         badgeText: String(polymarketEventRows.length),
       }
     : polymarketLiveArtifact;
@@ -456,7 +474,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         ...polymarketLiveArtifact,
         message: polymarketSportsRows.length > 0
           ? `${polymarketSportsRows.length} live sports contracts are rotating in the board now.`
-          : "Waiting for live sports contracts.",
+          : polymarketSportsBoardEmptyState.message,
         badgeText: String(polymarketSportsRows.length),
       }
     : polymarketLiveArtifact;
@@ -879,7 +897,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   {polymarketPinnedRows.length > 0 ? (
                     <div className="space-y-1.5">
                       {polymarketPinnedRows.map((market) => renderPolymarketMarketCard(market, {
-                        pending: polymarketPinPendingSlug === market.slug,
+                        pending: polymarketPinPendingSlugs.includes(market.slug),
                         result: polymarketResultsBySlug.get(market.slug) ?? null,
                         onToggle: () => void mutatePolymarketPin(market, "remove"),
                       }))}
@@ -898,12 +916,14 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
             <ArtifactPanel title="Top events" artifact={polymarketEventsCardArtifact}>
               {polymarketLiveData ? (
                 <div className="space-y-3 text-sm">
-                  <RosterChangeSummary state={polymarketEventRosterState} />
+                  {polymarketEventBoardEmptyState.kind !== "exhausted" ? (
+                    <RosterChangeSummary state={polymarketEventRosterState} />
+                  ) : null}
                   <dl className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <RosterMetric label="Contracts" value={String(polymarketEventRows.length)} />
                     <RosterMetric
                       label="Leader"
-                      value={polymarketEventRows[0]?.title ?? "Waiting"}
+                      value={polymarketEventRows[0]?.title ?? (polymarketEventBoardEmptyState.kind === "exhausted" ? "Pinned all available" : "Waiting")}
                       highlight={polymarketEventRosterState.leaderChanged}
                     />
                     <RosterMetric label="Updated" value={formatOperatorTimestamp(polymarketLiveData.streamer.lastMarketMessageAt)} />
@@ -911,14 +931,17 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   {polymarketEventRows.length > 0 ? (
                     <div className="space-y-1.5">
                       {polymarketEventRows.map((market) => renderPolymarketMarketCard(market, {
-                        pending: polymarketPinPendingSlug === market.slug,
+                        pending: polymarketPinPendingSlugs.includes(market.slug),
                         result: polymarketResultsBySlug.get(market.slug) ?? null,
                         rosterNew: polymarketEventRosterState.newSlugs.has(market.slug),
                         onToggle: () => void mutatePolymarketPin(market, "pin"),
                       }))}
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Waiting for the first live event rotation.</p>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">{polymarketEventBoardEmptyState.message}</p>
+                      <p className="text-xs text-muted-foreground">{polymarketEventBoardEmptyState.detail}</p>
+                    </div>
                   )}
                 </div>
               ) : null}
@@ -927,12 +950,14 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
             <ArtifactPanel title="Top sports" artifact={polymarketSportsCardArtifact}>
               {polymarketLiveData ? (
                 <div className="space-y-3 text-sm">
-                  <RosterChangeSummary state={polymarketSportsRosterState} />
+                  {polymarketSportsBoardEmptyState.kind !== "exhausted" ? (
+                    <RosterChangeSummary state={polymarketSportsRosterState} />
+                  ) : null}
                   <dl className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <RosterMetric label="Contracts" value={String(polymarketSportsRows.length)} />
                     <RosterMetric
                       label="Leader"
-                      value={polymarketSportsRows[0]?.title ?? "Waiting"}
+                      value={polymarketSportsRows[0]?.title ?? (polymarketSportsBoardEmptyState.kind === "exhausted" ? "Pinned all available" : "Waiting")}
                       highlight={polymarketSportsRosterState.leaderChanged}
                     />
                     <RosterMetric label="Updated" value={formatOperatorTimestamp(polymarketLiveData.streamer.lastMarketMessageAt)} />
@@ -940,14 +965,17 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   {polymarketSportsRows.length > 0 ? (
                     <div className="space-y-1.5">
                       {polymarketSportsRows.map((market) => renderPolymarketMarketCard(market, {
-                        pending: polymarketPinPendingSlug === market.slug,
+                        pending: polymarketPinPendingSlugs.includes(market.slug),
                         result: polymarketResultsBySlug.get(market.slug) ?? null,
                         rosterNew: polymarketSportsRosterState.newSlugs.has(market.slug),
                         onToggle: () => void mutatePolymarketPin(market, "pin"),
                       }))}
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Waiting for the first live sports rotation.</p>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">{polymarketSportsBoardEmptyState.message}</p>
+                      <p className="text-xs text-muted-foreground">{polymarketSportsBoardEmptyState.detail}</p>
+                    </div>
                   )}
                 </div>
               ) : null}
@@ -1438,7 +1466,10 @@ function PolymarketMarketCard({
 }) {
   const subtitle =
     market.bucket === "sports"
-      ? [market.eventTitle, market.league ? formatLabel(market.league) : null].filter(Boolean).join(" · ") || "Sports market"
+      ? [
+          market.eventTitle && market.eventTitle !== market.title ? market.eventTitle : null,
+          market.league ? formatLabel(market.league) : null,
+        ].filter(Boolean).join(" · ") || "Sports market"
       : market.eventTitle ?? "Polymarket event";
   const currentValue = derivePinnedCurrentValue(market, options.result);
   const unrealizedPnl =
@@ -1771,6 +1802,41 @@ function usePolymarketRosterState(
     badgeLabel,
     updatedAt: highlightedUpdatedAt,
     leaderChanged,
+  };
+}
+
+function describePolymarketBoardEmptyState(options: {
+  bucket: "events" | "sports";
+  visibleCount: number;
+  pinnedCount: number;
+  candidateCount: number;
+  warnings: string[];
+}): { kind: "active" | "exhausted" | "warning" | "waiting"; message: string; detail: string } {
+  if (options.visibleCount > 0) {
+    return { kind: "active", message: "", detail: "" };
+  }
+
+  const bucketLabel = options.bucket === "events" ? "event" : "sports";
+  if (options.candidateCount > 0 && options.pinnedCount >= options.candidateCount) {
+    return {
+      kind: "exhausted",
+      message: `All current ${bucketLabel} candidates are pinned.`,
+      detail: `Remove a pinned ${bucketLabel} market to resume the rotating board.`,
+    };
+  }
+
+  if (options.warnings.length > 0) {
+    return {
+      kind: "warning",
+      message: `Live ${bucketLabel} roster is temporarily unavailable.`,
+      detail: options.warnings[0] ?? `Waiting for the next ${bucketLabel} board refresh.`,
+    };
+  }
+
+  return {
+    kind: "waiting",
+    message: `Waiting for live ${bucketLabel} contracts.`,
+    detail: `Waiting for the first live ${bucketLabel} rotation.`,
   };
 }
 
