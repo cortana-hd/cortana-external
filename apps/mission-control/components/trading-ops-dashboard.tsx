@@ -1460,6 +1460,7 @@ function PolymarketMarketCard({
   const animatedUnrealizedPnl = useAnimatedValue(unrealizedPnl, 700);
   const animatedCostBasis = useAnimatedValue(options.result?.costBasis ?? null, 700);
   const animatedPosition = useAnimatedValue(options.result?.netPosition ?? null, 700);
+  const freshestTimestamp = newestTimestamp([market.updatedAt, market.tradeTime]);
 
   return (
     <div
@@ -1520,7 +1521,7 @@ function PolymarketMarketCard({
         </div>
       ) : null}
       <p className="mt-3 text-muted-foreground">
-        Trade {formatMarketPrice(market.tradePrice)} · Qty {formatMarketQuantity(market.tradeQuantity)} · {formatOperatorTimestamp(market.tradeTime ?? market.updatedAt)}
+        Trade {formatMarketPrice(market.tradePrice)} · Qty {formatMarketQuantity(market.tradeQuantity)} · {formatOperatorTimestamp(freshestTimestamp)}
       </p>
     </div>
   );

@@ -741,6 +741,151 @@ describe("TradingOpsDashboard", () => {
     });
   });
 
+  it("shows the freshest pinned market timestamp when quote updates are newer than the last trade", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/trading-ops/polymarket") {
+        return new Response(
+          JSON.stringify({
+            generatedAt: "2026-04-10T12:00:00.000Z",
+            account: {
+              state: "ok",
+              label: "healthy",
+              message: "Authenticated account is reachable.",
+              updatedAt: "2026-04-10T12:00:00.000Z",
+              source: "/api/trading-ops/polymarket",
+              warnings: [],
+              badgeText: "...106dac",
+              data: {
+                status: "healthy",
+                keyIdSuffix: "106dac",
+                balanceCount: 0,
+                positionCount: 0,
+                openOrdersCount: 0,
+                balances: [],
+              },
+            },
+            signal: {
+              state: "ok",
+              label: "Signal artifact ready",
+              message: "Neutral",
+              updatedAt: "2026-04-10T12:00:00.000Z",
+              source: "/tmp/latest-report.json",
+              warnings: [],
+              badgeText: "neutral",
+              data: {
+                generatedAt: "2026-04-10T12:00:00.000Z",
+                compactLines: ["Polymarket: pinned market live"],
+                alignment: "neutral",
+                overlaySummary: "Neutral",
+                overlayDetail: null,
+                conviction: "neutral",
+                aggressionDial: "steady",
+                divergenceSummary: null,
+                topMarkets: [],
+              },
+            },
+            watchlist: {
+              state: "ok",
+              label: "Watchlist ready",
+              message: "Linked watchlist has 0 symbols across stocks, funds.",
+              updatedAt: "2026-04-10T12:00:00.000Z",
+              source: "/tmp/latest-watchlist.json",
+              warnings: [],
+              data: {
+                updatedAt: "2026-04-10T12:00:00.000Z",
+                totalCount: 0,
+                buckets: { stocks: [], funds: [], crypto: [], cryptoProxies: [] },
+                symbols: [],
+              },
+            },
+            results: {
+              state: "ok",
+              label: "Pinned results waiting",
+              message: "Pinned markets will appear here after settlement.",
+              updatedAt: "2026-04-10T12:00:00.000Z",
+              source: "/api/trading-ops/polymarket/results",
+              warnings: [],
+              data: {
+                updatedAt: "2026-04-10T12:00:00.000Z",
+                settledCount: 0,
+                tradedCount: 0,
+                openPositionCount: 0,
+                rows: [],
+              },
+            },
+          }),
+        );
+      }
+
+      return new Promise<Response>(() => {
+        // Keep unrelated fetches dormant.
+      });
+    }) as typeof fetch);
+
+    const { container } = render(<TradingOpsDashboard data={fixture} />);
+
+    const polymarketTab = screen.getByRole("tab", { name: "Polymarket" });
+    fireEvent.mouseDown(polymarketTab);
+    fireEvent.click(polymarketTab);
+
+    await act(async () => {
+      findEventSource("/api/trading-ops/polymarket/live/stream")?.emit("snapshot", {
+        generatedAt: "2026-04-10T12:00:02.000Z",
+        streamer: {
+          marketsConnected: true,
+          privateConnected: true,
+          operatorState: "healthy",
+          trackedMarketCount: 1,
+          trackedMarketSlugs: ["fed-maintains"],
+          lastMarketMessageAt: "2026-04-10T12:00:01.000Z",
+          lastPrivateMessageAt: "2026-04-10T12:00:01.500Z",
+          lastError: null,
+        },
+        account: {
+          balance: 0,
+          buyingPower: 0,
+          openOrdersCount: 0,
+          positionCount: 0,
+          lastBalanceUpdateAt: "2026-04-10T12:00:01.500Z",
+          lastOrdersUpdateAt: null,
+          lastPositionsUpdateAt: null,
+        },
+        markets: [
+          {
+            slug: "fed-maintains",
+            title: "Fed maintains rate",
+            bucket: "events",
+            pinned: true,
+            pinnedAt: "2026-04-10T11:59:30.000Z",
+            eventTitle: "Fed Decision in April",
+            league: null,
+            bestBid: 0.96,
+            bestAsk: 0.97,
+            lastTrade: 0.97,
+            spread: 0.01,
+            marketState: "MARKET_STATE_OPEN",
+            sharesTraded: 1500,
+            openInterest: 2100,
+            tradePrice: 0.97,
+            tradeQuantity: 25,
+            tradeTime: "2026-04-10T11:41:00.000Z",
+            updatedAt: "2026-04-10T12:02:00.000Z",
+            state: "ok",
+            warning: null,
+          },
+        ],
+        warnings: [],
+      });
+    });
+
+    await waitFor(() => {
+      expect(container).toHaveTextContent("Fed maintains rate");
+      expect(container).toHaveTextContent("Apr 10, 8:02 AM");
+      expect(container).not.toHaveTextContent("Apr 10, 7:41 AM");
+    });
+  });
+
   it("falls back cleanly when the live stream errors", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
       new Response(

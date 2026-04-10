@@ -64,6 +64,15 @@ describe("loadTradingOpsPolymarketLiveData", () => {
         );
       }
 
+      if (url.includes("/polymarket/pins")) {
+        return new Response(
+          JSON.stringify({
+            pinned: pinnedRows,
+          }),
+          { status: 200 },
+        );
+      }
+
       if (url.includes("/polymarket/live?slugs=")) {
         const slugsParam = new URL(url).searchParams.get("slugs") ?? "";
         const slugs = slugsParam.split(",").filter(Boolean);
@@ -127,5 +136,127 @@ describe("loadTradingOpsPolymarketLiveData", () => {
     expect(visibleSports.map((market) => market.slug)).not.toContain("sport-1");
     expect(visibleEvents.map((market) => market.slug)).toContain("event-6");
     expect(visibleSports.map((market) => market.slug)).toContain("sport-6");
+  });
+
+  it("keeps pinned titles out of the rotating top bucket even when a different slug shares the same label", async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-live-loader-title-"));
+    const reportDir = path.join(repoRoot, "var", "market-intel", "polymarket");
+    fs.mkdirSync(reportDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reportDir, "latest-report.json"),
+      JSON.stringify({ topMarkets: [] }),
+    );
+
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("/polymarket/focus?limit=20")) {
+        return new Response(
+          JSON.stringify({
+            pinned: [
+              {
+                marketSlug: "house-dem",
+                bucket: "events",
+                title: "Democratic Party",
+                eventTitle: "U.S. House Midterm Winner",
+                league: null,
+                pinnedAt: "2026-04-10T11:00:00.000Z",
+              },
+            ],
+            events: [
+              {
+                marketSlug: "senate-dem",
+                marketTitle: "Democratic Party",
+                eventTitle: "U.S. Senate Midterm Winner",
+                league: null,
+              },
+              {
+                marketSlug: "fed-maintains",
+                marketTitle: "Fed maintains rate",
+                eventTitle: "Fed Decision in April",
+                league: null,
+              },
+            ],
+            sports: [],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (url.includes("/polymarket/pins")) {
+        return new Response(
+          JSON.stringify({
+            pinned: [
+              {
+                marketSlug: "house-dem",
+                bucket: "events",
+                title: "Democratic Party",
+                eventTitle: "U.S. House Midterm Winner",
+                league: null,
+                pinnedAt: "2026-04-10T11:00:00.000Z",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (url.includes("/polymarket/live?slugs=")) {
+        const slugsParam = new URL(url).searchParams.get("slugs") ?? "";
+        const slugs = slugsParam.split(",").filter(Boolean);
+        return new Response(
+          JSON.stringify({
+            streamer: {
+              marketsConnected: true,
+              privateConnected: true,
+              operatorState: "healthy",
+              trackedMarketCount: slugs.length,
+              trackedMarketSlugs: slugs,
+              lastMarketMessageAt: "2026-04-10T11:05:00.000Z",
+              lastPrivateMessageAt: "2026-04-10T11:05:00.000Z",
+              lastError: null,
+            },
+            account: {
+              balance: 0,
+              buyingPower: 0,
+              openOrdersCount: 0,
+              positionCount: 0,
+              lastBalanceUpdateAt: "2026-04-10T11:05:00.000Z",
+              lastOrdersUpdateAt: "2026-04-10T11:05:00.000Z",
+              lastPositionsUpdateAt: "2026-04-10T11:05:00.000Z",
+            },
+            markets: slugs.map((slug) => ({
+              marketSlug: slug,
+              bestBid: 0.4,
+              bestAsk: 0.5,
+              lastTrade: 0.45,
+              spread: 0.1,
+              marketState: "MARKET_STATE_OPEN",
+              sharesTraded: 1000,
+              openInterest: 2000,
+              tradePrice: 0.45,
+              tradeQuantity: 10,
+              tradeTime: "2026-04-10T11:05:00.000Z",
+              updatedAt: "2026-04-10T11:05:00.000Z",
+            })),
+          }),
+          { status: 200 },
+        );
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    };
+
+    const result = await loadTradingOpsPolymarketLiveData({
+      repoRoot,
+      baseUrl: "http://127.0.0.1:3033",
+      fetchImpl,
+    });
+
+    const pinned = result.markets.filter((market) => market.pinned);
+    const visibleEvents = result.markets.filter((market) => market.bucket === "events" && !market.pinned);
+
+    expect(pinned.map((market) => market.slug)).toContain("house-dem");
+    expect(visibleEvents.map((market) => market.slug)).not.toContain("senate-dem");
+    expect(visibleEvents.map((market) => market.slug)).toContain("fed-maintains");
   });
 });
