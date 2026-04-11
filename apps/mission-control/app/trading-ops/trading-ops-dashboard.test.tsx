@@ -44,6 +44,87 @@ class MockEventSource {
   }
 }
 
+const financialServicesFixture: TradingOpsDashboardData["financialServices"] = {
+  state: "ok",
+  label: "Financial services health",
+  message: "7 services healthy.",
+  updatedAt: "2026-04-03T23:28:00.000Z",
+  source: "http://127.0.0.1:3033/market-data/ops · http://127.0.0.1:3033/alpaca/health · http://127.0.0.1:3033/polymarket/health · http://127.0.0.1:3033/polymarket/live",
+  warnings: [],
+  badgeText: "7/7",
+  data: {
+    rows: [
+      {
+        label: "Alpaca",
+        state: "ok",
+        summary: "healthy",
+        detail: "Broker health and account reachability are reported by Alpaca.",
+        source: "/alpaca/health",
+        updatedAt: "2026-04-03T23:28:00.000Z",
+        badgeText: "healthy",
+      },
+      {
+        label: "FRED",
+        state: "ok",
+        summary: "configured",
+        detail: "Market-data ops sees FRED configured for economic data lookups.",
+        source: "/market-data/ops",
+        updatedAt: "2026-04-03T23:28:00.000Z",
+        badgeText: "configured",
+      },
+      {
+        label: "CoinMarketCap",
+        state: "ok",
+        summary: "configured",
+        detail: "Market-data ops sees CoinMarketCap configured for crypto coverage.",
+        source: "/market-data/ops",
+        updatedAt: "2026-04-03T23:28:00.000Z",
+        badgeText: "configured",
+      },
+      {
+        label: "Schwab REST",
+        state: "ok",
+        summary: "healthy",
+        detail: "Last successful REST quote at Apr 3, 7:27 PM.",
+        source: "/market-data/ops",
+        updatedAt: "2026-04-03T23:28:00.000Z",
+        badgeText: "rest",
+      },
+      {
+        label: "Schwab streamer",
+        state: "ok",
+        summary: "connected",
+        detail: "55 equity subs · 0 acct activity.",
+        source: "/market-data/ops",
+        updatedAt: "2026-04-03T23:28:00.000Z",
+        badgeText: "stream",
+      },
+      {
+        label: "Polymarket REST",
+        state: "ok",
+        summary: "healthy",
+        detail: "API https://api.polymarket.us is reachable.",
+        source: "/polymarket/health",
+        updatedAt: "2026-04-03T23:28:00.000Z",
+        badgeText: "rest",
+      },
+      {
+        label: "Polymarket streamer",
+        state: "ok",
+        summary: "connected",
+        detail: "106 tracked markets · last market msg Apr 3, 7:27 PM.",
+        source: "/polymarket/live",
+        updatedAt: "2026-04-03T23:28:00.000Z",
+        badgeText: "stream",
+      },
+    ],
+    healthyCount: 7,
+    degradedCount: 0,
+    errorCount: 0,
+    checkedAt: "2026-04-03T23:28:00.000Z",
+  },
+};
+
 const fixture: TradingOpsDashboardData = {
   generatedAt: "2026-04-03T23:30:00.000Z",
   repoPath: "/Users/hd/Developer/cortana-external/backtester",
@@ -182,6 +263,7 @@ const fixture: TradingOpsDashboardData = {
       firstRecoveryStep: "Restore repo config.",
     },
   },
+  financialServices: financialServicesFixture,
   tradingRun: {
     state: "ok",
     label: "20260403-163103",
@@ -262,6 +344,14 @@ describe("TradingOpsDashboard", () => {
     expect(screen.getByText(/Dip Buyer currently has/i)).toBeInTheDocument();
     expect(container).toHaveTextContent("Failed stages: dipbuyer_alert");
     expect(container).toHaveTextContent("Apr 3, 7:16 PM");
+
+    const systemHealthTab = screen.getByRole("tab", { name: "System Health" });
+    fireEvent.mouseDown(systemHealthTab);
+    fireEvent.click(systemHealthTab);
+    expect(screen.getByText("Financial services health")).toBeInTheDocument();
+    expect(container).toHaveTextContent("Schwab REST");
+    expect(container).toHaveTextContent("Polymarket streamer");
+    expect(container).toHaveTextContent("Schwab streamer");
 
     const watchlistsTab = screen.getByRole("tab", { name: "Watchlists" });
     fireEvent.mouseDown(watchlistsTab);
@@ -530,9 +620,15 @@ describe("TradingOpsDashboard", () => {
       expect(container).toHaveTextContent("Signal overlay");
       expect(container).toHaveTextContent("Linked watchlist");
       expect(container).toHaveTextContent("Live stream");
+      expect(container).toHaveTextContent("Polymarket-linked symbols");
+      expect(container).toHaveTextContent("These are symbol links and probabilities, not stock quotes.");
+      expect(container).toHaveTextContent("Linked to Fed easing odds");
+      expect(container).toHaveTextContent("SPY");
+      expect(container).toHaveTextContent("AMD");
       expect(container).toHaveTextContent("Fed easing odds");
       expect(container).toHaveTextContent("...106dac");
       expect(container).toHaveTextContent("$0.4100");
+      expect(container).not.toHaveTextContent("Schwab market bridge");
     });
   });
 

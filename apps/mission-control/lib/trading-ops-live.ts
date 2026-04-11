@@ -9,6 +9,8 @@ const LIVE_OPS_TIMEOUT_MS = 6_000;
 const LIVE_TAPE_TIMEOUT_MS = 8_000;
 const LIVE_WATCHLIST_TIMEOUT_MS = 12_000;
 const LIVE_WATCHLIST_CHUNK_SIZE = 20;
+const AFTER_HOURS_RETAINED_QUOTE_WINDOW_MS = 10 * 60_000;
+const AFTER_HOURS_WAITING_BADGE_WINDOW_MS = 2 * 60_000;
 const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
 const TAPE_SOURCE_SYMBOLS = ["SPY", "QQQ", "IWM", "DIA", "GLD", "ARKK", "XLE"] as const;
 const TAPE_ROWS = [
@@ -32,6 +34,7 @@ type QuoteBatchItem = {
   status: string;
   degradedReason: string | null;
   providerMode: string | null;
+  stalenessSeconds?: number | null;
   data: {
     symbol?: string;
     price?: number;
@@ -39,6 +42,18 @@ type QuoteBatchItem = {
     timestamp?: string;
   };
 };
+
+type RetainedLiveQuote = {
+  price: number;
+  changePercent: number | null;
+  source: string | null;
+  timestamp: string | null;
+  stalenessSeconds: number | null;
+  observedAtMs: number;
+};
+
+const retainedSchwabQuotes = new Map<string, RetainedLiveQuote>();
+const quietAfterHoursGapSince = new Map<string, number>();
 
 export type LiveQuoteRow = {
   symbol: string;
@@ -48,6 +63,7 @@ export type LiveQuoteRow = {
   changePercent: number | null;
   source: string | null;
   timestamp: string | null;
+  stalenessSeconds?: number | null;
   state: LoadState;
   warning: string | null;
 };
@@ -96,6 +112,7 @@ type TradingOpsLiveOptions = {
   baseUrl?: string;
   cortanaRepoPath?: string;
   fetchImpl?: FetchLike;
+  referenceTime?: Date;
 };
 
 export async function loadTradingOpsLiveData(
@@ -104,6 +121,9 @@ export async function loadTradingOpsLiveData(
   const baseUrl = options.baseUrl ?? resolveExternalServiceBaseUrl();
   const cortanaRepoPath = options.cortanaRepoPath ?? getCortanaSourceRepo();
   const fetchImpl = options.fetchImpl ?? fetch;
+  const referenceTime = options.referenceTime ?? new Date();
+  const nowMs = referenceTime.getTime();
+  const isAfterHours = isAfterHoursSession(referenceTime);
   const tradingRun = await loadLatestTradingRunOverview({ cortanaRepoPath, tradingRunStateStore: null });
   const tapeSymbols = [...TAPE_SOURCE_SYMBOLS] as string[];
   const watchlistSymbols = dedupeSymbols(
@@ -136,9 +156,12 @@ export async function loadTradingOpsLiveData(
   ];
   const quoteMap = new Map(quoteItems.map((item) => [item.symbol, item]));
   const streamer = parseStreamerSummary(opsResult.body);
-  const tapeRows = TAPE_ROWS.map((row) => buildLiveQuoteRow(row, quoteMap, tapeQuotesResult.error));
+  const tapeRows = TAPE_ROWS.map((row) => buildLiveQuoteRow(row, quoteMap, {
+    streamerConnected: streamer.connected,
+    isAfterHours,
+    nowMs,
+  }));
   const tapeMode = parseProviderMode(tapeQuotesResult.body);
-  const watchlistFetchError = watchlistQuoteErrors[0] ?? null;
   const freshnessMessage = buildFreshnessMessage(streamer, tapeRows, tapeMode);
 
   return {
@@ -153,12 +176,28 @@ export async function loadTradingOpsLiveData(
     },
     watchlists: {
       dipBuyer: {
-        buy: buildWatchlistRows(tradingRun.data?.dipBuyerBuy ?? [], quoteMap, watchlistFetchError),
-        watch: buildWatchlistRows(tradingRun.data?.dipBuyerWatch ?? [], quoteMap, watchlistFetchError),
+        buy: buildWatchlistRows(tradingRun.data?.dipBuyerBuy ?? [], quoteMap, {
+          streamerConnected: streamer.connected,
+          isAfterHours,
+          nowMs,
+        }),
+        watch: buildWatchlistRows(tradingRun.data?.dipBuyerWatch ?? [], quoteMap, {
+          streamerConnected: streamer.connected,
+          isAfterHours,
+          nowMs,
+        }),
       },
       canslim: {
-        buy: buildWatchlistRows(tradingRun.data?.canslimBuy ?? [], quoteMap, watchlistFetchError),
-        watch: buildWatchlistRows(tradingRun.data?.canslimWatch ?? [], quoteMap, watchlistFetchError),
+        buy: buildWatchlistRows(tradingRun.data?.canslimBuy ?? [], quoteMap, {
+          streamerConnected: streamer.connected,
+          isAfterHours,
+          nowMs,
+        }),
+        watch: buildWatchlistRows(tradingRun.data?.canslimWatch ?? [], quoteMap, {
+          streamerConnected: streamer.connected,
+          isAfterHours,
+          nowMs,
+        }),
       },
     },
     meta: {
@@ -166,7 +205,7 @@ export async function loadTradingOpsLiveData(
       runLabel: tradingRun.data?.runLabel ?? null,
       decision: tradingRun.data?.decision ?? null,
       focusTicker: tradingRun.data?.focusTicker ?? null,
-      isAfterHours: isAfterHoursSession(),
+      isAfterHours,
     },
     warnings: compactStrings([
       tapeQuotesResult.error,
@@ -176,6 +215,14 @@ export async function loadTradingOpsLiveData(
       ...tradingRun.warnings,
     ]),
   };
+}
+
+export function clearTradingOpsLiveRetainedQuotesForTests() {
+  retainedSchwabQuotes.clear();
+}
+
+export function getTradingOpsLiveRetainedQuoteKeysForTests(): string[] {
+  return [...retainedSchwabQuotes.keys()];
 }
 
 function resolveExternalServiceBaseUrl(): string {
@@ -240,6 +287,7 @@ function parseQuoteItems(body: unknown): QuoteBatchItem[] {
       status: stringValue(item.status) ?? "error",
       degradedReason: stringValue(item.degradedReason),
       providerMode: stringValue(item.providerMode),
+      stalenessSeconds: numberValue(item.stalenessSeconds),
       data: asRecord(item.data) as QuoteBatchItem["data"],
     }));
 }
@@ -301,13 +349,13 @@ function parseStreamerSummary(body: unknown): LiveStreamerSummary {
 function buildWatchlistRows(
   symbols: string[],
   quoteMap: Map<string, QuoteBatchItem>,
-  fetchError: string | null,
+  context: { streamerConnected: boolean; isAfterHours: boolean; nowMs: number },
 ): LiveQuoteRow[] {
   return symbols.map((symbol) =>
     buildLiveQuoteRow(
       { symbol, label: symbol, sourceSymbol: symbol },
       quoteMap,
-      fetchError,
+      context,
     ),
   );
 }
@@ -315,10 +363,27 @@ function buildWatchlistRows(
 function buildLiveQuoteRow(
   row: { symbol: string; label: string; sourceSymbol: string },
   quoteMap: Map<string, QuoteBatchItem>,
-  fetchError: string | null,
+  context: { streamerConnected: boolean; isAfterHours: boolean; nowMs: number },
 ): LiveQuoteRow {
   const quoteItem = quoteMap.get(row.sourceSymbol);
   if (!quoteItem) {
+    const hadRetainedQuote = retainedSchwabQuotes.has(row.sourceSymbol);
+    const retainedQuote = getRetainedSchwabQuote(row.sourceSymbol, context);
+    if (retainedQuote) {
+      return {
+        symbol: row.symbol,
+        label: row.label,
+        sourceSymbol: row.sourceSymbol,
+        price: retainedQuote.price,
+        changePercent: retainedQuote.changePercent,
+        source: retainedQuote.source,
+        timestamp: retainedQuote.timestamp,
+        stalenessSeconds: retainedQuote.stalenessSeconds,
+        state: "degraded",
+        warning: buildRetainedLiveQuoteWarning(retainedQuote),
+      };
+    }
+
     return {
       symbol: row.symbol,
       label: row.label,
@@ -327,8 +392,9 @@ function buildLiveQuoteRow(
       changePercent: null,
       source: null,
       timestamp: null,
-      state: fetchError ? "error" : "missing",
-      warning: fetchError ?? "Quote unavailable.",
+      stalenessSeconds: null,
+      state: context.streamerConnected && context.isAfterHours ? "degraded" : "error",
+      warning: buildMissingLiveQuoteWarning(context, row.sourceSymbol, hadRetainedQuote),
     };
   }
 
@@ -337,6 +403,51 @@ function buildLiveQuoteRow(
   const changePercent = numberValue(data.changePercent);
   const timestamp = stringValue(data.timestamp);
   const state = normalizeLoadState(quoteItem.status, price);
+  rememberRetainedSchwabQuote({
+    symbol: row.symbol,
+    label: row.label,
+    sourceSymbol: row.sourceSymbol,
+    price,
+    changePercent,
+    source: quoteItem.source,
+    timestamp,
+    stalenessSeconds: quoteItem.stalenessSeconds ?? null,
+    state,
+    warning: null,
+  }, context.nowMs);
+
+  const shouldSoftenAfterHoursGap = shouldSoftenMissingLiveQuote(quoteItem, context);
+  if (shouldSoftenAfterHoursGap) {
+    const hadRetainedQuote = retainedSchwabQuotes.has(row.sourceSymbol);
+    const retainedQuote = getRetainedSchwabQuote(row.sourceSymbol, context);
+    if (retainedQuote) {
+      return {
+        symbol: row.symbol,
+        label: row.label,
+        sourceSymbol: row.sourceSymbol,
+        price: retainedQuote.price,
+        changePercent: retainedQuote.changePercent,
+        source: retainedQuote.source,
+        timestamp: retainedQuote.timestamp,
+        stalenessSeconds: retainedQuote.stalenessSeconds,
+        state: "degraded",
+        warning: buildRetainedLiveQuoteWarning(retainedQuote),
+      };
+    }
+
+    return {
+      symbol: row.symbol,
+      label: row.label,
+      sourceSymbol: row.sourceSymbol,
+      price,
+      changePercent,
+      source: quoteItem.source,
+      timestamp,
+      stalenessSeconds: quoteItem.stalenessSeconds ?? null,
+      state: "degraded",
+      warning: buildMissingLiveQuoteWarning(context, row.sourceSymbol, hadRetainedQuote),
+    };
+  }
 
   return {
     symbol: row.symbol,
@@ -346,9 +457,35 @@ function buildLiveQuoteRow(
     changePercent,
     source: quoteItem.source,
     timestamp,
+    stalenessSeconds: quoteItem.stalenessSeconds ?? null,
     state,
     warning: quoteItem.degradedReason ?? (price == null ? "Quote unavailable." : null),
   };
+}
+
+function buildMissingLiveQuoteWarning(
+  context: { streamerConnected: boolean; isAfterHours: boolean; nowMs: number },
+  sourceSymbol: string,
+  preferUnavailable = false,
+): string | null {
+  if (!context.streamerConnected || !context.isAfterHours) return null;
+  if (preferUnavailable) {
+    return "No after-hours Schwab quote has arrived for this symbol yet.";
+  }
+  const firstSeenAtMs = quietAfterHoursGapSince.get(sourceSymbol) ?? context.nowMs;
+  quietAfterHoursGapSince.set(sourceSymbol, firstSeenAtMs);
+  if (context.nowMs - firstSeenAtMs > AFTER_HOURS_WAITING_BADGE_WINDOW_MS) {
+    return "No after-hours Schwab quote has arrived for this symbol yet.";
+  }
+  return "No recent after-hours Schwab quote yet.";
+}
+
+function buildRetainedLiveQuoteWarning(retainedQuote: RetainedLiveQuote): string {
+  const ageSeconds = retainedQuote.stalenessSeconds ?? 0;
+  if (ageSeconds <= 0) {
+    return "Holding the last known Schwab quote while the next after-hours update comes in.";
+  }
+  return `Holding the last known Schwab quote from ${formatAgeSeconds(ageSeconds)} while the next after-hours update comes in.`;
 }
 
 function normalizeLoadState(status: string | null | undefined, price: number | null): LoadState {
@@ -363,6 +500,81 @@ function buildFreshnessMessage(
   rows: LiveQuoteRow[],
   tapeMode: { providerMode: string; fallbackEngaged: boolean; providerModeReason: string | null },
 ): string {
+  const quoteSources = new Set(rows.map((row) => row.source).filter((value): value is string => Boolean(value)));
+  const hasStreamerQuotes = quoteSources.has("schwab_streamer") || quoteSources.has("schwab_streamer_shared");
+  const hasUsableQuotes = rows.some((row) => row.price != null);
+  const hasErrors = rows.some((row) => row.state === "error");
+  const hasDegraded = rows.some((row) => row.state === "degraded");
+  const hasQuietAfterHoursRows = rows.some(isQuietAfterHoursGapRow);
+  const hasUnavailableAfterHoursRows = rows.some(isUnavailableAfterHoursGapRow);
+  const hasAfterHoursRetainedSchwabQuotes = rows.some(
+    (row) =>
+      row.state === "degraded" &&
+      (row.source === "schwab_streamer" || row.source === "schwab_streamer_shared") &&
+      (row.stalenessSeconds ?? 0) > 0,
+  );
+
+  if (streamer.connected) {
+    if (hasStreamerQuotes && !hasErrors && !hasDegraded) {
+      return "Quotes are fresh from the Schwab streamer.";
+    }
+    if (hasStreamerQuotes) {
+      if (hasAfterHoursRetainedSchwabQuotes && hasQuietAfterHoursRows && !hasErrors) {
+        return "Streamer is connected. Some symbols are holding their last Schwab after-hours update, and quieter names are waiting for the next one.";
+      }
+      if (hasAfterHoursRetainedSchwabQuotes && hasUnavailableAfterHoursRows && !hasErrors) {
+        return "Streamer is connected. Some symbols are holding their last Schwab after-hours update, and quieter names still have not printed a fresh after-hours quote.";
+      }
+      if (hasQuietAfterHoursRows && !hasErrors) {
+        return "Streamer is connected. Some symbols are still ticking, and quieter after-hours names are waiting for the next Schwab update.";
+      }
+      if (hasUnavailableAfterHoursRows && !hasErrors) {
+        return "Streamer is connected, but a few quieter after-hours symbols still have not printed a fresh Schwab quote.";
+      }
+      if (hasAfterHoursRetainedSchwabQuotes && !hasErrors) {
+        return "Quotes are fresh where Schwab is still ticking. Quieter after-hours symbols may show last-known Schwab prices with age markers.";
+      }
+      if (hasAfterHoursRetainedSchwabQuotes) {
+        return "Streamer is connected. Some symbols are holding their last Schwab after-hours update, and some quieter names are unavailable right now.";
+      }
+      if (tapeMode.providerMode === "alpaca_fallback") {
+        return "Streamer is connected, but some symbols moved into the declared Alpaca fallback lane.";
+      }
+      if (tapeMode.providerMode === "cache_fallback") {
+        return "Streamer is connected, but some symbols are using cached fallback quotes.";
+      }
+      if (tapeMode.providerMode === "multi_mode") {
+        return "Streamer is connected and some quotes are fresh, but this batch mixed live symbols with failures or fallback rows.";
+      }
+      return "Streamer is connected and some quotes are fresh, but some symbols are still degraded.";
+    }
+    if (hasQuietAfterHoursRows) {
+      return "Streamer is connected, but no followed symbols have printed a fresh after-hours Schwab quote yet.";
+    }
+    if (hasUnavailableAfterHoursRows) {
+      return "Streamer is connected, but the followed after-hours symbols still have no fresh Schwab quote.";
+    }
+    if (hasUsableQuotes) {
+      return "Streamer is connected, but this batch fell off the live Schwab lane for some symbols.";
+    }
+    return "Streamer is connected, but the live batch returned no usable quotes.";
+  }
+
+  if (hasStreamerQuotes) {
+    if (hasAfterHoursRetainedSchwabQuotes && !hasErrors) {
+      return "Using last-known Schwab quotes while the streamer reconnects.";
+    }
+    if (hasAfterHoursRetainedSchwabQuotes) {
+      return "Using last-known Schwab quotes while the streamer reconnects. Some symbols are unavailable.";
+    }
+    if (hasUsableQuotes && !hasErrors) {
+      return "Using last-known Schwab quotes while the streamer reconnects.";
+    }
+    if (hasUsableQuotes) {
+      return "Using last-known Schwab quotes while the streamer reconnects. Some symbols are unavailable.";
+    }
+  }
+
   if (tapeMode.providerMode === "alpaca_fallback") {
     return tapeMode.providerModeReason ?? "Quotes are in the declared Alpaca fallback lane.";
   }
@@ -372,20 +584,20 @@ function buildFreshnessMessage(
   if (tapeMode.providerMode === "multi_mode") {
     return tapeMode.providerModeReason ?? "Quotes are using more than one provider mode across subsystems.";
   }
-  const quoteSources = new Set(rows.map((row) => row.source).filter((value): value is string => Boolean(value)));
-  const degraded = rows.some((row) => row.state === "degraded" || row.state === "error");
-
-  if (streamer.connected && quoteSources.has("schwab_streamer")) {
-    return degraded
-      ? "Quotes are fresh from the Schwab streamer, but some symbols are still degraded."
-      : "Quotes are fresh from the Schwab streamer.";
-  }
 
   if (quoteSources.size > 0) {
     return "Using REST fallback while streamer reconnects.";
   }
 
   return "Live quotes are unavailable right now.";
+}
+
+function isQuietAfterHoursGapRow(row: LiveQuoteRow): boolean {
+  return row.state === "degraded" && row.warning === "No recent after-hours Schwab quote yet.";
+}
+
+function isUnavailableAfterHoursGapRow(row: LiveQuoteRow): boolean {
+  return row.state === "degraded" && row.warning === "No after-hours Schwab quote has arrived for this symbol yet.";
 }
 
 function collectWatchlistSymbols(tradingRun: TradingRunOverview | null): string[] {
@@ -458,4 +670,77 @@ function booleanValue(value: unknown): boolean | null {
 
 function compactStrings(values: Array<string | null | undefined>): string[] {
   return values.filter((value): value is string => Boolean(value && value.trim()));
+}
+
+function rememberRetainedSchwabQuote(row: LiveQuoteRow, nowMs: number) {
+  if (row.price == null) return;
+  if (row.source !== "schwab_streamer" && row.source !== "schwab_streamer_shared") return;
+
+  quietAfterHoursGapSince.delete(row.sourceSymbol);
+  retainedSchwabQuotes.set(row.sourceSymbol, {
+    price: row.price,
+    changePercent: row.changePercent,
+    source: row.source,
+    timestamp: row.timestamp,
+    stalenessSeconds: row.stalenessSeconds ?? null,
+    observedAtMs: nowMs,
+  });
+}
+
+function getRetainedSchwabQuote(
+  sourceSymbol: string,
+  context: { streamerConnected: boolean; isAfterHours: boolean; nowMs: number },
+): RetainedLiveQuote | null {
+  if (!context.streamerConnected || !context.isAfterHours) return null;
+
+  const retainedQuote = retainedSchwabQuotes.get(sourceSymbol);
+  if (!retainedQuote) return null;
+
+  const stalenessSeconds = computeRetainedStalenessSeconds(retainedQuote, context.nowMs);
+  if (stalenessSeconds == null || stalenessSeconds * 1000 > AFTER_HOURS_RETAINED_QUOTE_WINDOW_MS) {
+    return null;
+  }
+
+  return {
+    ...retainedQuote,
+    stalenessSeconds,
+  };
+}
+
+function computeRetainedStalenessSeconds(retainedQuote: RetainedLiveQuote, nowMs: number): number | null {
+  if (retainedQuote.timestamp) {
+    const timestampMs = Date.parse(retainedQuote.timestamp);
+    if (Number.isFinite(timestampMs)) {
+      return Math.max(1, Math.floor((nowMs - timestampMs) / 1000));
+    }
+  }
+
+  if (retainedQuote.stalenessSeconds != null) {
+    return Math.max(1, retainedQuote.stalenessSeconds + Math.floor((nowMs - retainedQuote.observedAtMs) / 1000));
+  }
+
+  return Math.max(1, Math.floor((nowMs - retainedQuote.observedAtMs) / 1000));
+}
+
+function shouldSoftenMissingLiveQuote(
+  quoteItem: QuoteBatchItem,
+  context: { streamerConnected: boolean; isAfterHours: boolean; nowMs: number },
+): boolean {
+  if (!context.streamerConnected || !context.isAfterHours) return false;
+  if (quoteItem.status === "ok") return false;
+  const degradedReason = quoteItem.degradedReason ?? "";
+  return (
+    degradedReason.includes("No live Schwab quote available") ||
+    degradedReason.includes("HTTP 401") ||
+    degradedReason.includes("This operation was aborted")
+  );
+}
+
+function formatAgeSeconds(ageSeconds: number): string {
+  if (ageSeconds < 60) return `${ageSeconds}s ago`;
+  const minutes = Math.floor(ageSeconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m ago` : `${hours}h ago`;
 }

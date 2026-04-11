@@ -236,34 +236,42 @@ export class SchwabStreamerRuntime {
     if (this.activeRole !== "follower") {
       return null;
     }
-    const state = await this.readSharedState();
-    const quote = state?.quotes?.[symbol];
-    if (!quote?.receivedAt || !quote.quote) {
+    const snapshot = await this.readSharedQuoteSnapshot(symbol);
+    if (!snapshot) {
       return null;
     }
-    const ageSeconds = this.secondsSince(quote.receivedAt);
-    if (ageSeconds == null || ageSeconds > Math.round(this.config.SCHWAB_STREAMER_QUOTE_TTL_MS / 1000)) {
+    if (snapshot.stalenessSeconds > Math.round(this.config.SCHWAB_STREAMER_QUOTE_TTL_MS / 1000)) {
       return null;
     }
     this.recordSharedStateFallbackSuccess();
-    return quote.quote;
+    return snapshot.quote;
   }
 
   async readSharedFuturesQuote(symbol: string): Promise<MarketDataQuote | null> {
     if (this.activeRole !== "follower") {
       return null;
     }
-    const state = await this.readSharedState();
-    const quote = state?.futuresQuotes?.[symbol];
-    if (!quote?.receivedAt || !quote.quote) {
+    const snapshot = await this.readSharedFuturesQuoteSnapshot(symbol);
+    if (!snapshot) {
       return null;
     }
-    const ageSeconds = this.secondsSince(quote.receivedAt);
-    if (ageSeconds == null || ageSeconds > Math.round(this.config.SCHWAB_STREAMER_QUOTE_TTL_MS / 1000)) {
+    if (snapshot.stalenessSeconds > Math.round(this.config.SCHWAB_STREAMER_QUOTE_TTL_MS / 1000)) {
       return null;
     }
     this.recordSharedStateFallbackSuccess();
-    return quote.quote;
+    return snapshot.quote;
+  }
+
+  async readAfterHoursSharedQuote(symbol: string): Promise<{ quote: MarketDataQuote; stalenessSeconds: number } | null> {
+    const snapshot = await this.readSharedQuoteSnapshot(symbol);
+    return this.filterAfterHoursSnapshot(snapshot);
+  }
+
+  async readAfterHoursSharedFuturesQuote(
+    symbol: string,
+  ): Promise<{ quote: MarketDataQuote; stalenessSeconds: number } | null> {
+    const snapshot = await this.readSharedFuturesQuoteSnapshot(symbol);
+    return this.filterAfterHoursSnapshot(snapshot);
   }
 
   async readSharedChart(symbol: string): Promise<Record<string, unknown> | null> {
@@ -435,6 +443,76 @@ export class SchwabStreamerRuntime {
 
   private recordSharedStateFallbackSuccess(): void {
     this.providerMetrics.fallbackUsage.shared_state = (this.providerMetrics.fallbackUsage.shared_state ?? 0) + 1;
+  }
+
+  private async readSharedQuoteSnapshot(
+    symbol: string,
+  ): Promise<{ quote: MarketDataQuote; stalenessSeconds: number } | null> {
+    const state = await this.readSharedState();
+    const quote = state?.quotes?.[symbol];
+    if (!quote?.receivedAt || !quote.quote) {
+      return null;
+    }
+    const stalenessSeconds = this.secondsSince(quote.receivedAt);
+    if (stalenessSeconds == null) {
+      return null;
+    }
+    return {
+      quote: quote.quote,
+      stalenessSeconds,
+    };
+  }
+
+  private async readSharedFuturesQuoteSnapshot(
+    symbol: string,
+  ): Promise<{ quote: MarketDataQuote; stalenessSeconds: number } | null> {
+    const state = await this.readSharedState();
+    const quote = state?.futuresQuotes?.[symbol];
+    if (!quote?.receivedAt || !quote.quote) {
+      return null;
+    }
+    const stalenessSeconds = this.secondsSince(quote.receivedAt);
+    if (stalenessSeconds == null) {
+      return null;
+    }
+    return {
+      quote: quote.quote,
+      stalenessSeconds,
+    };
+  }
+
+  private filterAfterHoursSnapshot(
+    snapshot: { quote: MarketDataQuote; stalenessSeconds: number } | null,
+  ): { quote: MarketDataQuote; stalenessSeconds: number } | null {
+    if (!snapshot) {
+      return null;
+    }
+    if (this.isRegularHoursSession()) {
+      return null;
+    }
+    const freshTtlSeconds = Math.round(this.config.SCHWAB_STREAMER_QUOTE_TTL_MS / 1000);
+    const afterHoursTtlSeconds = Math.round(this.config.SCHWAB_STREAMER_AFTER_HOURS_QUOTE_TTL_MS / 1000);
+    if (afterHoursTtlSeconds <= freshTtlSeconds) {
+      return null;
+    }
+    if (snapshot.stalenessSeconds <= freshTtlSeconds || snapshot.stalenessSeconds > afterHoursTtlSeconds) {
+      return null;
+    }
+    this.recordSharedStateFallbackSuccess();
+    return snapshot;
+  }
+
+  private isRegularHoursSession(reference = new Date()): boolean {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      hour: "numeric",
+      hour12: false,
+      timeZone: "America/New_York",
+    }).formatToParts(reference);
+    const weekday = parts.find((part) => part.type === "weekday")?.value ?? "";
+    const hour = Number(parts.find((part) => part.type === "hour")?.value ?? NaN);
+    const isWeekday = !["Sat", "Sun"].includes(weekday);
+    return isWeekday && Number.isFinite(hour) && hour >= 9 && hour < 16;
   }
 
   private secondsSince(value: string | null | undefined): number | null {

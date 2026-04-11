@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type {
   ArtifactState,
-  LiveQuoteRow,
+  FinancialServiceHealthRow,
   PolymarketAccountOverview,
   PolymarketResultRow,
   PolymarketResultsOverview,
@@ -17,6 +17,12 @@ import type {
   TradingOpsLiveData,
   TradingOpsPolymarketData,
 } from "@/lib/trading-ops-contract";
+import {
+  getPolymarketLinkedAssetClass,
+  getPolymarketLiveEventLink,
+  getPolymarketLiveMarketProbability,
+  getPolymarketSeverity,
+} from "@/lib/trading-ops-polymarket-links";
 import { formatCurrency as formatMoney, formatOperatorTimestamp, formatPercentDecimal as formatPercent } from "@/lib/format-utils";
 import { Metric, StageChip, StrategyWatchlistSection, ArtifactPanel } from "./trading-ops/shared";
 import { TerminalHeader } from "./trading-ops/terminal-header";
@@ -33,7 +39,22 @@ const POLYMARKET_POLL_MS = 30_000;
 const POLYMARKET_LIVE_POLL_MS = 15_000;
 const POLYMARKET_LIVE_STREAM_RETRY_MS = 2_000;
 const COMPACT_TAPE_ORDER = ["SPY", "QQQ", "IWM", "DOW", "NASDAQ"];
-const POLYMARKET_BRIDGE_ORDER = ["SPY", "QQQ", "DIA", "ARKK", "XLE", "S&P 500", "NASDAQ", "DOW"];
+
+type PolymarketLinkedSymbolCardRow = {
+  symbol: string;
+  assetClass: string;
+  theme: string;
+  sourceTitle: string;
+  eventTitle: string | null;
+  probability: number | null;
+  severity: string;
+  regimeEffect: string | null;
+  marketState: string | null;
+  spread: number | null;
+  updatedAt: string | null;
+  state: TradingOpsPolymarketLiveData["markets"][number]["state"];
+  warning: string | null;
+};
 
 /* ── main component ── */
 
@@ -43,7 +64,7 @@ type TradingOpsDashboardProps = {
 
 export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   const hasIncidents = (data.runtime.data?.incidents.length ?? 0) > 0;
-  const hasErrors = [data.market, data.runtime, data.workflow, data.canary, data.tradingRun].some((a) => a.state === "error");
+  const hasErrors = [data.market, data.runtime, data.workflow, data.canary, data.financialServices, data.tradingRun].some((a) => a.state === "error");
   const hasTradingRunFallback = data.tradingRun.badgeText === "fallback";
   const [liveData, setLiveData] = useState<TradingOpsLiveData | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
@@ -410,9 +431,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   const polymarketOverlap = (polymarketData?.watchlist.data?.symbols ?? [])
     .map((entry) => entry.symbol)
     .filter((symbol) => tradingRunSymbols.has(symbol));
-  const polymarketBridgeRows = POLYMARKET_BRIDGE_ORDER.map(
-    (symbol) => (liveData?.tape.rows ?? []).find((row) => row.symbol === symbol) ?? null,
-  ).filter((row): row is LiveQuoteRow => Boolean(row));
+  const polymarketLinkedSymbolRows = buildPolymarketLinkedSymbolRows(polymarketLiveData);
   const polymarketPinnedRows = (polymarketLiveData?.markets ?? []).filter((market) => market.pinned);
   const polymarketPinnedEventRows = polymarketPinnedRows.filter((market) => market.bucket === "events");
   const polymarketPinnedSportsRows = polymarketPinnedRows.filter((market) => market.bucket === "sports");
@@ -545,7 +564,6 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   <Badge variant={badgeVariantForStreamer(liveData.streamer)} className="text-[10px]">
                     {liveData.streamer.connected ? "Streamer connected" : "REST fallback"}
                   </Badge>
-                  <p className="text-xs text-muted-foreground">{liveData.tape.freshnessMessage}</p>
                 </div>
                 <CompactTapeStrip rows={liveData.tape.rows.filter((row) => COMPACT_TAPE_ORDER.includes(row.symbol))} />
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -771,7 +789,6 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
           <ArtifactPanel title="Live tape" artifact={liveArtifact}>
             {liveData ? (
               <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">{liveData.tape.freshnessMessage}</p>
                 <LiveTapeGrid rows={liveData.tape.rows} />
               </div>
             ) : null}
@@ -876,12 +893,21 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                     <Metric label="Last market msg" value={formatOperatorTimestamp(polymarketLiveData.streamer.lastMarketMessageAt)} />
                     <Metric label="Last private msg" value={formatOperatorTimestamp(polymarketLiveData.streamer.lastPrivateMessageAt)} />
                   </dl>
-                  {polymarketBridgeRows.length > 0 ? (
+                  {polymarketLinkedSymbolRows.length > 0 ? (
                     <div className="space-y-1.5">
-                      <p className="terminal-metric-label">Index bridge</p>
-                      <LiveTapeGrid rows={polymarketBridgeRows} />
+                      <div>
+                        <p className="terminal-metric-label">Polymarket-linked symbols</p>
+                        <p className="text-xs text-muted-foreground">
+                          Live symbol context derived from Polymarket event markets. These are symbol links and probabilities, not stock quotes.
+                        </p>
+                      </div>
+                      <PolymarketLinkedSymbolGrid rows={polymarketLinkedSymbolRows} />
                     </div>
-                  ) : null}
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No linked stock or ETF signals are active on the current Polymarket event roster.
+                    </p>
+                  )}
                 </div>
               ) : null}
             </ArtifactPanel>
@@ -1161,6 +1187,23 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
         {/* ── System Health ── */}
         <TabsContent value="health" className="space-y-3">
+          <ArtifactPanel title="Financial services health" artifact={data.financialServices}>
+            {data.financialServices.data ? (
+              <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <Metric label="Healthy" value={String(data.financialServices.data.healthyCount)} />
+                  <Metric label="Degraded" value={String(data.financialServices.data.degradedCount)} />
+                  <Metric label="Needs attention" value={String(data.financialServices.data.errorCount)} />
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {data.financialServices.data.rows.map((row) => (
+                    <FinancialServiceCard key={row.label} row={row} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </ArtifactPanel>
+
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             <ArtifactPanel title="Pre-open readiness check" artifact={data.canary}>
               {data.canary.data ? (
@@ -1267,6 +1310,27 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   );
 }
 
+function FinancialServiceCard({ row }: { row: FinancialServiceHealthRow }) {
+  return (
+    <div className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-medium">{row.label}</p>
+          <p className="text-muted-foreground">{row.summary}</p>
+        </div>
+        <Badge variant={badgeVariantForServiceHealth(row.state)} className="text-[10px]">
+          {row.badgeText ?? row.state}
+        </Badge>
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Metric label="Detail" value={row.detail} />
+        <Metric label="Updated" value={row.updatedAt ? formatOperatorTimestamp(row.updatedAt) : "—"} />
+      </div>
+      <p className="mt-2 truncate text-[10px] text-muted-foreground">Source: {row.source}</p>
+    </div>
+  );
+}
+
 function buildLiveArtifact(
   liveData: TradingOpsLiveData | null,
   liveError: string | null,
@@ -1305,6 +1369,13 @@ function badgeVariantForStreamer(streamer: TradingOpsLiveData["streamer"]) {
   if (streamer.connected && streamer.operatorState === "healthy") return "success" as const;
   if (streamer.connected) return "warning" as const;
   return "info" as const;
+}
+
+function badgeVariantForServiceHealth(state: FinancialServiceHealthRow["state"]) {
+  if (state === "ok") return "success" as const;
+  if (state === "degraded") return "warning" as const;
+  if (state === "error") return "destructive" as const;
+  return "outline" as const;
 }
 
 function buildPolymarketStatusArtifact(
@@ -1411,6 +1482,47 @@ function collectTradingRunSymbols(data: TradingOpsDashboardData): Set<string> {
   );
 }
 
+function buildPolymarketLinkedSymbolRows(
+  data: TradingOpsPolymarketLiveData | null,
+): PolymarketLinkedSymbolCardRow[] {
+  if (!data) return [];
+
+  const rows: PolymarketLinkedSymbolCardRow[] = [];
+  const seen = new Set<string>();
+
+  for (const market of data.markets) {
+    if (market.bucket !== "events") continue;
+    const link = getPolymarketLiveEventLink(market.title, market.eventTitle);
+    if (!link) continue;
+
+    const probability = getPolymarketLiveMarketProbability(market);
+    const severity = getPolymarketSeverity(probability);
+    const updatedAt = newestTimestamp([market.updatedAt, market.tradeTime]);
+
+    for (const symbol of link.watchTickers) {
+      if (seen.has(symbol)) continue;
+      seen.add(symbol);
+      rows.push({
+        symbol,
+        assetClass: getPolymarketLinkedAssetClass(symbol),
+        theme: link.theme,
+        sourceTitle: market.title,
+        eventTitle: market.eventTitle,
+        probability,
+        severity,
+        regimeEffect: link.regimeEffect,
+        marketState: market.marketState,
+        spread: market.spread,
+        updatedAt,
+        state: market.state,
+        warning: market.warning,
+      });
+    }
+  }
+
+  return rows;
+}
+
 function formatLabel(value: string | null | undefined): string {
   if (!value) return "n/a";
   return value.replaceAll("_", " ");
@@ -1455,6 +1567,58 @@ function renderPolymarketMarketCard(
   options: { pending: boolean; result: PolymarketResultRow | null; rosterNew?: boolean; onToggle: () => void },
 ) {
   return <PolymarketMarketCard key={market.slug} market={market} options={options} />;
+}
+
+function PolymarketLinkedSymbolGrid({ rows }: { rows: PolymarketLinkedSymbolCardRow[] }) {
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      {rows.map((row) => (
+        <PolymarketLinkedSymbolCard key={`${row.symbol}-${row.sourceTitle}`} row={row} />
+      ))}
+    </div>
+  );
+}
+
+function PolymarketLinkedSymbolCard({ row }: { row: PolymarketLinkedSymbolCardRow }) {
+  return (
+    <div className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-mono text-sm font-semibold">{row.symbol}</p>
+          <p className="text-muted-foreground">
+            {formatLabel(row.assetClass)}
+            {row.theme ? ` · ${formatLabel(row.theme)}` : ""}
+            {row.regimeEffect ? ` · regime ${formatLabel(row.regimeEffect)}` : ""}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1">
+          <Badge variant={badgeVariantForMarketSeverity(row.severity)} className="text-[10px]">
+            {row.severity}
+          </Badge>
+          {row.marketState ? (
+            <Badge variant="outline" className="text-[10px]">
+              {formatLabel(row.marketState)}
+            </Badge>
+          ) : null}
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Metric label="Signal" value={formatProbability(row.probability)} />
+        <Metric label="Spread" value={formatMarketPrice(row.spread)} />
+        <Metric label="Source market" value={row.sourceTitle} />
+        <Metric label="Updated" value={formatOperatorTimestamp(row.updatedAt)} />
+      </div>
+      <p className="mt-3 text-muted-foreground">
+        Linked to {row.sourceTitle}
+        {row.eventTitle && row.eventTitle !== row.sourceTitle ? ` · ${row.eventTitle}` : ""}
+      </p>
+      {row.warning ? (
+        <p className="mt-1 text-muted-foreground">
+          {row.warning}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function PolymarketMarketCard({

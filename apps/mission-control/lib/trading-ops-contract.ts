@@ -87,6 +87,24 @@ export type OpsHighwayOverview = {
   firstRecoveryStep: string | null;
 };
 
+export type FinancialServiceHealthRow = {
+  label: string;
+  state: LoadState;
+  summary: string;
+  detail: string;
+  source: string;
+  updatedAt: string | null;
+  badgeText?: string | null;
+};
+
+export type FinancialServicesHealthOverview = {
+  rows: FinancialServiceHealthRow[];
+  healthyCount: number;
+  degradedCount: number;
+  errorCount: number;
+  checkedAt: string | null;
+};
+
 export type TradingRunOverview = {
   runId: string;
   runLabel: string;
@@ -125,6 +143,7 @@ export type TradingOpsDashboardData = {
   lifecycle: ArtifactState<LifecycleOverview>;
   workflow: ArtifactState<WorkflowOverview>;
   opsHighway: ArtifactState<OpsHighwayOverview>;
+  financialServices: ArtifactState<FinancialServicesHealthOverview>;
   tradingRun: ArtifactState<TradingRunOverview>;
 };
 
@@ -136,6 +155,7 @@ export type LiveQuoteRow = {
   changePercent: number | null;
   source: string | null;
   timestamp: string | null;
+  stalenessSeconds?: number | null;
   state: LoadState;
   warning: string | null;
 };

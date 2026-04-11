@@ -18,12 +18,12 @@ import type { ProviderChain, ProviderRouteContext, QuoteFetchResult } from "./pr
 const DEFAULT_INTERVAL = "1d";
 const QUOTE_ALPACA_FALLBACK_SUBSYSTEMS = new Set([
   "market_brief_tape",
-  "live_watchlists",
   "intraday_breadth",
   "clive",
   "cwatch",
   "pre_open_canary",
 ]);
+const QUOTE_LIVE_SCHWAB_LANE_SUBSYSTEMS = new Set(["live_watchlists"]);
 const HISTORY_ALPACA_FALLBACK_SUBSYSTEMS = new Set(["market_regime"]);
 
 interface QueryRoutesConfig {
@@ -67,11 +67,52 @@ export class MarketDataQueryRoutes {
     };
   }
 
+  private buildQuoteBatchErrorItem(
+    symbol: string,
+    error: unknown,
+    providerModeReason: string,
+  ): Record<string, unknown> {
+    return {
+      symbol,
+      source: "service",
+      status: "error",
+      degradedReason: summarizeError(error),
+      stalenessSeconds: null,
+      providerMode: "unavailable",
+      fallbackEngaged: false,
+      providerModeReason,
+      data: { symbol },
+    };
+  }
+
   private async resolveQuoteBatchItems(
     symbols: string[],
     compareProvider: string | undefined,
     context: ProviderRouteContext,
   ): Promise<Array<Record<string, unknown>>> {
+    if (context.preferLiveSchwabLane) {
+      const schwabPrimary = await Promise.all(
+        symbols.map(async (symbol) => ({
+          symbol,
+          primary: await this.providerChain.fetchSchwabLiveQuoteOnly(symbol, {
+            allowAfterHoursStale: true,
+          }),
+        })),
+      );
+      return Promise.all(
+        schwabPrimary.map(async ({ symbol, primary }) => {
+          if (primary?.quote?.price != null) {
+            return this.buildQuoteBatchItem(symbol, primary, compareProvider);
+          }
+          return this.buildQuoteBatchErrorItem(
+            symbol,
+            new Error(`No live Schwab quote available for ${symbol}`),
+            "Quote batch could not keep a live Schwab lane for this symbol.",
+          );
+        }),
+      );
+    }
+
     if (!context.allowAlpacaFallback) {
       return Promise.all(
         symbols.map(async (symbol) => {
@@ -79,17 +120,11 @@ export class MarketDataQueryRoutes {
             const primary = await this.providerChain.fetchPrimaryQuote(symbol, context);
             return this.buildQuoteBatchItem(symbol, primary, compareProvider);
           } catch (error) {
-            return {
+            return this.buildQuoteBatchErrorItem(
               symbol,
-              source: "service",
-              status: "error",
-              degradedReason: summarizeError(error),
-              stalenessSeconds: null,
-              providerMode: "unavailable",
-              fallbackEngaged: false,
-              providerModeReason: "Quote batch could not produce a provider mode for this symbol.",
-              data: { symbol },
-            };
+              error,
+              "Quote batch could not produce a provider mode for this symbol.",
+            );
           }
         }),
       );
@@ -103,51 +138,26 @@ export class MarketDataQueryRoutes {
             const primary = await this.providerChain.fetchPrimaryQuote(symbol, { ...context, allowAlpacaFallback: false });
             return this.buildQuoteBatchItem(symbol, primary, compareProvider);
           } catch (error) {
-            return {
+            return this.buildQuoteBatchErrorItem(
               symbol,
-              source: "service",
-              status: "error",
-              degradedReason: summarizeError(error),
-              stalenessSeconds: null,
-              providerMode: "unavailable",
-              fallbackEngaged: false,
-              providerModeReason: "Quote batch could not produce a provider mode for this symbol.",
-              data: { symbol },
-            };
+              error,
+              "Quote batch could not produce a provider mode for this symbol.",
+            );
           }
         }),
       );
     }
-
-    const schwabPrimary = await Promise.all(
-      symbols.map(async (symbol) => ({
-        symbol,
-        primary: await this.providerChain.fetchSchwabLiveQuoteOnly(symbol),
-      })),
-    );
-    if (schwabPrimary.every((item) => item.primary?.quote?.price != null)) {
-      return Promise.all(
-        schwabPrimary.map(async ({ symbol, primary }) => this.buildQuoteBatchItem(symbol, primary as QuoteFetchResult, compareProvider)),
-      );
-    }
-
     return Promise.all(
       symbols.map(async (symbol) => {
         try {
-          const primary = await this.providerChain.fetchAlpacaQuoteFallback(symbol, context);
-          return this.buildQuoteBatchItem(symbol, primary, compareProvider);
+          const fallback = await this.providerChain.fetchAlpacaQuoteFallback(symbol, context);
+          return this.buildQuoteBatchItem(symbol, fallback, compareProvider);
         } catch (error) {
-          return {
+          return this.buildQuoteBatchErrorItem(
             symbol,
-            source: "service",
-            status: "error",
-            degradedReason: summarizeError(error),
-            stalenessSeconds: null,
-            providerMode: "unavailable",
-            fallbackEngaged: false,
-            providerModeReason: "Quote batch could not keep a single fallback mode for this symbol.",
-            data: { symbol },
-          };
+            error,
+            "Quote batch could not keep a live provider lane for this symbol.",
+          );
         }
       }),
     );
@@ -505,6 +515,7 @@ function buildQuoteRouteContext(subsystem?: string): ProviderRouteContext {
   return {
     subsystem,
     allowAlpacaFallback: QUOTE_ALPACA_FALLBACK_SUBSYSTEMS.has(subsystem ?? ""),
+    preferLiveSchwabLane: QUOTE_LIVE_SCHWAB_LANE_SUBSYSTEMS.has(subsystem ?? ""),
   };
 }
 

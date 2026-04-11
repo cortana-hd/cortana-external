@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { formatOperatorTimestamp, formatRelativeAge } from "@/lib/format-utils";
 import { getBacktesterRepoPath, getCortanaSourceRepo } from "@/lib/runtime-paths";
+import { findWorkspaceRoot } from "@/lib/service-workspace";
 import { shouldTolerateInFlightRunAheadOfArtifact } from "@/lib/trading-ops-smoke";
 import {
   prismaTradingRunStateStore,
@@ -13,6 +14,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const JSON_TIMEOUT_MS = 10_000;
+const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
 
 export type LoadState = "ok" | "degraded" | "missing" | "error";
 
@@ -103,6 +105,24 @@ export type OpsHighwayOverview = {
   firstRecoveryStep: string | null;
 };
 
+export type FinancialServiceHealthRow = {
+  label: string;
+  state: LoadState;
+  summary: string;
+  detail: string;
+  source: string;
+  updatedAt: string | null;
+  badgeText?: string | null;
+};
+
+export type FinancialServicesHealthOverview = {
+  rows: FinancialServiceHealthRow[];
+  healthyCount: number;
+  degradedCount: number;
+  errorCount: number;
+  checkedAt: string | null;
+};
+
 export type TradingRunOverview = {
   runId: string;
   runLabel: string;
@@ -153,13 +173,16 @@ export type TradingOpsDashboardData = {
   lifecycle: ArtifactState<LifecycleOverview>;
   workflow: ArtifactState<WorkflowOverview>;
   opsHighway: ArtifactState<OpsHighwayOverview>;
+  financialServices: ArtifactState<FinancialServicesHealthOverview>;
   tradingRun: ArtifactState<TradingRunOverview>;
 };
 
 type LoaderOptions = {
   backtesterRepoPath?: string;
   cortanaRepoPath?: string;
+  externalServiceBaseUrl?: string;
   runJsonCommand?: (scriptPath: string, args?: string[]) => Promise<unknown>;
+  fetchImpl?: typeof fetch;
   tradingRunStateStore?: TradingRunStateStore | null;
 };
 
@@ -168,6 +191,8 @@ export async function loadTradingOpsDashboardData(
 ): Promise<TradingOpsDashboardData> {
   const repoPath = options.backtesterRepoPath ?? getBacktesterRepoPath();
   const cortanaRepoPath = options.cortanaRepoPath ?? getCortanaSourceRepo();
+  const externalServiceBaseUrl = options.externalServiceBaseUrl ?? await resolveExternalServiceBaseUrl();
+  const fetchImpl = options.fetchImpl ?? fetch;
   const runJsonCommand = options.runJsonCommand ?? ((scriptPath: string, args: string[] = ["--pretty"]) =>
     runBacktesterJsonScript(repoPath, scriptPath, args));
   const tradingRun = await loadTradingRunOverview(cortanaRepoPath, options.tradingRunStateStore);
@@ -182,6 +207,7 @@ export async function loadTradingOpsDashboardData(
     lifecycle,
     workflow,
     opsHighway,
+    financialServices,
   ] = await Promise.all([
     loadMarketOverview(repoPath, tradingRunSignal),
     loadRuntimeOverview(repoPath, runJsonCommand),
@@ -191,6 +217,7 @@ export async function loadTradingOpsDashboardData(
     loadLifecycleOverview(repoPath),
     loadWorkflowOverview(repoPath, tradingRunSignal),
     loadOpsHighwayOverview(repoPath, runJsonCommand),
+    loadFinancialServicesOverview(externalServiceBaseUrl, fetchImpl),
   ]);
 
   return {
@@ -205,6 +232,7 @@ export async function loadTradingOpsDashboardData(
     lifecycle,
     workflow,
     opsHighway,
+    financialServices,
     tradingRun,
   };
 }
@@ -395,6 +423,360 @@ async function loadRuntimeOverview(
       warnings: [],
     };
   }
+}
+
+async function loadFinancialServicesOverview(
+  baseUrl: string,
+  fetchImpl: typeof fetch,
+): Promise<ArtifactState<FinancialServicesHealthOverview>> {
+  const checkedAt = new Date().toISOString();
+  const [opsResult, alpacaResult, polymarketHealthResult, polymarketLiveResult] = await Promise.all([
+    fetchJson(`${baseUrl}/market-data/ops`, fetchImpl, 5_000),
+    fetchJson(`${baseUrl}/alpaca/health`, fetchImpl, 4_000),
+    fetchJson(`${baseUrl}/polymarket/health`, fetchImpl, 4_000),
+    fetchJson(`${baseUrl}/polymarket/live`, fetchImpl, 4_000),
+  ]);
+
+  const opsBody = asRecord(opsResult.body);
+  const opsData = asRecord(opsBody?.data);
+  const opsHealth = asRecord(opsData?.health);
+  const opsProviders = asRecord(opsHealth?.providers);
+  const providerMetrics = asRecord(opsData?.providerMetrics);
+  const schwabStreamerMeta = asRecord(opsProviders?.schwabStreamerMeta);
+  const polymarketHealth = asRecord(polymarketHealthResult.body);
+  const polymarketLive = asRecord(polymarketLiveResult.body);
+  const polymarketStreamer = asRecord(polymarketLive?.streamer);
+
+  const rows = [
+    buildConfiguredServiceRow({
+      label: "Alpaca",
+      source: "/alpaca/health",
+      status: stringValue(asRecord(alpacaResult.body)?.status),
+      okValues: ["healthy", "ok"],
+      healthyLabel: "healthy",
+      detail:
+        stringValue(asRecord(alpacaResult.body)?.error) ??
+        "Broker health and account reachability are reported by Alpaca.",
+    }),
+    buildConfiguredServiceRow({
+      label: "FRED",
+      source: "/market-data/ops",
+      status: stringValue(opsProviders?.fred),
+      okValues: ["configured"],
+      healthyLabel: "configured",
+      detail: "Market-data ops sees FRED configured for economic data lookups.",
+    }),
+    buildConfiguredServiceRow({
+      label: "CoinMarketCap",
+      source: "/market-data/ops",
+      status: stringValue(opsProviders?.coinmarketcap),
+      okValues: ["configured"],
+      healthyLabel: "configured",
+      detail: "Market-data ops sees CoinMarketCap configured for crypto coverage.",
+    }),
+    buildSchwabRestRow(providerMetrics, opsProviders, opsData, opsResult),
+    buildSchwabStreamerRow(schwabStreamerMeta, opsProviders, opsResult),
+    buildPolymarketRestRow(polymarketHealthResult, polymarketHealth),
+    buildPolymarketStreamerRow(polymarketLiveResult, polymarketLive, polymarketStreamer),
+  ];
+
+  const healthyCount = rows.filter((row) => row.state === "ok").length;
+  const degradedCount = rows.filter((row) => row.state === "degraded").length;
+  const errorCount = rows.filter((row) => row.state === "error").length;
+  const summary = errorCount > 0
+    ? `${errorCount} services need attention.`
+    : degradedCount > 0
+      ? `${healthyCount} services healthy, ${degradedCount} degraded.`
+      : `${healthyCount} services healthy.`;
+
+  return {
+    state: errorCount > 0 ? "error" : degradedCount > 0 ? "degraded" : "ok",
+    label: "Financial services health",
+    message: summary,
+    source: `${baseUrl}/market-data/ops · ${baseUrl}/alpaca/health · ${baseUrl}/polymarket/health · ${baseUrl}/polymarket/live`,
+    updatedAt: checkedAt,
+    warnings: compactStrings([
+      opsResult.error,
+      alpacaResult.error,
+      polymarketHealthResult.error,
+      polymarketLiveResult.error,
+      ...rows.flatMap((row) => (row.state === "ok" ? [] : [`${row.label}:${row.state}`])),
+    ]),
+    badgeText: `${healthyCount}/${rows.length}`,
+    data: {
+      rows,
+      healthyCount,
+      degradedCount,
+      errorCount,
+      checkedAt,
+    },
+  };
+}
+
+type FetchJsonResult = {
+  ok: boolean;
+  status: number;
+  body: unknown;
+  error: string | null;
+};
+
+function buildServiceRow(args: {
+  label: string;
+  source: string;
+  state: LoadState;
+  summary: string;
+  detail: string;
+  updatedAt: string | null;
+  badgeText?: string | null;
+}): FinancialServiceHealthRow {
+  return {
+    label: args.label,
+    state: args.state,
+    summary: args.summary,
+    detail: args.detail,
+    source: args.source,
+    updatedAt: args.updatedAt,
+    badgeText: args.badgeText ?? null,
+  };
+}
+
+function buildConfiguredServiceRow(args: {
+  label: string;
+  source: string;
+  status: string | null;
+  okValues: string[];
+  healthyLabel: string;
+  detail: string;
+  updatedAt?: string | null;
+}): FinancialServiceHealthRow {
+  const status = args.status?.toLowerCase() ?? null;
+  const updatedAt = args.updatedAt ?? new Date().toISOString();
+  if (status == null) {
+    return buildServiceRow({
+      label: args.label,
+      source: args.source,
+      state: "error",
+      summary: "unavailable",
+      detail: "The service did not return a health status.",
+      updatedAt,
+    });
+  }
+
+  if (args.okValues.includes(status)) {
+    return buildServiceRow({
+      label: args.label,
+      source: args.source,
+      state: "ok",
+      summary: args.healthyLabel,
+      detail: args.detail,
+      updatedAt,
+      badgeText: args.healthyLabel,
+    });
+  }
+
+  const state: LoadState = status === "disabled" ? "degraded" : status === "configured" ? "ok" : "error";
+
+  return buildServiceRow({
+    label: args.label,
+    source: args.source,
+    state,
+    summary: status,
+    detail: args.detail,
+    updatedAt,
+  });
+}
+
+function buildSchwabRestRow(
+  providerMetrics: Record<string, unknown> | null,
+  providers: Record<string, unknown> | null,
+  opsData: Record<string, unknown> | null,
+  opsResult: FetchJsonResult,
+): FinancialServiceHealthRow {
+  const updatedAt = stringValue(providerMetrics?.lastSuccessfulSchwabRestAt) ?? stringValue(opsData?.generated_at) ?? new Date().toISOString();
+  const cooldownUntil = stringValue(providerMetrics?.schwabCooldownUntil);
+  const tokenStatus = stringValue(providerMetrics?.schwabTokenStatus) ?? stringValue(providers?.schwabTokenStatus);
+  const configured = stringValue(providers?.schwab) ?? "disabled";
+  const state: LoadState =
+    configured !== "configured"
+      ? "error"
+      : cooldownUntil
+        ? "degraded"
+        : tokenStatus === "ready"
+          ? "ok"
+          : "degraded";
+
+  return buildServiceRow({
+    label: "Schwab REST",
+    source: "/market-data/ops",
+    state,
+    summary: cooldownUntil ? "cooldown active" : tokenStatus === "ready" ? "healthy" : tokenStatus ?? "unknown",
+    detail:
+      cooldownUntil
+        ? `Cooldown is active until ${formatOperatorTimestamp(cooldownUntil)}.`
+        : stringValue(providerMetrics?.lastSuccessfulSchwabRestAt)
+          ? `Last successful REST quote at ${formatOperatorTimestamp(updatedAt)}.`
+          : opsResult.error ?? "Schwab REST health was not reported.",
+    updatedAt,
+    badgeText: cooldownUntil ? "cooldown" : tokenStatus === "ready" ? "rest" : undefined,
+  });
+}
+
+function buildSchwabStreamerRow(
+  streamerMeta: Record<string, unknown> | null,
+  providers: Record<string, unknown> | null,
+  opsResult: FetchJsonResult,
+): FinancialServiceHealthRow {
+  const connected = booleanValue(streamerMeta?.connected);
+  const operatorState = stringValue(streamerMeta?.operatorState) ?? "unknown";
+  const configured = stringValue(providers?.schwabStreamer) ?? "disabled";
+  const updatedAt = stringValue(streamerMeta?.lastMessageAt) ?? stringValue(streamerMeta?.lastLoginAt) ?? new Date().toISOString();
+  const activeSubscriptions = asRecord(streamerMeta?.activeSubscriptions);
+  const state: LoadState =
+    configured !== "enabled"
+      ? "error"
+      : connected
+        ? operatorState === "healthy"
+          ? "ok"
+          : "degraded"
+        : "degraded";
+
+  return buildServiceRow({
+    label: "Schwab streamer",
+    source: "/market-data/ops",
+    state,
+    summary: connected ? "connected" : "disconnected",
+    detail:
+      connected
+        ? `${numberValue(activeSubscriptions?.LEVELONE_EQUITIES) ?? 0} equity subs · ${numberValue(activeSubscriptions?.ACCT_ACTIVITY) ?? 0} acct activity.`
+        : opsResult.error ?? "Schwab streamer health was not reported.",
+    updatedAt,
+    badgeText: operatorState === "healthy" ? "stream" : undefined,
+  });
+}
+
+function buildPolymarketRestRow(
+  polymarketHealthResult: FetchJsonResult,
+  polymarketHealth: Record<string, unknown> | null,
+): FinancialServiceHealthRow {
+  const status = stringValue(polymarketHealth?.status) ?? (polymarketHealthResult.ok ? "healthy" : "unhealthy");
+  const state: LoadState = status === "healthy" || status === "ok" ? "ok" : status === "degraded" ? "degraded" : "error";
+  const updatedAt = stringValue(polymarketHealth?.generatedAt) ?? new Date().toISOString();
+
+  return buildServiceRow({
+    label: "Polymarket REST",
+    source: "/polymarket/health",
+    state,
+    summary: status,
+    detail:
+      state === "ok"
+        ? `API ${stringValue(polymarketHealth?.apiBaseUrl) ?? "Polymarket API"} is reachable.`
+        : polymarketHealthResult.error ?? "Polymarket REST health was not reported.",
+    updatedAt,
+    badgeText: "rest",
+  });
+}
+
+function buildPolymarketStreamerRow(
+  polymarketLiveResult: FetchJsonResult,
+  polymarketLive: Record<string, unknown> | null,
+  streamer: Record<string, unknown> | null,
+): FinancialServiceHealthRow {
+  const connected = booleanValue(streamer?.marketsConnected);
+  const privateConnected = booleanValue(streamer?.privateConnected);
+  const operatorState = stringValue(streamer?.operatorState) ?? "unknown";
+  const lastMarketMessageAt = stringValue(streamer?.lastMarketMessageAt);
+  const state: LoadState =
+    connected && privateConnected
+      ? operatorState === "healthy"
+        ? "ok"
+        : "degraded"
+      : connected || privateConnected
+        ? "degraded"
+        : "error";
+  const updatedAt = stringValue(polymarketLive?.generatedAt) ?? stringValue(streamer?.lastMarketMessageAt) ?? new Date().toISOString();
+
+  return buildServiceRow({
+    label: "Polymarket streamer",
+    source: "/polymarket/live",
+    state,
+    summary:
+      connected && privateConnected
+        ? "connected"
+        : connected || privateConnected
+          ? "partial"
+          : "disconnected",
+    detail:
+      connected || privateConnected
+        ? `${numberValue(streamer?.trackedMarketCount) ?? 0} tracked markets · ${lastMarketMessageAt ? `last market msg ${formatOperatorTimestamp(lastMarketMessageAt)}` : "no market timestamp"}.`
+        : polymarketLiveResult.error ?? "Polymarket streamer health was not reported.",
+    updatedAt,
+    badgeText: operatorState === "healthy" ? "stream" : undefined,
+  });
+}
+
+async function resolveExternalServiceBaseUrl(): Promise<string> {
+  const envValue = process.env.MISSION_CONTROL_EXTERNAL_SERVICE_URL?.trim();
+  if (envValue) {
+    return envValue.replace(/\/+$/u, "");
+  }
+
+  const workspaceRoot = findWorkspaceRoot();
+  const envPath = path.join(workspaceRoot, ".env");
+  try {
+    const envFile = await fs.readFile(envPath, "utf8");
+    const match = envFile.match(/^\s*PORT\s*=\s*(.+)\s*$/m);
+    const port = (match?.[1]?.trim() ?? DEFAULT_EXTERNAL_SERVICE_PORT).replace(/^['"]|['"]$/gu, "") || DEFAULT_EXTERNAL_SERVICE_PORT;
+    return `http://127.0.0.1:${port}`;
+  } catch {
+    return `http://127.0.0.1:${DEFAULT_EXTERNAL_SERVICE_PORT}`;
+  }
+}
+
+async function fetchJson(
+  url: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<FetchJsonResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetchImpl(url, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    const body = text.length > 0 ? safeJsonParse(text) : null;
+    return {
+      ok: response.ok,
+      status: response.status,
+      body,
+      error: response.ok ? null : summarizeFetchError(response.status, body),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      body: null,
+      error: error instanceof Error ? error.message : "Request failed",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function summarizeFetchError(status: number, body: unknown): string {
+  const record = asRecord(body);
+  const error = stringValue(record?.error) ?? stringValue(record?.message);
+  return error ? `HTTP ${status}: ${error}` : `HTTP ${status}`;
 }
 
 async function loadCanaryOverview(repoPath: string): Promise<ArtifactState<CanaryOverview>> {

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { LiveQuoteRow, LoadState } from "@/lib/trading-ops-contract";
-import { formatOperatorTimestamp } from "@/lib/format-utils";
+import { formatOperatorTimestamp, formatRelativeAge } from "@/lib/format-utils";
 import { Badge } from "@/components/ui/badge";
 
 /* ── animation hooks ── */
@@ -105,11 +105,52 @@ function badgeVariantForQuoteState(state: LoadState) {
 }
 
 function quoteBadgeLabel(row: LiveQuoteRow): string {
+  if (isQuietAfterHoursGapRow(row)) return "waiting";
+  if (isStaleSchwabRow(row)) return "stale";
   if (row.state === "ok" && row.source === "schwab_streamer") return "live";
   if (row.state === "ok") return "rest";
   if (row.state === "degraded") return "degraded";
   if (row.state === "error") return "error";
   return "missing";
+}
+
+function isQuietAfterHoursGapRow(row: LiveQuoteRow): boolean {
+  return row.state === "degraded" && row.warning === "No recent after-hours Schwab quote yet.";
+}
+
+function isStaleSchwabRow(row: LiveQuoteRow): boolean {
+  return (
+    row.state === "degraded" &&
+    (row.source === "schwab_streamer" || row.source === "schwab_streamer_shared") &&
+    (row.stalenessSeconds ?? 0) > 0 &&
+    Boolean(row.timestamp)
+  );
+}
+
+function quoteTimestampLabel(row: LiveQuoteRow): string {
+  if (isStaleSchwabRow(row) && row.timestamp) {
+    return `Last Schwab update ${formatRelativeAge(row.timestamp)}`;
+  }
+  return row.timestamp ? formatOperatorTimestamp(row.timestamp) : "Timestamp unavailable";
+}
+
+function quoteSourceLabel(row: LiveQuoteRow): string {
+  if (isQuietAfterHoursGapRow(row)) {
+    return "Schwab after-hours";
+  }
+  if (isStaleSchwabRow(row) && row.timestamp) {
+    return `Schwab stale · ${formatRelativeAge(row.timestamp)}`;
+  }
+  if (row.source === "schwab_streamer") {
+    return "Streamer";
+  }
+  if (row.source === "schwab_streamer_shared") {
+    return "Shared Schwab state";
+  }
+  if (row.source) {
+    return `Source ${row.source}`;
+  }
+  return "Quote unavailable";
 }
 
 function QuoteStateBadge({ row, compact = false }: { row: LiveQuoteRow; compact?: boolean }) {
@@ -144,6 +185,9 @@ function CompactTapeCard({ row }: { row: LiveQuoteRow }) {
       <p className={cn("text-xs tabular-nums", quoteChangeTextClass(row.changePercent, row.state))}>
         {formatQuoteChange(animatedChange)}
       </p>
+      {isStaleSchwabRow(row) ? (
+        <p className="mt-1 text-[10px] text-muted-foreground">{quoteTimestampLabel(row)}</p>
+      ) : null}
     </div>
   );
 }
@@ -184,8 +228,13 @@ function LiveTapeCardInner({ row }: { row: LiveQuoteRow }) {
         {formatQuoteChange(animatedChange)}
       </p>
       <p className="mt-1 text-[11px] text-muted-foreground">
-        {row.timestamp ? formatOperatorTimestamp(row.timestamp) : "Timestamp unavailable"}
+        {quoteTimestampLabel(row)}
       </p>
+      {row.state !== "ok" && row.warning ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          {row.warning}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -214,18 +263,17 @@ function LiveWatchlistRowCard({ row, groupLabel }: { row: LiveQuoteRow; groupLab
     >
       <div className="min-w-0">
         <p className="truncate font-mono text-sm font-medium">{row.symbol}</p>
-        <p className="truncate text-[11px] text-muted-foreground">
-          {row.source === "schwab_streamer"
-            ? "Streamer"
-            : row.source
-              ? `Source ${row.source}`
-              : "Quote unavailable"}
-        </p>
+        <p className="truncate text-[11px] text-muted-foreground">{quoteSourceLabel(row)}</p>
       </div>
       <p className="font-mono text-sm tabular-nums">{formatQuotePrice(animatedPrice)}</p>
       <p className={cn("font-mono text-xs tabular-nums", quoteChangeTextClass(row.changePercent, row.state))}>
         {formatQuoteChange(animatedChange)}
       </p>
+      {row.state !== "ok" && row.warning ? (
+        <p className="col-span-3 -mt-1 text-[11px] text-muted-foreground">
+          {row.warning}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { formatRelativeAge, loadTradingOpsDashboardData } from "@/lib/trading-ops";
 
 async function writeJson(filePath: string, payload: unknown) {
@@ -9,15 +9,105 @@ async function writeJson(filePath: string, payload: unknown) {
   await writeFile(filePath, JSON.stringify(payload, null, 2));
 }
 
+const externalServiceFetch = vi.fn(async (input: RequestInfo | URL) => {
+  const url = String(input);
+
+  if (url.endsWith("/market-data/ops")) {
+    return new Response(
+      JSON.stringify({
+        generatedAt: "2026-04-03T23:28:00.000Z",
+        data: {
+          serviceOperatorState: "healthy",
+          providerMetrics: {
+            lastSuccessfulSchwabRestAt: "2026-04-03T23:27:00.000Z",
+            schwabCooldownUntil: null,
+            schwabTokenStatus: "ready",
+          },
+          health: {
+            providers: {
+              coinmarketcap: "configured",
+              schwab: "configured",
+              schwabStreamer: "enabled",
+              schwabStreamerMeta: {
+                connected: true,
+                operatorState: "healthy",
+                lastMessageAt: "2026-04-03T23:27:58.000Z",
+                lastLoginAt: "2026-04-03T22:15:15.425Z",
+                activeSubscriptions: {
+                  LEVELONE_EQUITIES: 55,
+                  ACCT_ACTIVITY: 0,
+                },
+              },
+              fred: "configured",
+            },
+          },
+        },
+      }),
+    );
+  }
+
+  if (url.endsWith("/alpaca/health")) {
+    return new Response(JSON.stringify({ status: "healthy", environment: "paper", target_environment: "paper" }));
+  }
+
+  if (url.endsWith("/polymarket/health")) {
+    return new Response(
+      JSON.stringify({
+        generatedAt: "2026-04-03T23:28:00.000Z",
+        status: "healthy",
+        apiBaseUrl: "https://api.polymarket.us",
+        gatewayBaseUrl: "https://gateway.polymarket.us",
+        keyIdSuffix: "106dac",
+        balanceCount: 0,
+      }),
+    );
+  }
+
+  if (url.endsWith("/polymarket/live")) {
+    return new Response(
+      JSON.stringify({
+        generatedAt: "2026-04-03T23:28:00.000Z",
+        status: "ok",
+        streamer: {
+          marketsConnected: true,
+          privateConnected: true,
+          operatorState: "healthy",
+          trackedMarketCount: 106,
+          trackedMarketSlugs: ["rdc-usfed-fomc-2026-04-29-cut25bps"],
+          lastMarketMessageAt: "2026-04-03T23:27:59.000Z",
+          lastPrivateMessageAt: "2026-04-03T23:27:58.000Z",
+          lastError: null,
+        },
+        account: {
+          balance: 0,
+          buyingPower: 0,
+          openOrdersCount: 0,
+          positionCount: 0,
+          lastBalanceUpdateAt: "2026-04-03T23:27:58.000Z",
+          lastOrdersUpdateAt: "2026-04-03T23:27:58.000Z",
+          lastPositionsUpdateAt: "2026-04-03T23:27:58.000Z",
+        },
+        markets: [],
+        warnings: [],
+      }),
+    );
+  }
+
+  return new Response(JSON.stringify({ status: "ok" }));
+}) as typeof fetch;
+
 describe("trading ops loader", () => {
   const tempDirs: string[] = [];
 
   afterEach(async () => {
     await Promise.all(tempDirs.map(async (dir) => rm(dir, { recursive: true, force: true })));
     tempDirs.length = 0;
+    externalServiceFetch.mockClear();
+    vi.unstubAllGlobals();
   });
 
   it("loads mixed live snapshots and persisted artifacts into one dashboard payload", async () => {
+    vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-"));
     const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-cortana-"));
     tempDirs.push(repoPath);
@@ -168,6 +258,18 @@ describe("trading ops loader", () => {
     expect(data.workflow.data?.runLabel).toBe("Apr 3, 7:16 PM");
     expect(data.workflow.data?.isStale).toBe(false);
     expect(data.opsHighway.data?.criticalAssetCount).toBe(2);
+    expect(data.financialServices.state).toBe("ok");
+    expect(data.financialServices.data?.healthyCount).toBe(7);
+    expect(data.financialServices.data?.errorCount).toBe(0);
+    expect(data.financialServices.data?.rows.map((row) => row.label)).toEqual([
+      "Alpaca",
+      "FRED",
+      "CoinMarketCap",
+      "Schwab REST",
+      "Schwab streamer",
+      "Polymarket REST",
+      "Polymarket streamer",
+    ]);
     expect(data.tradingRun.state).toBe("ok");
     expect(data.tradingRun.data?.runLabel).toBe("Apr 3, 12:38 PM");
     expect(data.tradingRun.data?.status).toBe("success");
@@ -184,6 +286,7 @@ describe("trading ops loader", () => {
   });
 
   it("handles missing artifacts without throwing", async () => {
+    vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-empty-"));
     tempDirs.push(repoPath);
 
@@ -204,6 +307,7 @@ describe("trading ops loader", () => {
   });
 
   it("marks older market and workflow artifacts as stale when a newer trading run exists", async () => {
+    vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-stale-"));
     const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-stale-cortana-"));
     tempDirs.push(repoPath);
@@ -272,6 +376,7 @@ describe("trading ops loader", () => {
   });
 
   it("renders missing pre-open readiness-check state as not available instead of unknown", async () => {
+    vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-runtime-"));
     tempDirs.push(repoPath);
 
@@ -307,6 +412,7 @@ describe("trading ops loader", () => {
   });
 
   it("renders provider cooldown timestamps in ET instead of raw ISO", async () => {
+    vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-runtime-human-"));
     tempDirs.push(repoPath);
 
@@ -353,6 +459,7 @@ describe("trading ops loader", () => {
   });
 
   it("marks stale canary artifacts as stale supporting health state", async () => {
+    vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-canary-stale-"));
     tempDirs.push(repoPath);
 
@@ -381,6 +488,7 @@ describe("trading ops loader", () => {
   });
 
   it("prefers DB-backed latest trading run state when the store matches the latest artifact", async () => {
+    vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-db-"));
     const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-db-cortana-"));
     tempDirs.push(repoPath);
@@ -458,6 +566,7 @@ describe("trading ops loader", () => {
   });
 
   it("falls back explicitly when DB-backed latest run state disagrees with the latest artifact", async () => {
+    vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-db-fallback-"));
     const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-db-fallback-cortana-"));
     tempDirs.push(repoPath);
@@ -535,6 +644,7 @@ describe("trading ops loader", () => {
   });
 
   it("keeps the DB-backed view when a newer run is still in flight ahead of the latest completed artifact", async () => {
+    vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-db-inflight-"));
     const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-db-inflight-cortana-"));
     tempDirs.push(repoPath);

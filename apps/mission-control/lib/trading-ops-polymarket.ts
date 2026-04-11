@@ -11,23 +11,15 @@ import type {
   TradingOpsPolymarketData,
 } from "@/lib/trading-ops-contract";
 import { loadTradingOpsPolymarketLiveData } from "@/lib/trading-ops-polymarket-live";
+import {
+  getPolymarketLinkedAssetClass,
+  getPolymarketLiveEventLink,
+  getPolymarketLiveMarketProbability,
+  getPolymarketSeverity,
+} from "@/lib/trading-ops-polymarket-links";
 import { getBacktesterRepoPath } from "@/lib/runtime-paths";
 
 const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
-const LIVE_EVENT_LINKS = [
-  {
-    match: /inflation upside risk/i,
-    theme: "inflation",
-    regimeEffect: "mixed",
-    watchTickers: ["QQQ", "ARKK", "XLE", "XOM", "CVX"],
-  },
-  {
-    match: /fed easing odds/i,
-    theme: "rates",
-    regimeEffect: "mixed",
-    watchTickers: ["SPY", "QQQ", "DIA", "NVDA", "AMD", "MSFT"],
-  },
-] as const;
 
 type FetchLike = typeof fetch;
 
@@ -135,14 +127,14 @@ function buildLiveSignalArtifact(
   }
 
   const topMarkets = eventRows.slice(0, 4).map((market) => {
-    const mapping = getLiveEventLink(market.title);
+    const mapping = getPolymarketLiveEventLink(market.title, market.eventTitle);
     return {
       slug: market.slug,
       title: market.title,
       theme: mapping?.theme ?? "macro",
-      probability: marketProbability(market),
+      probability: getPolymarketLiveMarketProbability(market),
       change24h: null,
-      severity: marketSeverity(marketProbability(market)),
+      severity: getPolymarketSeverity(getPolymarketLiveMarketProbability(market)),
       persistence: "live",
       regimeEffect: mapping?.regimeEffect ?? null,
       watchTickers: mapping?.watchTickers ? [...mapping.watchTickers] : [],
@@ -196,22 +188,22 @@ function buildLiveWatchlistArtifact(
   }
 
   for (const market of live.markets.filter((entry) => entry.bucket === "events")) {
-    const mapping = getLiveEventLink(market.title);
+    const mapping = getPolymarketLiveEventLink(market.title, market.eventTitle);
     if (!mapping) {
       continue;
     }
 
-    const probability = marketProbability(market);
+    const probability = getPolymarketLiveMarketProbability(market);
     for (const symbol of mapping.watchTickers) {
       if (symbols.has(symbol)) {
         continue;
       }
       symbols.set(symbol, {
         symbol,
-        assetClass: inferAssetClass(symbol),
+        assetClass: getPolymarketLinkedAssetClass(symbol),
         themes: [mapping.theme],
         sourceTitles: [market.title],
-        severity: marketSeverity(probability),
+        severity: getPolymarketSeverity(probability),
         persistence: "live",
         probability,
         score: probability,
@@ -312,42 +304,6 @@ function deriveAccountStatus(live: Awaited<ReturnType<typeof loadTradingOpsPolym
     return "degraded";
   }
   return "error";
-}
-
-function getLiveEventLink(title: string) {
-  return LIVE_EVENT_LINKS.find((entry) => entry.match.test(title)) ?? null;
-}
-
-function marketProbability(market: Awaited<ReturnType<typeof loadTradingOpsPolymarketLiveData>>["markets"][number]): number | null {
-  if (typeof market.lastTrade === "number" && Number.isFinite(market.lastTrade)) {
-    return market.lastTrade;
-  }
-  if (
-    typeof market.bestBid === "number" &&
-    Number.isFinite(market.bestBid) &&
-    typeof market.bestAsk === "number" &&
-    Number.isFinite(market.bestAsk)
-  ) {
-    return Number((((market.bestBid + market.bestAsk) / 2) * 1000).toFixed(0)) / 1000;
-  }
-  return null;
-}
-
-function marketSeverity(probability: number | null): string {
-  if (probability == null) {
-    return "minor";
-  }
-  if (probability >= 0.85 || probability <= 0.15) {
-    return "major";
-  }
-  if (probability >= 0.65 || probability <= 0.35) {
-    return "moderate";
-  }
-  return "minor";
-}
-
-function inferAssetClass(symbol: string): string {
-  return ["SPY", "QQQ", "DIA", "ARKK", "XLE"].includes(symbol) ? "etf" : "stock";
 }
 
 function bucketSummary(data: PolymarketWatchlistOverview): string {
