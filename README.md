@@ -16,6 +16,8 @@ Documentation follows a Karpathy-style LLM wiki split:
 - compiled current-truth pages live in `knowledge/`
 - archived repo-level leftovers live in `docs/archive/`
 
+OpenClaw Dreaming can also inspect a separate isolated runtime wiki at `~/.openclaw/wiki/cortana`. Repo-native sync is owned by the `cortana` repo, but `cortana-external` exposes a post-merge helper that triggers that refresh when this repo's curated front-door docs changed.
+
 ## 0) Read this first if you are trading
 
 If you need the current live shape, read in this order:
@@ -37,6 +39,22 @@ If you need the current live shape, read in this order:
 - `packages/` – typed client libraries (`fitness-client`, `fitness-types`)
 - Supporting docs and stock-discovery scripts
 - canonical docs guidance for humans and LLMs
+
+Post-merge wiki sync helper:
+
+```bash
+/Users/hd/Developer/cortana-external/tools/repo/post-merge-sync.sh
+```
+
+That wrapper only triggers the shared wiki refresh when these files changed in `cortana-external`:
+
+- `README.md`
+- `docs/README.md`
+- `knowledge/indexes/systems.md`
+
+Tracked Git hook:
+
+- `.githooks/post-merge` runs the helper automatically after local Git merges when `core.hooksPath` is set to `.githooks`
 
 ---
 
