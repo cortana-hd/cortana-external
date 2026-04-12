@@ -13,6 +13,7 @@ import { AutonomyGauge } from "@/components/autonomy-gauge";
 import { DbStatus } from "@/components/db-status";
 import { QuickActionsCard } from "@/components/quick-actions-card";
 import { ReliabilitySloCard } from "@/components/reliability-slo-card";
+import { VacationOpsCard } from "@/components/vacation-ops-card";
 
 export const dynamic = "force-dynamic";
 
@@ -144,6 +145,10 @@ export default async function Home() {
             href="/jobs"
           />
         </div>
+      </Animate>
+
+      <Animate delay={0.17}>
+        <VacationOpsCard />
       </Animate>
 
       {/* ── Row 3: Today Stats + Fitness ── */}

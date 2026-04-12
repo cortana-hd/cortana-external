@@ -6,6 +6,7 @@ import {
   Clock,
   DollarSign,
   LineChart,
+  Palmtree,
   PlugZap,
   Users,
 } from "lucide-react";
@@ -50,6 +51,26 @@ export function OverviewTab({ agents, councilSessions, usage, onSwitchTab, loadi
           <ServiceTile name="CoinMarketCap" description="Crypto market data" onClick={() => onSwitchTab("config")} />
           <ServiceTile name="FRED" description="Federal Reserve economic data" onClick={() => onSwitchTab("config")} />
         </div>
+      </SectionCard>
+
+      <SectionCard
+        icon={<Palmtree className="h-4 w-4" />}
+        title="Vacation Ops"
+        subtitle="Away-mode readiness, activation, and unattended incident visibility."
+      >
+        <button
+          type="button"
+          onClick={() => onSwitchTab("vacation")}
+          className="w-full rounded-lg border border-border/50 bg-muted/10 px-4 py-3 text-left transition-colors hover:border-border hover:bg-muted/20"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">Open Vacation Ops console</p>
+              <p className="text-[11px] text-muted-foreground">Run preflight, enable away mode, and inspect incidents without leaving Services.</p>
+            </div>
+            <span className="text-[10px] text-primary">Open tab →</span>
+          </div>
+        </button>
       </SectionCard>
 
       <SectionCard

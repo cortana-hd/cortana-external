@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +19,7 @@ import {
   healthStatusVariant,
   summarizeSessions,
 } from "@/lib/system-stats";
+import type { VacationOpsSnapshot } from "@/lib/vacation-ops";
 
 type HeartbeatPayload = {
   ok: boolean;
@@ -65,6 +67,7 @@ type SystemStatsData = {
   thinking: ThinkingPayload | null;
   db: DbStatusPayload | null;
   sessions: SessionsPayload | null;
+  vacation: VacationOpsSnapshot | null;
 };
 
 const POLL_MS = 30_000;
@@ -95,7 +98,7 @@ const fetchJson = async <T,>(url: string): Promise<T> => {
 
 export default function SystemStatsClient({ hideHeader = false }: { hideHeader?: boolean } = {}) {
   const [data, setData] = useState<SystemStatsData>(() =>
-    cachedData ?? { heartbeat: null, thinking: null, db: null, sessions: null },
+    cachedData ?? { heartbeat: null, thinking: null, db: null, sessions: null, vacation: null },
   );
   const [loading, setLoading] = useState(!cachedData);
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +112,8 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
       fetchJson<HeartbeatPayload>("/api/heartbeat-status"),
       fetchJson<ThinkingPayload>("/api/thinking-status"),
       fetchJson<DbStatusPayload>("/api/db-status"),
-    ]).then(([heartbeatResult, thinkingResult, dbResult]) => {
+      fetchJson<{ status: "ok"; data: VacationOpsSnapshot }>("/api/vacation-ops"),
+    ]).then(([heartbeatResult, thinkingResult, dbResult, vacationResult]) => {
       setData((prev) => {
         const next = { ...prev };
         if (heartbeatResult.status === "fulfilled") next.heartbeat = heartbeatResult.value;
@@ -118,6 +122,8 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
         else errors.push("gateway");
         if (dbResult.status === "fulfilled") next.db = dbResult.value;
         else errors.push("db");
+        if (vacationResult.status === "fulfilled") next.vacation = vacationResult.value.data;
+        else errors.push("vacation");
         cachedData = next;
         cachedAt = Date.now();
         return next;
@@ -179,6 +185,11 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
   const lastSessionAgeMs =
     sessionSummary.lastUpdated == null ? null : Math.max(0, snapshotAt - sessionSummary.lastUpdated);
   const lastSessionUpdate = sessionSummary.lastUpdated == null ? "—" : formatAge(lastSessionAgeMs);
+  const lastVacationRunAt =
+    data.vacation?.latestReadiness?.completedAt ?? data.vacation?.latestReadiness?.startedAt ?? null;
+  const vacationCountdown = data.vacation?.mode === "active"
+    ? formatVacationCountdown(data.vacation.activeWindow?.endAt ?? data.vacation.latestWindow?.endAt ?? null)
+    : formatVacationCadence(data.vacation?.config.summaryTimes);
 
   const recentMinutes = Math.round(SESSION_RECENT_MS / 60_000);
   const staleHours = Math.round(SESSION_STALE_MS / 60_000 / 60);
@@ -203,8 +214,8 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
       {error ? <p className="text-xs text-amber-500">{error}</p> : null}
 
       {loading ? (
-        <div className="grid gap-4 md:grid-cols-3 animate-pulse">
-          {[1, 2, 3].map((i) => (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 animate-pulse">
+          {[1, 2, 3, 4].map((i) => (
             <Card key={i}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -221,7 +232,7 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
           ))}
         </div>
       ) : (
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center justify-between text-base">
@@ -340,8 +351,140 @@ export default function SystemStatsClient({ hideHeader = false }: { hideHeader?:
             </p>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center justify-between gap-2 text-base">
+              <span>Vacation Ops</span>
+              <div className="flex items-center gap-2">
+                <Badge variant={vacationModeVariant(data.vacation?.mode)}>
+                  {vacationModeLabel(data.vacation?.mode)}
+                </Badge>
+                <Badge variant={vacationReadinessVariant(data.vacation?.latestReadiness?.readinessOutcome)}>
+                  {vacationReadinessLabel(data.vacation?.latestReadiness?.readinessOutcome)}
+                </Badge>
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">Open incidents</span>
+              <span className="text-sm font-semibold text-foreground">
+                {formatInt(data.vacation?.counts.activeIncidents ?? 0)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">Paused jobs</span>
+              <span className="text-sm font-semibold text-foreground">
+                {formatInt(data.vacation?.counts.pausedJobs ?? 0)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">Window</span>
+              <span className="text-right text-sm font-semibold text-foreground">
+                {formatVacationWindowLabel(data.vacation)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                {data.vacation?.mode === "active" ? "Time remaining" : "Cadence"}
+              </span>
+              <span className="text-right text-sm font-semibold text-foreground">
+                {vacationCountdown}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <p className="text-xs text-muted-foreground">
+                Latest readiness {formatAgeFromIso(lastVacationRunAt)}
+              </p>
+              <Link href="/services?tab=vacation" className="text-xs font-medium text-primary hover:underline">
+                Open console
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
       </div>
       )}
     </div>
   );
+}
+
+function vacationModeLabel(mode: string | null | undefined) {
+  if (mode === "active") return "Active";
+  if (mode === "ready") return "Prepared";
+  if (mode === "prep") return "Planning";
+  return "Inactive";
+}
+
+function vacationModeVariant(mode: string | null | undefined): HealthBadgeVariant {
+  if (mode === "active") return "success";
+  if (mode === "ready") return "secondary";
+  if (mode === "prep") return "secondary";
+  return "outline";
+}
+
+function vacationReadinessLabel(outcome: string | null | undefined) {
+  if (!outcome) return "N/A";
+  if (outcome === "no_go") return "NO-GO";
+  return outcome.toUpperCase().replaceAll("_", "-");
+}
+
+function vacationReadinessVariant(outcome: string | null | undefined): HealthBadgeVariant {
+  if (outcome === "pass") return "success";
+  if (outcome === "warn") return "warning";
+  if (outcome === "fail" || outcome === "no_go") return "destructive";
+  return "outline";
+}
+
+function formatVacationSummaryTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function formatVacationCountdown(value: string | null | undefined) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  const remainingMs = parsed.getTime() - Date.now();
+  if (remainingMs <= 0) return "Ended";
+
+  const totalMinutes = Math.floor(remainingMs / 60_000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function formatVacationCadence(summaryTimes?: { morning: string; evening: string }) {
+  if (!summaryTimes) return "8:00 AM · 8:00 PM";
+  return `${formatVacationClock(summaryTimes.morning)} · ${formatVacationClock(summaryTimes.evening)}`;
+}
+
+function formatVacationClock(value: string) {
+  const [hourText, minuteText] = value.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
+function formatVacationWindowLabel(snapshot: VacationOpsSnapshot | null) {
+  const window = snapshot?.activeWindow ?? snapshot?.latestWindow ?? null;
+  if (!window?.label) return "None";
+  const match = window.label.match(/(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return window.label;
+  return `${match[2]}/${match[3]}/${match[1]}`;
+}
+
+function formatAgeFromIso(value: string | null | undefined) {
+  if (!value) return "never";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return formatAge(Math.max(0, Date.now() - parsed.getTime()));
 }

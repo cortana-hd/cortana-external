@@ -1,11 +1,13 @@
 "use client";
 
 import * as React from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
   Clock,
   Cog,
   LayoutGrid,
+  Palmtree,
   ScrollText,
   Timer,
 } from "lucide-react";
@@ -14,6 +16,7 @@ import { OverviewTab } from "./tabs/overview-tab";
 import { AgentsTab } from "./tabs/agents-tab";
 import { SessionsTab } from "./tabs/sessions-tab";
 import { LogsTab } from "./tabs/logs-tab";
+import { VacationOpsTab } from "./tabs/vacation-ops-tab";
 import { TabLayout, TabLoading } from "./tabs/shared";
 import type {
   SerializedAgent,
@@ -33,6 +36,7 @@ const CronClient = React.lazy(() =>
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "overview", label: "Overview", icon: <LayoutGrid className="h-3.5 w-3.5" /> },
   { key: "config", label: "Configuration", icon: <Cog className="h-3.5 w-3.5" /> },
+  { key: "vacation", label: "Vacation Ops", icon: <Palmtree className="h-3.5 w-3.5" /> },
   { key: "agents", label: "Agents", icon: <Bot className="h-3.5 w-3.5" /> },
   { key: "cron", label: "Cron Jobs", icon: <Clock className="h-3.5 w-3.5" /> },
   { key: "sessions", label: "Sessions", icon: <Timer className="h-3.5 w-3.5" /> },
@@ -44,7 +48,16 @@ const WORKER_IDS = new Set(["huragok-worker"]);
 /* ── hub component ── */
 
 export default function ServicesHub() {
-  const [activeTab, setActiveTab] = React.useState<Tab>("overview");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedTab = React.useMemo<Tab>(() => {
+    const value = searchParams.get("tab");
+    if (value && TABS.some((tab) => tab.key === value)) {
+      return value as Tab;
+    }
+    return "overview";
+  }, [searchParams]);
+  const [activeTab, setActiveTab] = React.useState<Tab>(requestedTab);
 
   /* ── data state (all fetched client-side for instant page load) ── */
   const [agents, setAgents] = React.useState<SerializedAgent[]>([]);
@@ -68,6 +81,19 @@ export default function ServicesHub() {
     void import("@/app/cron/cron-client");
     // SystemStatsClient is eagerly imported in overview-tab (default tab)
   }, []);
+
+  React.useEffect(() => {
+    setActiveTab(requestedTab);
+  }, [requestedTab]);
+
+  const selectTab = React.useCallback((tab: Tab) => {
+    setActiveTab(tab);
+    const next = new URLSearchParams(searchParams.toString());
+    if (tab === "overview") next.delete("tab");
+    else next.set("tab", tab);
+    const query = next.toString();
+    router.replace(query ? `/services?${query}` : "/services", { scroll: false });
+  }, [router, searchParams]);
 
   /* Fetch agents + council fast, usage in background (it's slow — CLI subprocess) */
   React.useEffect(() => {
@@ -215,7 +241,7 @@ export default function ServicesHub() {
             <button
               key={tab.key}
               type="button"
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => selectTab(tab.key)}
               className={cn(
                 "inline-flex shrink-0 items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
                 activeTab === tab.key
@@ -233,13 +259,14 @@ export default function ServicesHub() {
       {/* Tab content */}
       <div className="min-h-[50vh]">
         {activeTab === "overview" && (
-          <OverviewTab agents={agents} councilSessions={councilSessions} usage={usage} onSwitchTab={setActiveTab} loading={dataLoading && !dataLoaded} error={dataError} onRefresh={refreshData} />
+          <OverviewTab agents={agents} councilSessions={councilSessions} usage={usage} onSwitchTab={selectTab} loading={dataLoading && !dataLoaded} error={dataError} onRefresh={refreshData} />
         )}
         {activeTab === "config" && (
           <React.Suspense fallback={<TabLoading />}>
             <ServicesClient />
           </React.Suspense>
         )}
+        {activeTab === "vacation" && <VacationOpsTab />}
         {activeTab === "agents" && (
           <AgentsTab coreAgents={coreAgents} workerAgents={workerAgents} loading={dataLoading} error={dataError} />
         )}

@@ -55,7 +55,7 @@ export type LogEntry = {
   message: string;
 };
 
-export type Tab = "overview" | "config" | "agents" | "cron" | "sessions" | "logs";
+export type Tab = "overview" | "config" | "agents" | "cron" | "sessions" | "logs" | "vacation";
 
 /* ── helpers ── */
 
@@ -216,14 +216,26 @@ export function EmptyState({ message }: { message: string }) {
   return <p className="py-6 text-center text-sm text-muted-foreground">{message}</p>;
 }
 
-export function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub: string }) {
+export function StatCard({
+  icon,
+  label,
+  value,
+  sub,
+  valueClassName,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub: string;
+  valueClassName?: string;
+}) {
   return (
     <div className="rounded-lg border border-border/50 bg-card/60 p-3">
       <div className="flex items-center gap-1.5 text-muted-foreground">
         {icon}
         <span className="text-[10px] uppercase tracking-widest">{label}</span>
       </div>
-      <p className="mt-1 font-mono text-lg font-semibold leading-tight">{value}</p>
+      <p className={cn("mt-1 font-mono text-lg font-semibold leading-tight", valueClassName)}>{value}</p>
       <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p>
     </div>
   );
