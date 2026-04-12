@@ -91,6 +91,13 @@ export function getMissionControlLaunchAgentEnvironment(
     }
   }
 
+  for (const key of ["MISSION_CONTROL_API_TOKEN", "MISSION_CONTROL_URL"]) {
+    const value = merged[key]?.trim();
+    if (value) {
+      environmentVariables[key] = value;
+    }
+  }
+
   return environmentVariables;
 }
 

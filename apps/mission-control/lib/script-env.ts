@@ -44,9 +44,9 @@ export function loadMissionControlScriptEnv(
   if (!fs.existsSync(envPath)) return env;
 
   const parsed = parseEnvFile(fs.readFileSync(envPath, "utf8"));
-  for (const key of ["DATABASE_URL", "CORTANA_DATABASE_URL"]) {
-    if (!env[key] && parsed[key]) {
-      env[key] = parsed[key];
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!env[key] && value) {
+      env[key] = value;
     }
   }
   return env;
