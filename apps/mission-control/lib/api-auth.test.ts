@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth, requireSameOrigin } from "@/lib/api-auth";
 
 const originalToken = process.env.MISSION_CONTROL_API_TOKEN;
 
@@ -22,36 +22,9 @@ const buildRequest = (headers?: Record<string, string>, method = "GET") =>
   });
 
 describe("requireApiAuth", () => {
-  it("allows access when no token is configured", () => {
-    delete process.env.MISSION_CONTROL_API_TOKEN;
-    const result = requireApiAuth(buildRequest());
-    expect(result.ok).toBe(true);
-  });
-
-  it("rejects strict endpoints when no token is configured", () => {
+  it("rejects strict machine endpoints when no token is configured", () => {
     delete process.env.MISSION_CONTROL_API_TOKEN;
     const result = requireApiAuth(buildRequest(), { requireConfiguredToken: true });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.response.status).toBe(503);
-    }
-  });
-
-  it("allows loopback bootstrap when strict auth is enabled without a token", () => {
-    delete process.env.MISSION_CONTROL_API_TOKEN;
-    const result = requireApiAuth(buildRequest({ host: "127.0.0.1:3000" }), {
-      requireConfiguredToken: true,
-      allowLoopbackWithoutToken: true,
-    });
-    expect(result.ok).toBe(true);
-  });
-
-  it("still rejects non-loopback requests without a token during bootstrap mode", () => {
-    delete process.env.MISSION_CONTROL_API_TOKEN;
-    const result = requireApiAuth(buildRequest({ host: "100.120.198.12:3000" }), {
-      requireConfiguredToken: true,
-      allowLoopbackWithoutToken: true,
-    });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.response.status).toBe(503);
@@ -73,12 +46,6 @@ describe("requireApiAuth", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("accepts cookie tokens", () => {
-    process.env.MISSION_CONTROL_API_TOKEN = "secret";
-    const result = requireApiAuth(buildRequest({ cookie: "mc_api_token=secret" }));
-    expect(result.ok).toBe(true);
-  });
-
   it("accepts additional tokens when primary token is unset", () => {
     delete process.env.MISSION_CONTROL_API_TOKEN;
     const result = requireApiAuth(buildRequest({ authorization: "Bearer alt" }), {
@@ -87,10 +54,29 @@ describe("requireApiAuth", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("rejects unsafe methods without same-origin when using cookies", () => {
+  it("accepts x-api-key tokens", () => {
     process.env.MISSION_CONTROL_API_TOKEN = "secret";
-    const result = requireApiAuth(
-      buildRequest({ cookie: "mc_api_token=secret", origin: "https://evil.test" }, "POST")
+    const result = requireApiAuth(buildRequest({ "x-api-key": "secret" }));
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("requireSameOrigin", () => {
+  it("allows safe methods without origin headers", () => {
+    const result = requireSameOrigin(buildRequest());
+    expect(result.ok).toBe(true);
+  });
+
+  it("allows unsafe methods when origin host matches request host", () => {
+    const result = requireSameOrigin(
+      buildRequest({ host: "100.120.198.12:3000", origin: "http://100.120.198.12:3000" }, "POST"),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects unsafe methods with a forged origin", () => {
+    const result = requireSameOrigin(
+      buildRequest({ host: "100.120.198.12:3000", origin: "https://evil.test" }, "POST"),
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {

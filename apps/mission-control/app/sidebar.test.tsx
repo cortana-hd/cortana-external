@@ -6,19 +6,6 @@ import { Sidebar } from "@/components/sidebar";
 const mockUsePathname = vi.fn();
 const storageState: Record<string, string> = {};
 
-const storageMock = {
-  getItem: vi.fn((key: string) => (key in storageState ? storageState[key] : null)),
-  setItem: vi.fn((key: string, value: string) => {
-    storageState[key] = String(value);
-  }),
-  removeItem: vi.fn((key: string) => {
-    delete storageState[key];
-  }),
-  clear: vi.fn(() => {
-    for (const key of Object.keys(storageState)) delete storageState[key];
-  }),
-};
-
 vi.mock("next/navigation", () => ({
   usePathname: () => mockUsePathname(),
 }));
@@ -52,10 +39,20 @@ const NAV_LABELS = [
 
 describe("Sidebar", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    Object.defineProperty(window, "localStorage", { value: storageMock, configurable: true });
-    Object.defineProperty(globalThis, "localStorage", { value: storageMock, configurable: true });
-    storageMock.clear();
+    vi.restoreAllMocks();
+    for (const key of Object.keys(storageState)) delete storageState[key];
+    vi.spyOn(window.localStorage, "getItem").mockImplementation((key: string) =>
+      key in storageState ? storageState[key] : null
+    );
+    vi.spyOn(window.localStorage, "setItem").mockImplementation((key: string, value: string) => {
+      storageState[key] = String(value);
+    });
+    vi.spyOn(window.localStorage, "removeItem").mockImplementation((key: string) => {
+      delete storageState[key];
+    });
+    vi.spyOn(window.localStorage, "clear").mockImplementation(() => {
+      for (const key of Object.keys(storageState)) delete storageState[key];
+    });
     mockUsePathname.mockReturnValue("/");
   });
 
@@ -121,15 +118,15 @@ describe("Sidebar", () => {
   });
 
   it("reads localStorage on mount and writes on toggle", () => {
-    storageMock.setItem("mc-sidebar-collapsed", "true");
+    localStorage.setItem("mc-sidebar-collapsed", "true");
     render(<Sidebar />);
 
-    expect(storageMock.getItem).toHaveBeenCalledWith("mc-sidebar-collapsed");
+    expect(localStorage.getItem).toHaveBeenCalledWith("mc-sidebar-collapsed");
 
     const expandBtn = screen.getByRole("button", { name: "Expand sidebar" });
     fireEvent.click(expandBtn);
 
-    expect(storageMock.setItem).toHaveBeenCalledWith("mc-sidebar-collapsed", "false");
+    expect(localStorage.setItem).toHaveBeenCalledWith("mc-sidebar-collapsed", "false");
     expect(document.cookie).toContain("mc-sidebar-collapsed=false");
   });
 

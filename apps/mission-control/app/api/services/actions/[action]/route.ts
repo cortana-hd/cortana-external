@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { requireApiAuth } from "@/lib/api-auth";
 
 function findWorkspaceRoot(start = process.cwd()): string {
   let current = path.resolve(start);
@@ -64,17 +63,9 @@ async function fetchActionUrl(action: string): Promise<string> {
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ action: string }> },
 ) {
-  const auth = requireApiAuth(request, {
-    requireConfiguredToken: true,
-    allowLoopbackWithoutToken: true,
-  });
-  if (!auth.ok) {
-    return auth.response;
-  }
-
   try {
     const { action } = await params;
     const url = await fetchActionUrl(action);

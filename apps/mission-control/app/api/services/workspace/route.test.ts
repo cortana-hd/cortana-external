@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getServicesWorkspaceDataMock = vi.fn();
 const updateServicesWorkspaceDataMock = vi.fn();
@@ -16,24 +16,19 @@ vi.mock("@/lib/service-workspace", () => ({
   updateServicesWorkspaceData: updateServicesWorkspaceDataMock,
 }));
 
-const originalToken = process.env.MISSION_CONTROL_API_TOKEN;
-
-afterEach(() => {
-  if (originalToken === undefined) {
-    delete process.env.MISSION_CONTROL_API_TOKEN;
-  } else {
-    process.env.MISSION_CONTROL_API_TOKEN = originalToken;
-  }
-});
-
 describe("GET /api/services/workspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("requires a configured Mission Control API token", async () => {
-    delete process.env.MISSION_CONTROL_API_TOKEN;
-
+  it("returns workspace data for remote browser reads without a token", async () => {
+    getServicesWorkspaceDataMock.mockResolvedValueOnce({
+      generatedAt: "2026-04-03T00:00:00.000Z",
+      files: [],
+      sections: [],
+      health: [],
+      openclawDocsPath: "/tmp/docs/mission-control.md",
+    });
     const { GET } = await import("@/app/api/services/workspace/route");
     const response = await GET(
       new Request("http://remote.test/api/services/workspace", {
@@ -41,50 +36,7 @@ describe("GET /api/services/workspace", () => {
       }),
     );
 
-    expect(response.status).toBe(503);
-    expect(getServicesWorkspaceDataMock).not.toHaveBeenCalled();
-  });
-
-  it("allows loopback bootstrap reads when no token is configured", async () => {
-    delete process.env.MISSION_CONTROL_API_TOKEN;
-    getServicesWorkspaceDataMock.mockResolvedValueOnce({
-      generatedAt: "2026-04-03T00:00:00.000Z",
-      files: [],
-      sections: [],
-      health: [],
-      openclawDocsPath: "/tmp/docs/mission-control.md",
-    });
-
-    const { GET } = await import("@/app/api/services/workspace/route");
-    const response = await GET(
-      new Request("http://127.0.0.1:3000/api/services/workspace", {
-        headers: { host: "127.0.0.1:3000" },
-      }),
-    );
-
     expect(response.status).toBe(200);
-    expect(getServicesWorkspaceDataMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("returns workspace data when the bearer token matches", async () => {
-    process.env.MISSION_CONTROL_API_TOKEN = "secret";
-    getServicesWorkspaceDataMock.mockResolvedValueOnce({
-      generatedAt: "2026-04-03T00:00:00.000Z",
-      files: [],
-      sections: [],
-      health: [],
-      openclawDocsPath: "/tmp/docs/mission-control.md",
-    });
-
-    const { GET } = await import("@/app/api/services/workspace/route");
-    const response = await GET(
-      new Request("http://localhost/api/services/workspace", {
-        headers: { authorization: "Bearer secret" },
-      }),
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ status: "ok" });
     expect(getServicesWorkspaceDataMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -92,7 +44,6 @@ describe("GET /api/services/workspace", () => {
 describe("PATCH /api/services/workspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.MISSION_CONTROL_API_TOKEN = "secret";
   });
 
   it("returns a 400 for validation errors", async () => {

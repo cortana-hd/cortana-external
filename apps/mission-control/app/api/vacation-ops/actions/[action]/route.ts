@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { requireApiAuth } from "@/lib/api-auth";
 import { getVacationOpsSnapshot, runVacationOpsAction, type VacationActionKey } from "@/lib/vacation-ops";
 
 export const dynamic = "force-dynamic";
@@ -19,15 +18,6 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ action: string }> },
 ) {
-  const auth = requireApiAuth(request, {
-    requireConfiguredToken: true,
-    allowLoopbackWithoutToken: true,
-  });
-
-  if (!auth.ok) {
-    return auth.response;
-  }
-
   const { action } = await params;
   if (!VALID_ACTIONS.includes(action as VacationActionKey)) {
     return NextResponse.json({ status: "error", message: `Unknown Vacation Ops action: ${action}` }, { status: 404 });

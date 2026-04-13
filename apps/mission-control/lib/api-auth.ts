@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
 
-const AUTH_COOKIE_NAME = "mc_api_token";
-
 const normalizeToken = (value?: string | null) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
@@ -16,22 +14,7 @@ const safeEqual = (left: string, right: string) => {
   return result === 0;
 };
 
-const parseCookieHeader = (cookieHeader: string | null) => {
-  const map = new Map<string, string>();
-  if (!cookieHeader) return map;
-
-  cookieHeader.split(";").forEach((pair) => {
-    const [rawKey, ...rest] = pair.trim().split("=");
-    if (!rawKey) return;
-    const key = rawKey.trim();
-    const value = rest.join("=").trim();
-    if (key) map.set(key, decodeURIComponent(value));
-  });
-
-  return map;
-};
-
-type TokenSource = "authorization" | "api-key" | "cookie";
+type TokenSource = "authorization" | "api-key";
 
 const extractToken = (request: Request): { token: string; source: TokenSource } | null => {
   const authHeader = normalizeToken(request.headers.get("authorization"));
@@ -43,11 +26,6 @@ const extractToken = (request: Request): { token: string; source: TokenSource } 
   const apiKey = normalizeToken(request.headers.get("x-api-key"));
   if (apiKey) return { token: apiKey, source: "api-key" };
 
-  const cookieHeader = request.headers.get("cookie");
-  const cookies = parseCookieHeader(cookieHeader);
-  const cookieToken = normalizeToken(cookies.get(AUTH_COOKIE_NAME) ?? null);
-  if (cookieToken) return { token: cookieToken, source: "cookie" };
-
   return null;
 };
 
@@ -58,24 +36,6 @@ const resolveExpectedTokens = (additionalTokens?: Array<string | null | undefine
 
 const isSafeMethod = (method: string) =>
   method === "GET" || method === "HEAD" || method === "OPTIONS";
-
-const normalizeHost = (value?: string | null) => {
-  const trimmed = normalizeToken(value);
-  if (!trimmed) return null;
-
-  if (trimmed.startsWith("[")) {
-    const closingIndex = trimmed.indexOf("]");
-    if (closingIndex === -1) return trimmed;
-    return trimmed.slice(1, closingIndex);
-  }
-
-  return trimmed.split(":")[0] ?? trimmed;
-};
-
-const isLoopbackHost = (value?: string | null) => {
-  const host = normalizeHost(value);
-  return host === "localhost" || host === "127.0.0.1" || host === "::1";
-};
 
 const isSameOrigin = (request: Request) => {
   const originHeader = normalizeToken(request.headers.get("origin"));
@@ -100,13 +60,6 @@ const isSameOrigin = (request: Request) => {
   return false;
 };
 
-const isLoopbackBootstrapRequest = (request: Request) => {
-  const hostHeader = request.headers.get("host");
-  const forwardedHost = request.headers.get("x-forwarded-host");
-
-  return isLoopbackHost(hostHeader) || isLoopbackHost(forwardedHost);
-};
-
 type AuthResult =
   | { ok: true; tokenConfigured: boolean }
   | { ok: false; response: NextResponse };
@@ -116,16 +69,11 @@ export const requireApiAuth = (
   options?: {
     additionalTokens?: Array<string | null | undefined>;
     requireConfiguredToken?: boolean;
-    allowLoopbackWithoutToken?: boolean;
   },
 ): AuthResult => {
   const expectedTokens = resolveExpectedTokens(options?.additionalTokens);
 
   if (expectedTokens.length === 0) {
-    if (options?.allowLoopbackWithoutToken && isLoopbackBootstrapRequest(request)) {
-      return { ok: true, tokenConfigured: false };
-    }
-
     if (options?.requireConfiguredToken) {
       return {
         ok: false,
@@ -155,16 +103,20 @@ export const requireApiAuth = (
     };
   }
 
-  if (!isSafeMethod(request.method) && provided.source === "cookie") {
-    if (!isSameOrigin(request)) {
-      return {
-        ok: false,
-        response: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
-      };
-    }
-  }
-
   return { ok: true, tokenConfigured: true };
 };
 
-export const getAuthCookieName = () => AUTH_COOKIE_NAME;
+export const requireSameOrigin = (request: Request): AuthResult => {
+  if (isSafeMethod(request.method)) {
+    return { ok: true, tokenConfigured: false };
+  }
+
+  if (!isSameOrigin(request)) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+    };
+  }
+
+  return { ok: true, tokenConfigured: false };
+};

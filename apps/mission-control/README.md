@@ -22,6 +22,8 @@ EOF
 # e.g., createdb mission_control
 # Required for governance/task reads: CORTANA_DATABASE_URL
 # Required for approval notifications: TELEGRAM_BOT_TOKEN
+# Optional machine-ingress auth token for local producers/webhooks only:
+#   MISSION_CONTROL_API_TOKEN=replace-with-long-random-token
 # Optional source/runtime overrides:
 #   CORTANA_SOURCE_REPO=/Users/hd/Developer/cortana
 #   DOCS_PATH=/Users/hd/Developer/cortana/docs
@@ -53,6 +55,13 @@ pnpm dev
 
 Use `scripts/restart-mission-control.sh` for the launchd-managed local app.
 That path rewrites the LaunchAgent to a direct `next start` entrypoint, clears stale Mission Control `next-server` processes, waits for `/api/heartbeat-status`, and can run the Trading Ops smoke guard.
+
+## Browser access model
+- Mission Control browser access is private-network based: `localhost` and Tailscale operator sessions are first-class supported paths.
+- Browser pages and their same-origin API reads do **not** require `MISSION_CONTROL_API_TOKEN`.
+- Browser mutations are protected by same-origin checks instead of token-cookie bootstrap.
+- `MISSION_CONTROL_API_TOKEN` is only for machine ingress such as local producers, webhooks, and automation jobs.
+- Remote iPhone/Tailscale access to `Configuration` and `Vacation Ops` is a supported browser path.
 
 ## Data model (Prisma)
 - `Agent`: id, name, role, description, capabilities, status (active/idle/degraded/offline), healthScore, lastSeen, timestamps.

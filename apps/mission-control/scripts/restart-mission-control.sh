@@ -7,7 +7,6 @@ PLIST_PATH="${HOME}/Library/LaunchAgents/${SERVICE_LABEL}.plist"
 HEALTH_URL="${MISSION_CONTROL_HEALTH_URL:-http://127.0.0.1:3000/api/heartbeat-status}"
 BUILD=1
 RUN_SMOKE=1
-HEALTH_HEADER=()
 
 usage() {
   cat <<'EOF'
@@ -26,38 +25,6 @@ EOF
 
 log() {
   printf '[mission-control-restart] %s\n' "$*"
-}
-
-load_env_value_from_file() {
-  local key="$1"
-  local file="$2"
-
-  [[ -f "${file}" ]] || return 0
-
-  python3 - "$key" "$file" <<'PY'
-import re
-import sys
-from pathlib import Path
-
-key = sys.argv[1]
-path = Path(sys.argv[2])
-pattern = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
-
-for raw_line in path.read_text().splitlines():
-    line = raw_line.strip()
-    if not line or line.startswith("#"):
-        continue
-    match = pattern.match(line)
-    if not match:
-        continue
-    current_key, raw_value = match.groups()
-    if current_key != key:
-        continue
-    value = raw_value.strip().strip("\"'")
-    if value:
-        print(value)
-    break
-PY
 }
 
 mission_control_related_pids() {
@@ -206,11 +173,6 @@ APP_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${APP_DIR}/../.." && pwd)"
 DEV_ROOT="$(cd "${REPO_ROOT}/.." && pwd)"
 CORTANA_REPO="${CORTANA_SOURCE_REPO:-${DEV_ROOT}/cortana}"
-MISSION_CONTROL_API_TOKEN="${MISSION_CONTROL_API_TOKEN:-$(load_env_value_from_file MISSION_CONTROL_API_TOKEN "${APP_DIR}/.env.local")}"
-
-if [[ -n "${MISSION_CONTROL_API_TOKEN}" ]]; then
-  HEALTH_HEADER=(-H "Authorization: Bearer ${MISSION_CONTROL_API_TOKEN}")
-fi
 
 if [[ ! -f "${PLIST_PATH}" ]]; then
   log "LaunchAgent plist missing at ${PLIST_PATH}; it will be recreated."
@@ -278,7 +240,7 @@ launchctl kickstart -k "gui/$(id -u)/${SERVICE_LABEL}"
 
 log "Waiting for Mission Control health check at ${HEALTH_URL}"
 for _ in $(seq 1 20); do
-  if response="$(curl -fsS "${HEALTH_HEADER[@]}" "${HEALTH_URL}" 2>/dev/null)"; then
+  if response="$(curl -fsS "${HEALTH_URL}" 2>/dev/null)"; then
     log "Mission Control is healthy"
     printf '%s\n' "${response}"
     if [[ "${RUN_SMOKE}" -eq 1 ]]; then

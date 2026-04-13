@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { requireApiAuth } from "@/lib/api-auth";
 import {
   ServicesWorkspaceValidationError,
   getServicesWorkspaceData,
@@ -16,15 +15,7 @@ type PatchPayload = {
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
-  const auth = requireApiAuth(request, {
-    requireConfiguredToken: true,
-    allowLoopbackWithoutToken: true,
-  });
-  if (!auth.ok) {
-    return auth.response;
-  }
-
+export async function GET(_request: Request) {
   try {
     const data = await getServicesWorkspaceData();
     return NextResponse.json({ status: "ok", data });
@@ -40,14 +31,6 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const auth = requireApiAuth(request, {
-    requireConfiguredToken: true,
-    allowLoopbackWithoutToken: true,
-  });
-  if (!auth.ok) {
-    return auth.response;
-  }
-
   try {
     const payload = (await request.json()) as PatchPayload;
     if (!payload || typeof payload !== "object") {

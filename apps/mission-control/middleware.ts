@@ -1,81 +1,49 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getAuthCookieName, requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth, requireSameOrigin } from "@/lib/api-auth";
 
-const WEBHOOK_PATHS = new Set([
-  "/api/openclaw/subagent-events",
-  "/api/github/post-merge-task-autoclose",
-  "/api/council/jobs/deliberate",
+type MachineRule = {
+  methods: string[];
+  additionalTokens?: () => Array<string | null | undefined>;
+};
+
+const MACHINE_RULES = new Map<string, MachineRule>([
+  ["/api/openclaw/subagent-events", { methods: ["POST"], additionalTokens: () => [process.env.OPENCLAW_EVENT_TOKEN] }],
+  ["/api/github/post-merge-task-autoclose", { methods: ["POST"], additionalTokens: () => [process.env.GITHUB_MERGE_HOOK_TOKEN] }],
+  ["/api/council/jobs/deliberate", { methods: ["POST"], additionalTokens: () => [process.env.MISSION_CONTROL_CRON_TOKEN] }],
+  ["/api/feedback/ingest", { methods: ["POST"] }],
+  ["/api/approvals/ingest", { methods: ["POST"] }],
+  ["/api/decisions", { methods: ["POST"] }],
 ]);
 
-const resolveWebhookTokens = (pathname: string) => {
-  if (!WEBHOOK_PATHS.has(pathname)) {
-    return [];
-  }
-
-  if (pathname === "/api/openclaw/subagent-events") {
-    return [process.env.OPENCLAW_EVENT_TOKEN];
-  }
-  if (pathname === "/api/github/post-merge-task-autoclose") {
-    return [process.env.GITHUB_MERGE_HOOK_TOKEN];
-  }
-  if (pathname === "/api/council/jobs/deliberate") {
-    return [process.env.MISSION_CONTROL_CRON_TOKEN];
-  }
-  return [];
-};
-
-const shouldSetAuthCookie = (request: NextRequest) => {
-  if (request.nextUrl.pathname.startsWith("/api")) return false;
-  return Boolean(process.env.MISSION_CONTROL_API_TOKEN?.trim());
-};
-
-const isSecureRequest = (request: NextRequest) => {
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.toLowerCase();
-  if (forwardedProto) return forwardedProto === "https";
-  return request.nextUrl.protocol === "https:";
-};
+const isUnsafeMethod = (method: string) => !["GET", "HEAD", "OPTIONS"].includes(method);
 
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   if (pathname.startsWith("/api")) {
-    const additionalTokens = resolveWebhookTokens(pathname);
-    const auth = requireApiAuth(request, {
-      additionalTokens,
-      requireConfiguredToken: pathname.startsWith("/api/services/"),
-      allowLoopbackWithoutToken: pathname.startsWith("/api/services/"),
-    });
-    if (!auth.ok) {
-      return auth.response;
+    const machineRule = MACHINE_RULES.get(pathname);
+    if (machineRule && machineRule.methods.includes(request.method.toUpperCase())) {
+      const auth = requireApiAuth(request, {
+        additionalTokens: machineRule.additionalTokens?.(),
+        requireConfiguredToken: true,
+      });
+      if (!auth.ok) {
+        return auth.response;
+      }
+      return NextResponse.next();
+    }
+
+    if (isUnsafeMethod(request.method)) {
+      const auth = requireSameOrigin(request);
+      if (!auth.ok) {
+        return auth.response;
+      }
     }
 
     return NextResponse.next();
   }
 
-  if (!shouldSetAuthCookie(request)) {
-    return NextResponse.next();
-  }
-
-  const token = process.env.MISSION_CONTROL_API_TOKEN?.trim();
-  const cookieName = getAuthCookieName();
-
-  if (!token) {
-    return NextResponse.next();
-  }
-
-  const current = request.cookies.get(cookieName)?.value;
-  if (current === token) {
-    return NextResponse.next();
-  }
-
-  const response = NextResponse.next();
-  response.cookies.set(cookieName, token, {
-    httpOnly: true,
-    sameSite: "strict",
-    secure: isSecureRequest(request),
-    path: "/",
-  });
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {
