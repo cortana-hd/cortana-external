@@ -55,6 +55,27 @@ export type PredictionOverview = {
   decisionGradeHeadline: string | null;
 };
 
+export type OperatorVerdictOverview = {
+  verdictLabel: string;
+  cautionLabel: string;
+  oneDayMatured: number;
+  fiveDayMatured: number;
+  buySamples: number;
+  buyAvgReturnPct: number | null;
+  buyHitRate: number | null;
+  watchSamples: number;
+  watchAvgReturnPct: number | null;
+  watchHitRate: number | null;
+  noBuySamples: number;
+  noBuyAvoidanceRate: number | null;
+  highConfidenceBuySamples: number;
+  highConfidenceBuyAvgReturnPct: number | null;
+  highConfidenceBuyHitRate: number | null;
+  overblockRate: number | null;
+  topBlocker: string | null;
+  actionItems: string[];
+};
+
 export type BenchmarkOverview = {
   horizonKey: string | null;
   maturedCount: number | null;
@@ -138,6 +159,7 @@ export type TradingOpsDashboardData = {
   market: ArtifactState<MarketOverview>;
   runtime: ArtifactState<RuntimeOverview>;
   canary: ArtifactState<CanaryOverview>;
+  operatorVerdict: ArtifactState<OperatorVerdictOverview>;
   prediction: ArtifactState<PredictionOverview>;
   benchmark: ArtifactState<BenchmarkOverview>;
   lifecycle: ArtifactState<LifecycleOverview>;

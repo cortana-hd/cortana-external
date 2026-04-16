@@ -406,6 +406,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   }, [applyPolymarketLiveData, fetchPolymarketLiveData]);
 
   const liveArtifact = buildLiveArtifact(liveData, liveError, lastSuccessfulAt);
+  const liveExecutionGateArtifact = buildLiveExecutionGateArtifact(liveData, liveError, lastSuccessfulAt);
   const polymarketWarmupActive = !polymarketWarmupComplete && !isPolymarketLiveReady(polymarketLiveData);
   const displayPolymarketData = polymarketWarmupActive ? null : polymarketData;
   const displayPolymarketLiveData = polymarketWarmupActive ? null : polymarketLiveData;
@@ -803,34 +804,54 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
           </ArtifactPanel>
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-            <ArtifactPanel title="Streamer status" artifact={liveArtifact}>
-              {liveData ? (
-                <div className="space-y-2 text-sm">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant={badgeVariantForStreamer(liveData.streamer)} className="text-[10px]">
-                      {liveData.streamer.connected ? "Connected" : "Disconnected"}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {liveData.streamer.operatorState.replaceAll("_", " ")}
-                    </span>
+            <div className="space-y-3">
+              <ArtifactPanel title="Streamer status" artifact={liveArtifact}>
+                {liveData ? (
+                  <div className="space-y-2 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={badgeVariantForStreamer(liveData.streamer)} className="text-[10px]">
+                        {liveData.streamer.connected ? "Connected" : "Disconnected"}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {liveData.streamer.operatorState.replaceAll("_", " ")}
+                      </span>
+                    </div>
+                    <dl className="grid grid-cols-2 gap-2">
+                      <Metric label="Last login" value={formatOperatorTimestamp(liveData.streamer.lastLoginAt)} />
+                      <Metric label="Equity subs" value={String(liveData.streamer.activeEquitySubscriptions)} />
+                      <Metric label="Acct activity" value={String(liveData.streamer.activeAcctActivitySubscriptions)} />
+                      <Metric
+                        label="Last refresh"
+                        value={lastSuccessfulAt ? formatOperatorTimestamp(lastSuccessfulAt) : "—"}
+                      />
+                    </dl>
+                    {liveData.streamer.cooldownSummary ? (
+                      <p className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
+                        {liveData.streamer.cooldownSummary}
+                      </p>
+                    ) : null}
                   </div>
-                  <dl className="grid grid-cols-2 gap-2">
-                    <Metric label="Last login" value={formatOperatorTimestamp(liveData.streamer.lastLoginAt)} />
-                    <Metric label="Equity subs" value={String(liveData.streamer.activeEquitySubscriptions)} />
-                    <Metric label="Acct activity" value={String(liveData.streamer.activeAcctActivitySubscriptions)} />
-                    <Metric
-                      label="Last refresh"
-                      value={lastSuccessfulAt ? formatOperatorTimestamp(lastSuccessfulAt) : "—"}
-                    />
-                  </dl>
-                  {liveData.streamer.cooldownSummary ? (
-                    <p className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
-                      {liveData.streamer.cooldownSummary}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-            </ArtifactPanel>
+                ) : null}
+              </ArtifactPanel>
+
+              <ArtifactPanel title="Execution gate" artifact={liveExecutionGateArtifact}>
+                {liveExecutionGateArtifact.data ? (
+                  <div className="space-y-2 text-sm">
+                    <dl className="grid grid-cols-2 gap-2">
+                      <Metric label="Verdict" value={liveExecutionGateArtifact.data.verdictLabel} />
+                      <Metric label="BUY fresh" value={`${liveExecutionGateArtifact.data.freshBuyCount}/${liveExecutionGateArtifact.data.buyCount}`} />
+                      <Metric label="WATCH degraded" value={`${liveExecutionGateArtifact.data.degradedWatchCount}/${liveExecutionGateArtifact.data.watchCount}`} />
+                      <Metric label=">60s stale" value={String(liveExecutionGateArtifact.data.staleWatchCount)} />
+                    </dl>
+                    {liveExecutionGateArtifact.data.actionItems.map((item) => (
+                      <p key={item} className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
+                        {item}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+              </ArtifactPanel>
+            </div>
 
             <ArtifactPanel title="Dip Buyer live watchlist" artifact={liveArtifact}>
               {liveData ? (
@@ -1253,7 +1274,25 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
         {/* ── Deep Dive ── */}
         <TabsContent value="deep-dive" className="space-y-3">
-          <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+          <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+            <ArtifactPanel title="Operator verdict" artifact={data.operatorVerdict}>
+              {data.operatorVerdict.data ? (
+                <div className="space-y-2 text-sm">
+                  <Metric label="Verdict" value={data.operatorVerdict.data.verdictLabel} />
+                  <Metric label="Caution" value={data.operatorVerdict.data.cautionLabel} />
+                  <Metric label="1d / 5d matured" value={`${data.operatorVerdict.data.oneDayMatured} / ${data.operatorVerdict.data.fiveDayMatured}`} />
+                  <Metric label="BUY avg / hit" value={`${formatSignedPercentLabel(data.operatorVerdict.data.buyAvgReturnPct)} · ${formatPercent(data.operatorVerdict.data.buyHitRate)}`} />
+                  <Metric label="WATCH avg / hit" value={`${formatSignedPercentLabel(data.operatorVerdict.data.watchAvgReturnPct)} · ${formatPercent(data.operatorVerdict.data.watchHitRate)}`} />
+                  <Metric label="High-conf BUY" value={`${formatSignedPercentLabel(data.operatorVerdict.data.highConfidenceBuyAvgReturnPct)} · ${formatPercent(data.operatorVerdict.data.highConfidenceBuyHitRate)}`} />
+                  {data.operatorVerdict.data.actionItems.map((item) => (
+                    <p key={item} className="rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs">
+                      {item}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </ArtifactPanel>
+
             <ArtifactPanel title="Prediction accuracy" artifact={data.prediction}>
               {data.prediction.data ? (
                 <div className="space-y-2 text-sm">
@@ -1313,6 +1352,84 @@ function FinancialServiceCard({ row }: { row: FinancialServiceHealthRow }) {
       <p className="mt-2 truncate text-[10px] text-muted-foreground">Source: {row.source}</p>
     </div>
   );
+}
+
+
+type LiveExecutionGateOverview = {
+  verdictLabel: string;
+  buyCount: number;
+  freshBuyCount: number;
+  watchCount: number;
+  degradedWatchCount: number;
+  staleWatchCount: number;
+  actionItems: string[];
+};
+
+function buildLiveExecutionGateArtifact(
+  liveData: TradingOpsLiveData | null,
+  liveError: string | null,
+  lastSuccessfulAt: string | null,
+): ArtifactState<LiveExecutionGateOverview> {
+  if (!liveData) {
+    return {
+      state: liveError ? "error" : "missing",
+      label: liveError ? "Gate unavailable" : "Waiting for live gate",
+      message: liveError ?? "Need a live snapshot before judging execution safety.",
+      data: null,
+      updatedAt: lastSuccessfulAt,
+      source: "/api/trading-ops/live/stream",
+      warnings: liveError ? [liveError] : [],
+    };
+  }
+
+  const buyRows = [...liveData.watchlists.dipBuyer.buy, ...liveData.watchlists.canslim.buy];
+  const watchRows = [...liveData.watchlists.dipBuyer.watch, ...liveData.watchlists.canslim.watch];
+  const freshBuyCount = buyRows.filter((row) => row.state === "ok").length;
+  const degradedWatchCount = watchRows.filter((row) => row.state !== "ok").length;
+  const staleWatchCount = watchRows.filter((row) => (row.stalenessSeconds ?? 0) > 60).length;
+  const blocked =
+    !liveData.streamer.connected ||
+    freshBuyCount < buyRows.length ||
+    (watchRows.length > 0 && degradedWatchCount / watchRows.length >= 0.5);
+  const actionItems = blocked
+    ? [
+        !liveData.streamer.connected
+          ? "Streamer is not fully live, so this watchlist should not drive entries."
+          : `At least one BUY quote is degraded or missing (${freshBuyCount}/${buyRows.length} fresh).`,
+        watchRows.length > 0
+          ? `${degradedWatchCount}/${watchRows.length} WATCH names are degraded, and ${staleWatchCount} are older than 60s.`
+          : "No WATCH names are active right now.",
+      ]
+    : [
+        "BUY rows are fresh enough to review.",
+        "WATCH rows are mostly current, but still confirm the exact ticker before acting.",
+      ];
+
+  return {
+    state: blocked ? "degraded" : "ok",
+    label: blocked ? "Blocked" : "Pass",
+    message: blocked
+      ? "Live quotes are not clean enough to treat BUY/WATCH as execution-grade right now."
+      : "Live quotes are fresh enough for a manual execution review.",
+    data: {
+      verdictLabel: blocked ? "Blocked" : "Pass",
+      buyCount: buyRows.length,
+      freshBuyCount,
+      watchCount: watchRows.length,
+      degradedWatchCount,
+      staleWatchCount,
+      actionItems,
+    },
+    updatedAt: lastSuccessfulAt ?? liveData.generatedAt,
+    source: "/api/trading-ops/live/stream",
+    warnings: actionItems,
+    badgeText: blocked ? "blocked" : "pass",
+  };
+}
+
+function formatSignedPercentLabel(value: number | null | undefined): string {
+  if (value == null) return "n/a";
+  return `${value >= 0 ? "+" : "-"}${Math.abs(value).toFixed(2)}%`;
 }
 
 function buildLiveArtifact(

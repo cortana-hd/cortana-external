@@ -74,6 +74,27 @@ export type PredictionOverview = {
   decisionGradeHeadline: string | null;
 };
 
+export type OperatorVerdictOverview = {
+  verdictLabel: string;
+  cautionLabel: string;
+  oneDayMatured: number;
+  fiveDayMatured: number;
+  buySamples: number;
+  buyAvgReturnPct: number | null;
+  buyHitRate: number | null;
+  watchSamples: number;
+  watchAvgReturnPct: number | null;
+  watchHitRate: number | null;
+  noBuySamples: number;
+  noBuyAvoidanceRate: number | null;
+  highConfidenceBuySamples: number;
+  highConfidenceBuyAvgReturnPct: number | null;
+  highConfidenceBuyHitRate: number | null;
+  overblockRate: number | null;
+  topBlocker: string | null;
+  actionItems: string[];
+};
+
 export type BenchmarkOverview = {
   horizonKey: string | null;
   maturedCount: number | null;
@@ -169,6 +190,7 @@ export type TradingOpsDashboardData = {
   market: ArtifactState<MarketOverview>;
   runtime: ArtifactState<RuntimeOverview>;
   canary: ArtifactState<CanaryOverview>;
+  operatorVerdict: ArtifactState<OperatorVerdictOverview>;
   prediction: ArtifactState<PredictionOverview>;
   benchmark: ArtifactState<BenchmarkOverview>;
   lifecycle: ArtifactState<LifecycleOverview>;
@@ -203,6 +225,7 @@ export async function loadTradingOpsDashboardData(
     market,
     runtime,
     canary,
+    operatorVerdict,
     prediction,
     benchmark,
     lifecycle,
@@ -213,6 +236,7 @@ export async function loadTradingOpsDashboardData(
     loadMarketOverview(repoPath, tradingRunSignal),
     loadRuntimeOverview(repoPath, runJsonCommand),
     loadCanaryOverview(repoPath),
+    loadOperatorVerdictOverview(repoPath),
     loadPredictionOverview(repoPath, runJsonCommand),
     loadBenchmarkOverview(repoPath),
     loadLifecycleOverview(repoPath, tradingRunSignal),
@@ -228,6 +252,7 @@ export async function loadTradingOpsDashboardData(
     market,
     runtime,
     canary,
+    operatorVerdict,
     prediction,
     benchmark,
     lifecycle,
@@ -915,6 +940,113 @@ async function loadPredictionOverview(
   };
 }
 
+async function loadOperatorVerdictOverview(repoPath: string): Promise<ArtifactState<OperatorVerdictOverview>> {
+  const reportsRoot = path.join(repoPath, ".cache", "prediction_accuracy", "reports");
+  const predictionPath = path.join(reportsRoot, "prediction-accuracy-latest.json");
+  const decisionReviewPath = path.join(reportsRoot, "decision-review-latest.json");
+  const benchmarkPath = path.join(reportsRoot, "benchmark-comparison-latest.json");
+
+  const [prediction, decisionReview, benchmark] = await Promise.all([
+    readJsonFile<Record<string, unknown>>(predictionPath),
+    readJsonFile<Record<string, unknown>>(decisionReviewPath),
+    readJsonFile<Record<string, unknown>>(benchmarkPath),
+  ]);
+
+  if (!prediction?.data) {
+    return {
+      state: prediction?.error === "missing" ? "missing" : "error",
+      label: "Operator verdict unavailable",
+      message: prediction?.message ?? "Prediction accuracy report not found.",
+      data: null,
+      source: predictionPath,
+      warnings: [],
+    };
+  }
+
+  if (!decisionReview?.data) {
+    return {
+      state: decisionReview?.error === "missing" ? "missing" : "error",
+      label: "Operator verdict unavailable",
+      message: decisionReview?.message ?? "Decision review report not found.",
+      data: null,
+      source: decisionReviewPath,
+      warnings: [],
+    };
+  }
+
+  const predictionData = prediction.data;
+  const decisionReviewData = decisionReview.data;
+  const benchmarkData = benchmark.data;
+  const horizonStatus = asRecord(predictionData.horizon_status);
+  const oneDay = asRecord(horizonStatus?.["1d"]);
+  const fiveDay = asRecord(horizonStatus?.["5d"]);
+  const byAction = asArray(predictionData.by_action);
+  const byConfidenceBucket = asArray(predictionData.by_confidence_bucket);
+  const opportunityByAction = asArray(asRecord(decisionReviewData.opportunity_cost)?.by_action);
+  const vetoEffectiveness = asArray(decisionReviewData.veto_effectiveness)
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+
+  const buyOneDay = extractPredictionHorizonMetrics(byAction, { action: "BUY" }, "1d");
+  const watchOneDay = extractPredictionHorizonMetrics(byAction, { action: "WATCH" }, "1d");
+  const noBuyOneDay = extractPredictionHorizonMetrics(byAction, { action: "NO_BUY" }, "1d");
+  const highConfidenceBuy = extractPredictionHorizonMetrics(byConfidenceBucket, { strategy: "dip_buyer", action: "BUY", confidenceBucket: "high" }, "1d");
+  const noBuyOpportunity = opportunityByAction
+    .map((entry) => asRecord(entry))
+    .find((entry) => stringValue(entry?.action) === "NO_BUY");
+  const topBlocker = vetoEffectiveness
+    .slice()
+    .sort((left, right) => (numberValue(right.count) ?? 0) - (numberValue(left.count) ?? 0))[0] ?? null;
+  const benchmarkBaseline = asRecord(asRecord(benchmarkData)?.baselines)?.all_predictions;
+  const benchmarkMaturedCount = numberValue(asRecord(benchmarkBaseline)?.matured_count);
+
+  const oneDayMatured = numberValue(oneDay?.matured) ?? 0;
+  const fiveDayMatured = numberValue(fiveDay?.matured) ?? 0;
+  const buyAvgReturnPct = numberValue(buyOneDay?.avg_return_pct);
+  const watchAvgReturnPct = numberValue(watchOneDay?.avg_return_pct);
+  const highConfidenceBuyAvgReturnPct = numberValue(highConfidenceBuy?.avg_return_pct);
+  const reasons = compactStrings([
+    buyAvgReturnPct != null && buyAvgReturnPct <= 0 ? `BUY is still losing on average (${formatSignedPercent(buyAvgReturnPct)} over ${numberValue(buyOneDay?.samples) ?? 0} 1d samples).` : null,
+    watchAvgReturnPct != null && watchAvgReturnPct <= 0 ? `WATCH is still losing on average (${formatSignedPercent(watchAvgReturnPct)} over ${numberValue(watchOneDay?.samples) ?? 0} 1d samples).` : null,
+    highConfidenceBuyAvgReturnPct != null && highConfidenceBuyAvgReturnPct <= 0 ? `High-confidence Dip Buyer BUY is still negative (${formatSignedPercent(highConfidenceBuyAvgReturnPct)} over ${numberValue(highConfidenceBuy?.samples) ?? 0} 1d samples).` : null,
+    fiveDayMatured < 25 ? `Only ${fiveDayMatured} 5d samples have matured, so the edge is not proven beyond next day noise.` : null,
+    benchmarkMaturedCount != null && benchmarkMaturedCount < 25 ? `Benchmark ladder only has ${benchmarkMaturedCount} matured comparison sample${benchmarkMaturedCount === 1 ? "" : "s"}.` : null,
+  ]);
+  const isBlocked = reasons.length > 0;
+
+  return {
+    state: isBlocked ? "degraded" : "ok",
+    label: isBlocked ? "Research only" : "Candidate edge",
+    message: isBlocked
+      ? `BUY and WATCH are not proven yet. ${reasons.join(" ")}`
+      : "BUY and WATCH have enough matured support to merit small-size review.",
+    data: {
+      verdictLabel: isBlocked ? "Do not size up" : "Small-size candidate",
+      cautionLabel: isBlocked ? "Research-only signal" : "Edge looks live",
+      oneDayMatured,
+      fiveDayMatured,
+      buySamples: numberValue(buyOneDay?.samples) ?? 0,
+      buyAvgReturnPct,
+      buyHitRate: numberValue(buyOneDay?.hit_rate),
+      watchSamples: numberValue(watchOneDay?.samples) ?? 0,
+      watchAvgReturnPct,
+      watchHitRate: numberValue(watchOneDay?.hit_rate),
+      noBuySamples: numberValue(noBuyOneDay?.samples) ?? 0,
+      noBuyAvoidanceRate: numberValue(noBuyOneDay?.decision_accuracy),
+      highConfidenceBuySamples: numberValue(highConfidenceBuy?.samples) ?? 0,
+      highConfidenceBuyAvgReturnPct,
+      highConfidenceBuyHitRate: numberValue(highConfidenceBuy?.hit_rate),
+      overblockRate: numberValue(noBuyOpportunity?.overblock_rate),
+      topBlocker: stringValue(topBlocker?.veto),
+      actionItems: buildOperatorActionItems({ isBlocked, fiveDayMatured, topBlocker: stringValue(topBlocker?.veto) }),
+    },
+    source: [predictionPath, decisionReviewPath, benchmarkPath].join(" · "),
+    updatedAt: stringValue(predictionData.generated_at) ?? stringValue(decisionReviewData.generated_at) ?? null,
+    warnings: reasons,
+    badgeText: isBlocked ? "blocked" : "candidate",
+  };
+}
+
 async function loadBenchmarkOverview(repoPath: string): Promise<ArtifactState<BenchmarkOverview>> {
   const benchmarkPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "benchmark-comparison-latest.json");
   const benchmark = await readJsonFile<Record<string, unknown>>(benchmarkPath);
@@ -942,7 +1074,7 @@ async function loadBenchmarkOverview(repoPath: string): Promise<ArtifactState<Be
     message: `Primary horizon ${stringValue(data.horizon_key) ?? "unknown"}.`,
     data: {
       horizonKey: stringValue(data.horizon_key),
-      maturedCount: numberValue(asRecord(data.baselines)?.all_predictions && asRecord(asRecord(data.baselines)?.all_predictions)?.matured_count),
+      maturedCount: numberValue(asRecord(asRecord(data.baselines)?.all_predictions)?.matured_count),
       bestComparisonLabel: firstWithMatured
         ? `${stringValue(firstWithMatured.strategy)} vs baseline`
         : null,
@@ -1521,6 +1653,51 @@ function parseTsvRows(contents: string, columns: number): string[][] {
       return cells.slice(0, columns);
     });
 }
+
+function extractPredictionHorizonMetrics(
+  entries: unknown[],
+  filters: { strategy?: string; action?: string; confidenceBucket?: string },
+  horizonKey: string,
+): Record<string, unknown> | null {
+  const match = entries
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+    .find((entry) => {
+      if (filters.strategy && stringValue(entry.strategy) !== filters.strategy) return false;
+      if (filters.action && stringValue(entry.action) !== filters.action) return false;
+      if (filters.confidenceBucket && stringValue(entry.confidence_bucket) !== filters.confidenceBucket) return false;
+      return true;
+    });
+
+  return asRecord(match?.[horizonKey]);
+}
+
+function formatSignedPercent(value: number): string {
+  const rounded = Math.abs(value).toFixed(2);
+  return `${value >= 0 ? "+" : "-"}${rounded}%`;
+}
+
+function buildOperatorActionItems(
+  context: { isBlocked: boolean; fiveDayMatured: number; topBlocker: string | null },
+): string[] {
+  if (!context.isBlocked) {
+    return [
+      "Keep size small until the 20d horizon starts maturing.",
+      "Monitor whether live BUY quotes stay fresh before acting intraday.",
+    ];
+  }
+
+  return compactStrings([
+    "Treat BUY and WATCH as research-only until the 5d horizon has real sample depth.",
+    context.fiveDayMatured < 25
+      ? `Wait for at least 25 matured 5d samples before trusting short-term alpha. Currently ${context.fiveDayMatured}.`
+      : null,
+    "Use NO_BUY as a defensive input only; it is not evidence of profitable long entries.",
+    context.topBlocker ? `Audit veto lane ${context.topBlocker} before tightening decision gates further.` : null,
+    "Block discretionary execution whenever the live BUY lane is stale or degraded.",
+  ]);
+}
+
 
 function summaryLineFromCounts(summary: Record<string, unknown> | null | undefined): string {
   if (!summary) return "No recent strategy summary.";

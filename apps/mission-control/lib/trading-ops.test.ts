@@ -147,6 +147,13 @@ describe("trading ops loader", () => {
       baselines: { all_predictions: { matured_count: 7 } },
       comparisons: { by_strategy: [{ strategy: "canslim", metrics: { matured_count: 7 } }] },
     });
+    await writeJson(path.join(repoPath, ".cache", "prediction_accuracy", "reports", "decision-review-latest.json"), {
+      generated_at: "2026-04-03T23:16:04.700000+00:00",
+      opportunity_cost: {
+        by_action: [{ action: "NO_BUY", overblock_rate: 0 }],
+      },
+      veto_effectiveness: [{ veto: "market_regime", count: 16 }],
+    });
     await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "cycle_summary.json"), {
       generated_at: "2026-04-03T22:20:35.951192+00:00",
       summary: { open_count: 1, closed_total_count: 2 },
@@ -254,6 +261,9 @@ describe("trading ops loader", () => {
     expect(data.prediction.badgeText).toBe("stale");
     expect(data.prediction.message).toContain("Prediction accuracy report is stale");
     expect(data.prediction.data?.oneDayMatured).toBe(880);
+    expect(data.operatorVerdict.state).toBe("degraded");
+    expect(data.operatorVerdict.label).toBe("Research only");
+    expect(data.operatorVerdict.data?.verdictLabel).toBe("Do not size up");
     expect(data.benchmark.data?.horizonKey).toBe("5d");
     expect(data.lifecycle.data?.openCount).toBe(1);
     expect(data.workflow.state).toBe("degraded");

@@ -184,6 +184,38 @@ const fixture: TradingOpsDashboardData = {
       checks: [{ name: "service_ready", result: "warn" }],
     },
   },
+  operatorVerdict: {
+    state: "degraded",
+    label: "Research only",
+    message: "BUY and WATCH are not proven yet.",
+    updatedAt: "2026-04-03T23:16:04.700000+00:00",
+    source: "/tmp/decision-review-latest.json",
+    warnings: ["BUY is still losing on average."],
+    badgeText: "blocked",
+    data: {
+      verdictLabel: "Do not size up",
+      cautionLabel: "Research-only signal",
+      oneDayMatured: 880,
+      fiveDayMatured: 7,
+      buySamples: 72,
+      buyAvgReturnPct: -0.73,
+      buyHitRate: 0.361,
+      watchSamples: 196,
+      watchAvgReturnPct: -1.06,
+      watchHitRate: 0.362,
+      noBuySamples: 673,
+      noBuyAvoidanceRate: 0.548,
+      highConfidenceBuySamples: 18,
+      highConfidenceBuyAvgReturnPct: -1.18,
+      highConfidenceBuyHitRate: 0,
+      overblockRate: 0,
+      topBlocker: "market_regime",
+      actionItems: [
+        "Treat BUY and WATCH as research-only until the 5d horizon has real sample depth.",
+        "Block discretionary execution whenever the live BUY lane is stale or degraded.",
+      ],
+    },
+  },
   prediction: {
     state: "ok",
     label: "Prediction loop",
@@ -354,6 +386,12 @@ describe("TradingOpsDashboard", () => {
     expect(container).toHaveTextContent("Polymarket streamer");
     expect(container).toHaveTextContent("Schwab streamer");
 
+    const deepDiveTab = screen.getByRole("tab", { name: "Deep Dive" });
+    fireEvent.mouseDown(deepDiveTab);
+    fireEvent.click(deepDiveTab);
+    expect(container).toHaveTextContent("Operator verdict");
+    expect(container).toHaveTextContent("Do not size up");
+
     const watchlistsTab = screen.getByRole("tab", { name: "Watchlists" });
     fireEvent.mouseDown(watchlistsTab);
     fireEvent.click(watchlistsTab);
@@ -420,6 +458,11 @@ describe("TradingOpsDashboard", () => {
     });
 
     const liveTab = screen.getByRole("tab", { name: "Live" });
+    fireEvent.mouseDown(liveTab);
+    fireEvent.click(liveTab);
+    expect(container).toHaveTextContent("Execution gate");
+    expect(container).toHaveTextContent("Pass");
+
     fireEvent.mouseDown(liveTab);
     fireEvent.click(liveTab);
 
