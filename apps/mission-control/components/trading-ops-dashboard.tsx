@@ -33,6 +33,8 @@ const POLYMARKET_POLL_MS = 30_000;
 const POLYMARKET_LIVE_POLL_MS = 15_000;
 const POLYMARKET_LIVE_STREAM_RETRY_MS = 2_000;
 const POLYMARKET_STARTUP_GRACE_MS = 12_000;
+const POLYMARKET_HANDOFF_RETRY_MS = 1_000;
+const POLYMARKET_HANDOFF_MAX_RETRIES = 3;
 const COMPACT_TAPE_ORDER = ["SPY", "QQQ", "IWM", "DOW", "NASDAQ"];
 const TRANSIENT_POLYMARKET_LOADING_PATTERNS = [
   /abort(?:ed)?/iu,
@@ -65,6 +67,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
   const [lastPolymarketLiveAt, setLastPolymarketLiveAt] = useState<string | null>(null);
   const [polymarketPinPendingSlugs, setPolymarketPinPendingSlugs] = useState<string[]>([]);
   const [polymarketWarmupComplete, setPolymarketWarmupComplete] = useState(false);
+  const [polymarketHandoffRetries, setPolymarketHandoffRetries] = useState(0);
 
   const applyLiveData = useCallback((payload: TradingOpsLiveData) => {
     setLiveData(payload);
@@ -317,6 +320,31 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
     };
   }, [fetchPolymarketData]);
 
+  const polymarketNeedsHandoff = isPolymarketAggregateHandoffPending({
+    data: polymarketData,
+    liveData: polymarketLiveData,
+  });
+
+  useEffect(() => {
+    if (!polymarketNeedsHandoff) {
+      setPolymarketHandoffRetries(0);
+      return;
+    }
+
+    if (polymarketHandoffRetries >= POLYMARKET_HANDOFF_MAX_RETRIES) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setPolymarketHandoffRetries((current) => current + 1);
+      void fetchPolymarketData();
+    }, POLYMARKET_HANDOFF_RETRY_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [fetchPolymarketData, polymarketHandoffRetries, polymarketNeedsHandoff]);
+
   useEffect(() => {
     let stopped = false;
     let source: EventSource | null = null;
@@ -423,6 +451,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
     dataError: polymarketError,
     liveData: polymarketLiveData,
     liveError: polymarketLiveError,
+    handoffPending: polymarketNeedsHandoff && polymarketHandoffRetries < POLYMARKET_HANDOFF_MAX_RETRIES,
   });
   const displayPolymarketData = polymarketWarmupActive ? null : polymarketData;
   const displayPolymarketLiveData = polymarketWarmupActive ? null : polymarketLiveData;
@@ -1610,8 +1639,13 @@ function shouldKeepPolymarketNeutral(options: {
   dataError: string | null;
   liveData: TradingOpsPolymarketLiveData | null;
   liveError: string | null;
+  handoffPending: boolean;
 }): boolean {
   if (!options.warmupComplete && !isPolymarketLiveReady(options.liveData)) {
+    return true;
+  }
+
+  if (options.handoffPending) {
     return true;
   }
 
@@ -1624,6 +1658,30 @@ function shouldKeepPolymarketNeutral(options: {
   }
 
   return [options.data?.account, options.data?.signal, options.data?.watchlist].every((artifact) => isLoadingArtifact(artifact));
+}
+
+function isPolymarketAggregateHandoffPending(options: {
+  data: TradingOpsPolymarketData | null;
+  liveData: TradingOpsPolymarketLiveData | null;
+}): boolean {
+  if (!options.data || !options.liveData) {
+    return false;
+  }
+
+  const liveBoardReady =
+    options.liveData.streamer.marketsConnected ||
+    options.liveData.streamer.trackedMarketCount > 0 ||
+    options.liveData.markets.length > 0;
+  const livePrivateReady =
+    options.liveData.streamer.privateConnected ||
+    options.liveData.streamer.lastPrivateMessageAt != null ||
+    options.liveData.account.lastBalanceUpdateAt != null;
+
+  const accountPending = livePrivateReady && (options.data.account.state === "missing" || options.data.account.state === "error");
+  const signalPending = liveBoardReady && isLoadingArtifact(options.data.signal);
+  const watchlistPending = liveBoardReady && isLoadingArtifact(options.data.watchlist);
+
+  return accountPending || signalPending || watchlistPending;
 }
 
 function isLoadingArtifact(artifact: ArtifactState<unknown> | null | undefined): boolean {
