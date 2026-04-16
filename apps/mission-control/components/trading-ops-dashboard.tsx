@@ -1373,9 +1373,9 @@ function buildPolymarketLiveArtifact(
 ): ArtifactState<TradingOpsPolymarketLiveData> {
   if (!data) {
     return {
-      state: error ? "error" : "missing",
-      label: error ? "Polymarket live unavailable" : "Loading Polymarket live",
-      message: error ?? "Streaming Polymarket market and account updates.",
+      state: "missing",
+      label: "Loading Polymarket live",
+      message: error ? "Waiting for first Polymarket live snapshot." : "Streaming Polymarket market and account updates.",
       data: null,
       updatedAt: lastSuccessfulAt,
       source: "/api/trading-ops/polymarket/live/stream",
@@ -1402,9 +1402,9 @@ function buildPolymarketLiveArtifact(
 
 function buildPendingArtifact<T>(label: string, error: string | null): ArtifactState<T> {
   return {
-    state: error ? "error" : "missing",
+    state: "missing",
     label,
-    message: error ?? `${label}.`,
+    message: error ? "Waiting for first Polymarket snapshot." : `${label}.`,
     data: null,
     updatedAt: null,
     source: "/api/trading-ops/polymarket",

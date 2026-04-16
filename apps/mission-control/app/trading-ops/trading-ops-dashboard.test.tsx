@@ -832,6 +832,36 @@ describe("TradingOpsDashboard", () => {
     });
   });
 
+  it("keeps Polymarket panels neutral before the first live snapshot arrives", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/trading-ops/polymarket" || url === "/api/trading-ops/polymarket/live") {
+        throw new Error("temporary network issue");
+      }
+
+      return new Promise<Response>(() => {
+        // Keep unrelated fetches dormant.
+      });
+    }) as typeof fetch);
+
+    const { container } = render(<TradingOpsDashboard data={fixture} />);
+
+    const polymarketTab = screen.getByRole("tab", { name: "Polymarket" });
+    fireEvent.mouseDown(polymarketTab);
+    fireEvent.click(polymarketTab);
+
+    await act(async () => {
+      findEventSource("/api/trading-ops/polymarket/live/stream")?.fail();
+    });
+
+    await waitFor(() => {
+      expect(container).toHaveTextContent("Waiting for first Polymarket live snapshot.");
+      expect(container).toHaveTextContent("Waiting for first Polymarket snapshot.");
+    });
+
+    expect(container).not.toHaveTextContent("Polymarket live unavailable");
+  });
+
   it("shows the freshest pinned market timestamp when quote updates are newer than the last trade", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
