@@ -213,7 +213,7 @@ export async function loadTradingOpsDashboardData(
     loadMarketOverview(repoPath, tradingRunSignal),
     loadRuntimeOverview(repoPath, runJsonCommand),
     loadCanaryOverview(repoPath),
-    loadPredictionOverview(repoPath),
+    loadPredictionOverview(repoPath, runJsonCommand),
     loadBenchmarkOverview(repoPath),
     loadLifecycleOverview(repoPath, tradingRunSignal),
     loadWorkflowOverview(repoPath, tradingRunSignal),
@@ -850,9 +850,20 @@ async function loadCanaryOverview(repoPath: string): Promise<ArtifactState<Canar
   };
 }
 
-async function loadPredictionOverview(repoPath: string): Promise<ArtifactState<PredictionOverview>> {
+async function loadPredictionOverview(
+  repoPath: string,
+  runJsonCommand: (scriptPath: string, args?: string[]) => Promise<unknown>,
+): Promise<ArtifactState<PredictionOverview>> {
   const reportPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "prediction-accuracy-latest.json");
-  const report = await readJsonFile<Record<string, unknown>>(reportPath);
+  let report = await readJsonFile<Record<string, unknown>>(reportPath);
+
+  if (await shouldRefreshPredictionAccuracySummary(repoPath, reportPath)) {
+    const refreshed = await refreshPredictionAccuracySummary(repoPath, runJsonCommand);
+    if (refreshed) {
+      report = { path: reportPath, data: refreshed };
+    }
+  }
+
   if (!report?.data) {
     return {
       state: report?.error === "missing" ? "missing" : "error",
@@ -1389,6 +1400,54 @@ async function runBacktesterJsonScript(
     maxBuffer: 1024 * 1024 * 4,
   });
   return JSON.parse(stdout);
+}
+
+async function shouldRefreshPredictionAccuracySummary(repoPath: string, reportPath: string): Promise<boolean> {
+  const reportMtimeMs = await fileMtimeMs(reportPath);
+  const latestSettledMtimeMs = await latestJsonFileMtimeMs(path.join(repoPath, ".cache", "prediction_accuracy", "settled"));
+  if (latestSettledMtimeMs > reportMtimeMs) return true;
+  const latestSnapshotMtimeMs = await latestJsonFileMtimeMs(path.join(repoPath, ".cache", "prediction_accuracy", "snapshots"));
+  return latestSnapshotMtimeMs > reportMtimeMs;
+}
+
+async function refreshPredictionAccuracySummary(
+  repoPath: string,
+  runJsonCommand: (scriptPath: string, args?: string[]) => Promise<unknown>,
+): Promise<Record<string, unknown> | null> {
+  const scriptPath = path.join(repoPath, "prediction_accuracy_summary.py");
+
+  try {
+    const raw = await runJsonCommand(scriptPath, ["--json", "--max-snapshots-per-run", "1"]);
+    return asRecord(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function fileMtimeMs(filePath: string): Promise<number> {
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.mtimeMs;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return 0;
+    return 0;
+  }
+}
+
+async function latestJsonFileMtimeMs(dirPath: string): Promise<number> {
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    const latestName = entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => entry.name)
+      .sort()
+      .at(-1);
+    if (!latestName) return 0;
+    return fileMtimeMs(path.join(dirPath, latestName));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return 0;
+    return 0;
+  }
 }
 
 async function readJsonFile<T>(filePath: string): Promise<{ path: string; data: T | null; message?: string; error?: "missing" | "invalid" | "read" }> {

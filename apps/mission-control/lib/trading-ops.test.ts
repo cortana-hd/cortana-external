@@ -484,6 +484,74 @@ describe("trading ops loader", () => {
     expect(data.runtime.data?.preOpenGateFreshness).toContain("Pre-open readiness check artifact is missing");
   });
 
+  it("refreshes the prediction loop summary when newer settled artifacts exist", async () => {
+    vi.stubGlobal("fetch", externalServiceFetch);
+    const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-prediction-refresh-"));
+    tempDirs.push(repoPath);
+
+    await writeJson(path.join(repoPath, ".cache", "prediction_accuracy", "reports", "prediction-accuracy-latest.json"), {
+      generated_at: "2026-04-03T23:16:04.659512+00:00",
+      snapshot_count: 449,
+      record_count: 1838,
+      horizon_status: { "1d": { matured: 880, pending: 337 } },
+      validation_grade_counts: { trade_validation_grade: { good: 10, mixed: 5 } },
+      summary: [{ strategy: "dip_buyer", action: "WATCH", "1d": { samples: 100 } }],
+    });
+    await writeJson(path.join(repoPath, ".cache", "prediction_accuracy", "settled", "20260416-194539-704667-dip_buyer.json"), {
+      generated_at: "2026-04-16T19:45:39.704667+00:00",
+      records: [],
+    });
+
+    const runJsonCommand = vi.fn(async (scriptPath: string, args?: string[]) => {
+      if (scriptPath.endsWith("prediction_accuracy_summary.py")) {
+        expect(args).toEqual(["--json", "--max-snapshots-per-run", "1"]);
+        return {
+          generated_at: "2026-04-16T19:49:24.074811+00:00",
+          snapshot_count: 468,
+          record_count: 1984,
+          horizon_status: { "1d": { matured: 924, pending: 401 } },
+          validation_grade_counts: { trade_validation_grade: { good: 340, mixed: 320, unknown: 900 } },
+          summary: [{ strategy: "canslim", action: "NO_BUY", "1d": { samples: 412 } }],
+        };
+      }
+      if (scriptPath.endsWith("runtime_health_snapshot.py")) {
+        return {
+          generated_at: "2026-04-16T19:49:24.074811+00:00",
+          service_health: {
+            operator_state: "healthy",
+            operator_action: "No operator action required.",
+          },
+          incident_markers: [],
+        };
+      }
+      if (scriptPath.endsWith("ops_highway_snapshot.py")) {
+        return {
+          generated_at: "2026-04-16T19:49:24.074811+00:00",
+          backup_restore: {
+            critical_assets: [],
+            do_not_commit_paths: [],
+            minimum_recovery_sequence: [],
+          },
+        };
+      }
+      throw new Error(`unexpected script: ${scriptPath}`);
+    });
+
+    const data = await loadTradingOpsDashboardData({
+      backtesterRepoPath: repoPath,
+      cortanaRepoPath: repoPath,
+      runJsonCommand,
+      tradingRunStateStore: null,
+    });
+
+    expect(runJsonCommand).toHaveBeenCalledWith(expect.stringMatching(/prediction_accuracy_summary\.py$/), ["--json", "--max-snapshots-per-run", "1"]);
+    expect(data.prediction.state).toBe("ok");
+    expect(data.prediction.badgeText).toBeUndefined();
+    expect(data.prediction.data?.snapshotCount).toBe(468);
+    expect(data.prediction.data?.recordCount).toBe(1984);
+    expect(data.prediction.data?.oneDayMatured).toBe(924);
+  });
+
   it("rejects obviously mock-contaminated artifacts", async () => {
     vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-mock-artifact-"));

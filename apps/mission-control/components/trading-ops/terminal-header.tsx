@@ -15,8 +15,8 @@ export function TerminalHeader({ data }: { data: TradingOpsDashboardData }) {
         <div className="flex items-center divide-x divide-border/50">
           <HeaderMetric label="Regime" value={data.market.data?.regime.toUpperCase() ?? "N/A"} state={data.market.state} />
           <HeaderMetric label="Sizing" value={formatPercent(data.market.data?.positionSizingPct ?? null)} state={data.market.state} />
-          <HeaderMetric label="Exposure" value={formatPercent(data.lifecycle.data?.grossExposurePct ?? null)} state={data.lifecycle.state} />
-          <HeaderMetric label="Positions" value={`${data.lifecycle.data?.openCount ?? 0} open / ${data.lifecycle.data?.closedCount ?? 0} closed`} state={data.lifecycle.state} />
+          <HeaderMetric label="Snapshots" value={String(data.prediction.data?.snapshotCount ?? 0)} state={data.prediction.state} />
+          <HeaderMetric label="1d Matured" value={String(data.prediction.data?.oneDayMatured ?? 0)} state={data.prediction.state} />
           <HeaderMetric label="Decision" value={data.tradingRun.data?.decision ?? "N/A"} state={data.tradingRun.state} />
         </div>
         <span className="text-[10px] text-muted-foreground">{formatRelativeAge(data.generatedAt)}</span>
@@ -34,8 +34,8 @@ export function TerminalHeader({ data }: { data: TradingOpsDashboardData }) {
         <div className="grid grid-cols-2 gap-1.5">
           <HeaderMetricMobile label="Regime" value={data.market.data?.regime.toUpperCase() ?? "N/A"} state={data.market.state} />
           <HeaderMetricMobile label="Sizing" value={formatPercent(data.market.data?.positionSizingPct ?? null)} state={data.market.state} />
-          <HeaderMetricMobile label="Exposure" value={formatPercent(data.lifecycle.data?.grossExposurePct ?? null)} state={data.lifecycle.state} />
-          <HeaderMetricMobile label="Positions" value={`${data.lifecycle.data?.openCount ?? 0}/${data.lifecycle.data?.closedCount ?? 0}`} state={data.lifecycle.state} />
+          <HeaderMetricMobile label="Snapshots" value={String(data.prediction.data?.snapshotCount ?? 0)} state={data.prediction.state} />
+          <HeaderMetricMobile label="1d Matured" value={String(data.prediction.data?.oneDayMatured ?? 0)} state={data.prediction.state} />
         </div>
       </div>
     </section>

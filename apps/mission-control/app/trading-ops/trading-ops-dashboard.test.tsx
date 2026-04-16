@@ -1230,8 +1230,10 @@ describe("TradingOpsDashboard", () => {
     const { container } = render(<TradingOpsDashboard data={fixture} />);
     expect(container).toHaveTextContent("CORRECTION");
     expect(container).toHaveTextContent("0.0%");
-    expect(container).toHaveTextContent("15.0%");
-    expect(container).toHaveTextContent("1 open / 2 closed");
+    expect(container).toHaveTextContent("Snapshots");
+    expect(container).toHaveTextContent("449");
+    expect(container).toHaveTextContent("1d Matured");
+    expect(container).toHaveTextContent("880");
   });
 
   it("renders runtime readiness-check missing language and stale badge text", () => {

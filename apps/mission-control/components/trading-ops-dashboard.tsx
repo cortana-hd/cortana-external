@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Gauge, Landmark, Radar, ShieldCheck, Workflow } from "lucide-react";
+import { AlertTriangle, Gauge, Landmark, Radar, ShieldCheck } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type {
@@ -522,7 +522,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
       {(hasIncidents || hasErrors || hasTradingRunFallback) && <AlertBanner data={data} />}
 
       {/* ── Zone C: Four Summary Cells ── */}
-      <section className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
         <TerminalCell
           title="Market posture"
           value={data.market.data ? `${data.market.data.regime.toUpperCase()} · ${data.market.data.posture}` : data.market.label}
@@ -546,13 +546,6 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
           detail={data.prediction.data ? `1d matured ${data.prediction.data.oneDayMatured}` : "No accuracy artifact"}
           state={data.prediction.state}
           icon={<Radar className="h-3.5 w-3.5" />}
-        />
-        <TerminalCell
-          title="Trade lifecycle"
-          value={data.lifecycle.data ? `${data.lifecycle.data.openCount} open / ${data.lifecycle.data.closedCount} closed` : data.lifecycle.label}
-          detail={data.lifecycle.data ? `Exposure ${formatPercent(data.lifecycle.data.grossExposurePct)}` : "No lifecycle artifact"}
-          state={data.lifecycle.state}
-          icon={<Workflow className="h-3.5 w-3.5" />}
         />
       </section>
 
