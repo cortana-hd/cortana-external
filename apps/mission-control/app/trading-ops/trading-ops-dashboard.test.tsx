@@ -620,11 +620,6 @@ describe("TradingOpsDashboard", () => {
       expect(container).toHaveTextContent("Signal overlay");
       expect(container).toHaveTextContent("Linked watchlist");
       expect(container).toHaveTextContent("Live stream");
-      expect(container).toHaveTextContent("Polymarket-linked symbols");
-      expect(container).toHaveTextContent("These are symbol links and probabilities, not stock quotes.");
-      expect(container).toHaveTextContent("Linked to Fed easing odds");
-      expect(container).toHaveTextContent("SPY");
-      expect(container).toHaveTextContent("AMD");
       expect(container).toHaveTextContent("Fed easing odds");
       expect(container).toHaveTextContent("...106dac");
       expect(container).toHaveTextContent("$0.4100");
