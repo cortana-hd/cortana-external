@@ -206,13 +206,24 @@ export class ProviderChain {
       return afterHoursStale;
     }
     if (context.preferLiveSchwabLane) {
-      if (context.allowAlpacaFallback && this.isAlpacaSupportedSymbol(symbol)) {
-        return this.fetchAlpacaQuoteFallback(symbol, context);
+      if (!this.schwabRestClient.isRestAvailable()) {
+        throw new Error(this.schwabRestClient.getUnavailableReason());
       }
-      if (isFuturesSymbol) {
-        throw new Error(`No live Schwab futures quote available for ${symbol}`);
+      try {
+        const quote = (await this.schwabRestClient.fetchQuoteEnvelope(symbol)).quote;
+        return {
+          source: "schwab",
+          status: "ok",
+          stalenessSeconds: 0,
+          providerMode: "schwab_primary",
+          fallbackEngaged: false,
+          providerModeReason: "Quote used the Schwab REST primary lane after streamer/shared state was unavailable.",
+          quote,
+        };
+      } catch (error) {
+        this.schwabRestClient.recordFailure(error);
+        throw error;
       }
-      throw new Error(`No live Schwab quote available for ${symbol}`);
     }
     if (context.allowAlpacaFallback && this.isAlpacaSupportedSymbol(symbol) && !this.schwabRestClient.isRestAvailable()) {
       return this.fetchAlpacaQuoteFallback(symbol, context);
