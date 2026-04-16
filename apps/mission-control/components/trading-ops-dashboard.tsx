@@ -34,6 +34,16 @@ const POLYMARKET_LIVE_POLL_MS = 15_000;
 const POLYMARKET_LIVE_STREAM_RETRY_MS = 2_000;
 const POLYMARKET_STARTUP_GRACE_MS = 12_000;
 const COMPACT_TAPE_ORDER = ["SPY", "QQQ", "IWM", "DOW", "NASDAQ"];
+const TRANSIENT_POLYMARKET_LOADING_PATTERNS = [
+  /abort(?:ed)?/iu,
+  /timed?\s*out/iu,
+  /timeout/iu,
+  /failed to fetch/iu,
+  /network(?:\s+request)?\s+failed/iu,
+  /stream not ready/iu,
+  /reconnect/iu,
+  /waiting for first/iu,
+];
 
 /* ── main component ── */
 
@@ -407,7 +417,13 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
   const liveArtifact = buildLiveArtifact(liveData, liveError, lastSuccessfulAt);
   const liveExecutionGateArtifact = buildLiveExecutionGateArtifact(liveData, liveError, lastSuccessfulAt);
-  const polymarketWarmupActive = !polymarketWarmupComplete && !isPolymarketLiveReady(polymarketLiveData);
+  const polymarketWarmupActive = shouldKeepPolymarketNeutral({
+    warmupComplete: polymarketWarmupComplete,
+    data: polymarketData,
+    dataError: polymarketError,
+    liveData: polymarketLiveData,
+    liveError: polymarketLiveError,
+  });
   const displayPolymarketData = polymarketWarmupActive ? null : polymarketData;
   const displayPolymarketLiveData = polymarketWarmupActive ? null : polymarketLiveData;
   const polymarketStatusArtifact = polymarketWarmupActive
@@ -1492,6 +1508,7 @@ function buildPolymarketStatusArtifact(
   const state = summarizeArtifactStates(artifacts.map((artifact) => artifact.state));
   const updatedAt = newestTimestamp(artifacts.map((artifact) => artifact.updatedAt ?? null));
   const warnings = artifacts.flatMap((artifact) => artifact.warnings);
+  const suppressTransientError = state === "missing" && isTransientPolymarketLoadingMessage(error);
 
   return {
     state,
@@ -1500,8 +1517,8 @@ function buildPolymarketStatusArtifact(
     data,
     updatedAt,
     source: "/api/trading-ops/polymarket",
-    warnings: error ? [error, ...warnings] : warnings,
-    badgeText: data.signal.data?.alignment ?? data.account.badgeText,
+    warnings: error && !suppressTransientError ? [error, ...warnings] : warnings,
+    badgeText: data.signal.data?.alignment ?? (state === "missing" ? data.account.badgeText ?? "loading" : data.account.badgeText),
   };
 }
 
@@ -1514,11 +1531,25 @@ function buildPolymarketLiveArtifact(
     return {
       state: "missing",
       label: "Loading Polymarket live",
-      message: error ? "Waiting for first Polymarket live snapshot." : "Streaming Polymarket market and account updates.",
+      message: "Waiting for first Polymarket live snapshot.",
       data: null,
       updatedAt: lastSuccessfulAt,
       source: "/api/trading-ops/polymarket/live/stream",
-      warnings: error ? [error] : [],
+      warnings: error && !isTransientPolymarketLoadingMessage(error) ? [error] : [],
+      badgeText: "loading",
+    };
+  }
+
+  if (isPolymarketLiveLoading(data, error)) {
+    return {
+      state: "missing",
+      label: "Loading Polymarket live",
+      message: "Waiting for the first Polymarket live snapshot.",
+      data,
+      updatedAt: lastSuccessfulAt ?? data.generatedAt,
+      source: "/api/trading-ops/polymarket/live/stream",
+      warnings: [],
+      badgeText: "loading",
     };
   }
 
@@ -1547,7 +1578,8 @@ function buildPendingArtifact<T>(label: string, error: string | null): ArtifactS
     data: null,
     updatedAt: null,
     source: "/api/trading-ops/polymarket",
-    warnings: error ? [error] : [],
+    warnings: error && !isTransientPolymarketLoadingMessage(error) ? [error] : [],
+    badgeText: "loading",
   };
 }
 
@@ -1560,6 +1592,7 @@ function buildWarmupArtifact<T>(label: string, message: string, source: string):
     updatedAt: null,
     source,
     warnings: [],
+    badgeText: "loading",
   };
 }
 
@@ -1569,6 +1602,78 @@ function isPolymarketLiveReady(data: TradingOpsPolymarketLiveData | null): boole
   }
 
   return data.streamer.marketsConnected && data.streamer.privateConnected;
+}
+
+function shouldKeepPolymarketNeutral(options: {
+  warmupComplete: boolean;
+  data: TradingOpsPolymarketData | null;
+  dataError: string | null;
+  liveData: TradingOpsPolymarketLiveData | null;
+  liveError: string | null;
+}): boolean {
+  if (!options.warmupComplete && !isPolymarketLiveReady(options.liveData)) {
+    return true;
+  }
+
+  if (isPolymarketLiveLoading(options.liveData, options.liveError)) {
+    return true;
+  }
+
+  if (!options.data && isTransientPolymarketLoadingMessage(options.dataError)) {
+    return true;
+  }
+
+  return [options.data?.account, options.data?.signal, options.data?.watchlist].every((artifact) => isLoadingArtifact(artifact));
+}
+
+function isLoadingArtifact(artifact: ArtifactState<unknown> | null | undefined): boolean {
+  if (!artifact || artifact.state !== "missing") {
+    return false;
+  }
+
+  if (artifact.badgeText === "loading") {
+    return true;
+  }
+
+  return /waiting for/i.test(artifact.message) || /loading/i.test(artifact.label);
+}
+
+function isPolymarketLiveLoading(
+  data: TradingOpsPolymarketLiveData | null,
+  error: string | null,
+): boolean {
+  if (!data) {
+    return isTransientPolymarketLoadingMessage(error);
+  }
+
+  if (data.streamer.marketsConnected || data.streamer.privateConnected) {
+    return false;
+  }
+
+  if (data.streamer.lastMarketMessageAt || data.streamer.lastPrivateMessageAt) {
+    return false;
+  }
+
+  if (data.markets.length > 0) {
+    return false;
+  }
+
+  const startupSignals = [
+    data.streamer.operatorState,
+    data.streamer.lastError,
+    error,
+    ...data.warnings,
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+  return startupSignals.length === 0 || startupSignals.every((value) => isTransientPolymarketLoadingMessage(value));
+}
+
+function isTransientPolymarketLoadingMessage(message: string | null | undefined): boolean {
+  if (typeof message !== "string") {
+    return false;
+  }
+
+  return TRANSIENT_POLYMARKET_LOADING_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 function summarizeArtifactStates(states: Array<TradingOpsPolymarketData["account"]["state"]>): TradingOpsPolymarketData["account"]["state"] {

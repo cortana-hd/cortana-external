@@ -20,6 +20,16 @@ import {
 import { getBacktesterRepoPath } from "@/lib/runtime-paths";
 
 const DEFAULT_EXTERNAL_SERVICE_PORT = "3033";
+const TRANSIENT_LOADING_PATTERNS = [
+  /abort(?:ed)?/iu,
+  /timed?\s*out/iu,
+  /timeout/iu,
+  /failed to fetch/iu,
+  /network(?:\s+request)?\s+failed/iu,
+  /stream not ready/iu,
+  /reconnect/iu,
+  /waiting for first/iu,
+];
 
 type FetchLike = typeof fetch;
 
@@ -74,6 +84,19 @@ function buildLiveAccountArtifact(
   live: Awaited<ReturnType<typeof loadTradingOpsPolymarketLiveData>>,
   baseUrl: string,
 ): ArtifactState<PolymarketAccountOverview> {
+  if (isPolymarketLiveWarmup(live)) {
+    return {
+      state: "missing",
+      label: "Loading account",
+      message: "Waiting for the first Polymarket account snapshot.",
+      data: null,
+      updatedAt: live.generatedAt,
+      source: `${baseUrl}/polymarket/live`,
+      warnings: [],
+      badgeText: "loading",
+    };
+  }
+
   const status = deriveAccountStatus(live);
   const warnings = compactStrings(live.warnings);
   const balances =
@@ -113,6 +136,19 @@ function buildLiveAccountArtifact(
 function buildLiveSignalArtifact(
   live: Awaited<ReturnType<typeof loadTradingOpsPolymarketLiveData>>,
 ): ArtifactState<PolymarketSignalOverview> {
+  if (isPolymarketLiveWarmup(live)) {
+    return {
+      state: "missing",
+      label: "Loading overlay",
+      message: "Waiting for the first live Polymarket event snapshot.",
+      data: null,
+      updatedAt: live.generatedAt,
+      source: "/api/trading-ops/polymarket/live",
+      warnings: [],
+      badgeText: "loading",
+    };
+  }
+
   const eventRows = live.markets.filter((market) => market.bucket === "events");
   if (eventRows.length === 0) {
     return {
@@ -172,6 +208,19 @@ function buildLiveSignalArtifact(
 function buildLiveWatchlistArtifact(
   live: Awaited<ReturnType<typeof loadTradingOpsPolymarketLiveData>>,
 ): ArtifactState<PolymarketWatchlistOverview> {
+  if (isPolymarketLiveWarmup(live)) {
+    return {
+      state: "missing",
+      label: "Loading watchlist",
+      message: "Waiting for the first linked Polymarket watchlist snapshot.",
+      data: null,
+      updatedAt: live.generatedAt,
+      source: "/api/trading-ops/polymarket/live",
+      warnings: [],
+      badgeText: "loading",
+    };
+  }
+
   const symbols = new Map<string, PolymarketWatchlistOverview["symbols"][number]>();
 
   for (const symbol of ["SPY", "QQQ", "DIA"]) {
@@ -275,6 +324,19 @@ function buildLiveResultsArtifact(
     rows,
   };
 
+  if (!response.ok && isTransientLoadingMessage(response.error)) {
+    return {
+      state: "missing",
+      label: "Loading results",
+      message: "Waiting for pinned market state.",
+      data,
+      updatedAt: data.updatedAt,
+      source: `${baseUrl}/polymarket/results`,
+      warnings: [],
+      badgeText: "loading",
+    };
+  }
+
   return {
     state: response.ok ? "ok" : "degraded",
     label:
@@ -304,6 +366,36 @@ function deriveAccountStatus(live: Awaited<ReturnType<typeof loadTradingOpsPolym
     return "degraded";
   }
   return "error";
+}
+
+function isPolymarketLiveWarmup(live: Awaited<ReturnType<typeof loadTradingOpsPolymarketLiveData>>): boolean {
+  if (live.streamer.marketsConnected || live.streamer.privateConnected) {
+    return false;
+  }
+
+  if (live.streamer.lastMarketMessageAt || live.streamer.lastPrivateMessageAt) {
+    return false;
+  }
+
+  if (live.markets.length > 0) {
+    return false;
+  }
+
+  const startupSignals = compactStrings([
+    live.streamer.operatorState,
+    live.streamer.lastError,
+    ...live.warnings,
+  ]);
+
+  return startupSignals.length === 0 || startupSignals.every((message) => isTransientLoadingMessage(message));
+}
+
+function isTransientLoadingMessage(message: string | null | undefined): boolean {
+  if (typeof message !== "string") {
+    return false;
+  }
+
+  return TRANSIENT_LOADING_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 function bucketSummary(data: PolymarketWatchlistOverview): string {
