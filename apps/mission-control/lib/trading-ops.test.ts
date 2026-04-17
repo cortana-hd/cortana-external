@@ -9,6 +9,17 @@ async function writeJson(filePath: string, payload: unknown) {
   await writeFile(filePath, JSON.stringify(payload, null, 2));
 }
 
+function predictionArtifactName(at: Date, suffix: string): string {
+  const year = at.getUTCFullYear();
+  const month = String(at.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(at.getUTCDate()).padStart(2, "0");
+  const hour = String(at.getUTCHours()).padStart(2, "0");
+  const minute = String(at.getUTCMinutes()).padStart(2, "0");
+  const second = String(at.getUTCSeconds()).padStart(2, "0");
+  const micros = String(at.getUTCMilliseconds() * 1000).padStart(6, "0");
+  return `${year}${month}${day}-${hour}${minute}${second}-${micros}-${suffix}.json`;
+}
+
 const externalServiceFetch = vi.fn(async (input: RequestInfo | URL) => {
   const url = String(input);
 
@@ -498,31 +509,40 @@ describe("trading ops loader", () => {
     vi.stubGlobal("fetch", externalServiceFetch);
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-prediction-refresh-"));
     tempDirs.push(repoPath);
+    const now = Date.now();
+    const initialReportAt = new Date(now - 10 * 60 * 1000);
+    const settledArtifactAt = new Date(now - 5 * 60 * 1000);
+    const refreshedReportAt = new Date(now - 60 * 1000);
 
     const reportPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "prediction-accuracy-latest.json");
     await writeJson(reportPath, {
-      generated_at: "2026-04-03T23:16:04.659512+00:00",
+      generated_at: initialReportAt.toISOString(),
       snapshot_count: 449,
       record_count: 1838,
       horizon_status: { "1d": { matured: 880, pending: 337 } },
       validation_grade_counts: { trade_validation_grade: { good: 10, mixed: 5 } },
       summary: [{ strategy: "dip_buyer", action: "WATCH", "1d": { samples: 100 } }],
     });
-    const settledPath = path.join(repoPath, ".cache", "prediction_accuracy", "settled", "20260416-194539-704667-dip_buyer.json");
+    const settledPath = path.join(
+      repoPath,
+      ".cache",
+      "prediction_accuracy",
+      "settled",
+      predictionArtifactName(settledArtifactAt, "dip_buyer"),
+    );
     await writeJson(settledPath, {
-      generated_at: "2026-04-16T19:45:39.704667+00:00",
+      generated_at: settledArtifactAt.toISOString(),
       records: [],
     });
-    const sharedMtime = new Date("2026-04-16T19:50:00.000Z");
-    await utimes(reportPath, sharedMtime, sharedMtime);
-    await utimes(settledPath, sharedMtime, sharedMtime);
+    await utimes(reportPath, initialReportAt, initialReportAt);
+    await utimes(settledPath, settledArtifactAt, settledArtifactAt);
 
     const runJsonCommand = vi.fn(async (scriptPath: string, args?: string[]) => {
       if (scriptPath.endsWith("prediction_accuracy_report.py")) {
         expect(args).toEqual(["--json", "--max-snapshots-per-run", "1"]);
         return {
           prediction_accuracy: {
-            generated_at: "2026-04-16T19:49:24.074811+00:00",
+            generated_at: refreshedReportAt.toISOString(),
             snapshot_count: 468,
             record_count: 1984,
             horizon_status: { "1d": { matured: 924, pending: 401 } },
@@ -533,7 +553,7 @@ describe("trading ops loader", () => {
       }
       if (scriptPath.endsWith("runtime_health_snapshot.py")) {
         return {
-          generated_at: "2026-04-16T19:49:24.074811+00:00",
+          generated_at: refreshedReportAt.toISOString(),
           service_health: {
             operator_state: "healthy",
             operator_action: "No operator action required.",
@@ -543,7 +563,7 @@ describe("trading ops loader", () => {
       }
       if (scriptPath.endsWith("ops_highway_snapshot.py")) {
         return {
-          generated_at: "2026-04-16T19:49:24.074811+00:00",
+          generated_at: refreshedReportAt.toISOString(),
           backup_restore: {
             critical_assets: [],
             do_not_commit_paths: [],

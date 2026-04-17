@@ -887,11 +887,13 @@ async function loadPredictionOverview(
   const strategyScorecardPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "strategy-scorecard-latest.json");
   const shadowPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "opportunity-shadow-latest.json");
   let report = await readJsonFile<Record<string, unknown>>(reportPath);
+  let refreshedBundle: Record<string, unknown> | null = null;
 
   if (await shouldRefreshPredictionAccuracySummary(repoPath, reportPath)) {
-    const refreshed = await refreshPredictionAccuracySummary(repoPath, runJsonCommand);
-    if (refreshed) {
-      report = { path: reportPath, data: refreshed };
+    refreshedBundle = await refreshPredictionAccuracySummary(repoPath, runJsonCommand);
+    const refreshedPrediction = asRecord(refreshedBundle?.prediction_accuracy);
+    if (refreshedPrediction) {
+      report = { path: reportPath, data: refreshedPrediction };
     }
   }
 
@@ -913,8 +915,8 @@ async function loadPredictionOverview(
   ]);
   const horizonStatus = asRecord(asRecord(data.horizon_status)?.["1d"]);
   const summary = asArray(data.summary);
-  const strategyScorecardData = asRecord(strategyScorecard?.data);
-  const shadowData = asRecord(shadowSummary?.data);
+  const strategyScorecardData = asRecord(strategyScorecard?.data) ?? asRecord(refreshedBundle?.strategy_scorecard);
+  const shadowData = asRecord(shadowSummary?.data) ?? asRecord(refreshedBundle?.opportunity_shadow);
   const bestStrategy = summary
     .map((entry) => asRecord(entry))
     .find((entry) => asRecord(entry?.["1d"]));
@@ -1589,8 +1591,7 @@ async function refreshPredictionAccuracySummary(
   const scriptPath = path.join(repoPath, "backtester", "prediction_accuracy_report.py");
 
   try {
-    const raw = asRecord(await runJsonCommand(scriptPath, ["--json", "--max-snapshots-per-run", "1"]));
-    return asRecord(raw?.prediction_accuracy);
+    return asRecord(await runJsonCommand(scriptPath, ["--json", "--max-snapshots-per-run", "1"]));
   } catch {
     return null;
   }
