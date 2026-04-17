@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { formatRelativeAge, loadTradingOpsDashboardData } from "@/lib/trading-ops";
 
@@ -499,7 +499,8 @@ describe("trading ops loader", () => {
     const repoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-prediction-refresh-"));
     tempDirs.push(repoPath);
 
-    await writeJson(path.join(repoPath, ".cache", "prediction_accuracy", "reports", "prediction-accuracy-latest.json"), {
+    const reportPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "prediction-accuracy-latest.json");
+    await writeJson(reportPath, {
       generated_at: "2026-04-03T23:16:04.659512+00:00",
       snapshot_count: 449,
       record_count: 1838,
@@ -507,10 +508,14 @@ describe("trading ops loader", () => {
       validation_grade_counts: { trade_validation_grade: { good: 10, mixed: 5 } },
       summary: [{ strategy: "dip_buyer", action: "WATCH", "1d": { samples: 100 } }],
     });
-    await writeJson(path.join(repoPath, ".cache", "prediction_accuracy", "settled", "20260416-194539-704667-dip_buyer.json"), {
+    const settledPath = path.join(repoPath, ".cache", "prediction_accuracy", "settled", "20260416-194539-704667-dip_buyer.json");
+    await writeJson(settledPath, {
       generated_at: "2026-04-16T19:45:39.704667+00:00",
       records: [],
     });
+    const sharedMtime = new Date("2026-04-16T19:50:00.000Z");
+    await utimes(reportPath, sharedMtime, sharedMtime);
+    await utimes(settledPath, sharedMtime, sharedMtime);
 
     const runJsonCommand = vi.fn(async (scriptPath: string, args?: string[]) => {
       if (scriptPath.endsWith("prediction_accuracy_report.py")) {

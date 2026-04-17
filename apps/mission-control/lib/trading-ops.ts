@@ -1535,11 +1535,11 @@ async function runBacktesterJsonScript(
 }
 
 async function shouldRefreshPredictionAccuracySummary(repoPath: string, reportPath: string): Promise<boolean> {
-  const reportMtimeMs = await fileMtimeMs(reportPath);
-  const latestSettledMtimeMs = await latestJsonFileMtimeMs(path.join(repoPath, ".cache", "prediction_accuracy", "settled"));
-  if (latestSettledMtimeMs > reportMtimeMs) return true;
-  const latestSnapshotMtimeMs = await latestJsonFileMtimeMs(path.join(repoPath, ".cache", "prediction_accuracy", "snapshots"));
-  return latestSnapshotMtimeMs > reportMtimeMs;
+  const reportFreshnessMs = await predictionAccuracyReportFreshnessMs(reportPath);
+  const latestSettledFreshnessMs = await latestPredictionAccuracyArtifactFreshnessMs(path.join(repoPath, ".cache", "prediction_accuracy", "settled"));
+  if (latestSettledFreshnessMs > reportFreshnessMs) return true;
+  const latestSnapshotFreshnessMs = await latestPredictionAccuracyArtifactFreshnessMs(path.join(repoPath, ".cache", "prediction_accuracy", "snapshots"));
+  return latestSnapshotFreshnessMs > reportFreshnessMs;
 }
 
 async function refreshPredictionAccuracySummary(
@@ -1566,7 +1566,30 @@ async function fileMtimeMs(filePath: string): Promise<number> {
   }
 }
 
-async function latestJsonFileMtimeMs(dirPath: string): Promise<number> {
+async function predictionAccuracyReportFreshnessMs(reportPath: string): Promise<number> {
+  const report = await readJsonFile<Record<string, unknown>>(reportPath);
+  const generatedAt = stringValue(report.data?.generated_at);
+  const generatedAtMs = generatedAt ? Date.parse(generatedAt) : NaN;
+  if (Number.isFinite(generatedAtMs)) return generatedAtMs;
+  return fileMtimeMs(reportPath);
+}
+
+function predictionAccuracyArtifactTimestampMs(fileName: string): number | null {
+  const match = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})-(\d{6})-/.exec(fileName);
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second, micros] = match;
+  return Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+    Math.floor(Number(micros) / 1000),
+  );
+}
+
+async function latestPredictionAccuracyArtifactFreshnessMs(dirPath: string): Promise<number> {
   try {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
     const latestName = entries
@@ -1575,7 +1598,10 @@ async function latestJsonFileMtimeMs(dirPath: string): Promise<number> {
       .sort()
       .at(-1);
     if (!latestName) return 0;
-    return fileMtimeMs(path.join(dirPath, latestName));
+    const latestPath = path.join(dirPath, latestName);
+    const latestArtifactTimestampMs = predictionAccuracyArtifactTimestampMs(latestName);
+    if (latestArtifactTimestampMs !== null) return latestArtifactTimestampMs;
+    return fileMtimeMs(latestPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return 0;
     return 0;
