@@ -175,9 +175,10 @@ When creating backtester planning artifacts, start from these templates:
 - PRD: `backtester/planning/PRDs/template.md`
 - Tech Spec: `backtester/planning/TechSpecs/template.md`
 - Implementation Plan: `backtester/planning/Implementation/template.md`
+- QA Plan: `backtester/planning/QA/template.md`
 
 Required rule:
-- PRD, Tech Spec, and Implementation Plan for the same workstream must stay aligned on scope, dependencies, testing, and rollout order.
+- PRD, Tech Spec, Implementation Plan, and QA Plan for the same workstream must stay aligned on scope, dependencies, testing, and rollout order.
 
 ## Recommended Authoring Workflow
 
@@ -185,7 +186,7 @@ For significant new work:
 
 1. Decide whether this is source material or canonical knowledge.
 2. Pick the owning area using the placement matrix above.
-3. If it is a backtester planning workstream, create PRD + Tech Spec + Implementation Plan from templates.
+3. If it is a backtester planning workstream, create PRD + Tech Spec + Implementation Plan + QA Plan from templates.
 4. Add or update the relevant source doc.
 5. Update the matching `knowledge/` page if current truth changed.
 6. Update nearby README/index pages if discovery changed.
@@ -210,6 +211,6 @@ Avoid these:
 - "This is a Mission Control-specific design note" -> `apps/mission-control/docs/source/architecture/`
 - "This is a backtester runbook" -> `backtester/docs/source/runbook/`
 - "This is a trading/backtester PRD" -> `backtester/docs/source/prd/`
-- "This is a backtester PRD/Tech Spec/Implementation Plan" -> `backtester/planning/...`
+- "This is a backtester PRD/Tech Spec/Implementation Plan/QA Plan" -> `backtester/planning/...`
 - "This explains current truth for a whole system" -> `knowledge/domains/...`
 - "This is only a planning workflow helper or closeout note" -> `backtester/planning/docs/`
