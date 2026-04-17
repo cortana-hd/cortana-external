@@ -210,11 +210,27 @@ Supporting success signals:
 - V3 is the allocation and autonomy layer: portfolio competition, strategy authority, and governed automation.
 - The north star is not “let the model trade freely.” The north star is “let the system earn more authority through evidence while keeping the operator in command.”
 
-### Open Questions
+### Resolved Decisions
 
-- Should the first version of V3 allocate at the strategy-family level first, or directly at the individual-position level?
-- Which risk budgets should be canonical first: gross exposure, per-position size, sector/theme concentration, or drawdown budget?
-- What exact evidence should be required before moving from supervised-live to any stronger autonomy tier?
+- The first version of V3 will allocate in two stages rather than jumping directly to fully position-level autonomy:
+  - stage 1 sets budgets and authority at the strategy-family level
+  - stage 2 lets each strategy rank and propose individual positions within its assigned budget
+  This preserves interpretability, makes governance easier to audit, and keeps capital competition bounded while the portfolio engine matures.
+
+- V3 will use a four-layer canonical risk-budget stack:
+  - portfolio drawdown budget as the top-level kill-switch and authority reducer
+  - gross exposure budget as the main portfolio heat control
+  - per-position size limits as the primary single-name loss cap
+  - sector and theme concentration caps as overlap control
+  This order reflects the wiki's risk-management and drawdown guidance: protect survivability first, then shape allocation beneath that constraint.
+
+- Moving from `supervised-live` into any stronger autonomy tier will require all of the following evidence:
+  - at least 250 settled samples on the active strategy or authority path, with acceptable coverage across the main market-posture regimes
+  - benchmark outperformance and acceptable drawdown behavior in walk-forward and degraded-fill testing
+  - calibrated opportunity scoring and no material unresolved drift in data, predictions, or execution assumptions
+  - a clean supervised-live observation window with no unexplained policy breaches, no unresolved operational incidents, and no silent fallback behavior in operator surfaces
+  - explicit operator approval recorded as an artifact, not implied by inertia
+  Stronger autonomy should be earned through evidence and release discipline, not simply by time in market.
 
 ### Collaboration Topics
 
