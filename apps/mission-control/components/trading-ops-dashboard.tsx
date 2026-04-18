@@ -1382,7 +1382,27 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
 
           </section>
 
-          <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+          <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+            <ArtifactPanel title="Control tower" artifact={data.controlTower}>
+              {data.controlTower.data ? (
+                <div className="space-y-2 text-sm">
+                  <Metric label="Desired posture" value={data.controlTower.data.desiredPosture ? formatLabel(data.controlTower.data.desiredPosture) : "unknown"} />
+                  <Metric label="Actual posture" value={data.controlTower.data.actualPosture ? formatLabel(data.controlTower.data.actualPosture) : "unknown"} />
+                  <Metric label="Desired autonomy" value={data.controlTower.data.desiredAutonomy ? formatLabel(data.controlTower.data.desiredAutonomy) : "unknown"} />
+                  <Metric label="Actual autonomy" value={data.controlTower.data.actualAutonomy ? formatLabel(data.controlTower.data.actualAutonomy) : "unknown"} />
+                  <Metric
+                    label="Release"
+                    value={[data.controlTower.data.releaseKey, data.controlTower.data.releaseMode].filter(Boolean).join(" · ") || "steady-state"}
+                  />
+                  <Metric label="Release status" value={data.controlTower.data.releaseStatus ? formatLabel(data.controlTower.data.releaseStatus) : "unknown"} />
+                  <Metric label="Drift" value={data.controlTower.data.driftSummary ?? data.controlTower.data.driftStatus ?? "No drift summary yet"} />
+                  <Metric label="Pending / applied" value={`${data.controlTower.data.pendingActionCount} / ${data.controlTower.data.appliedActionCount}`} />
+                  <Metric label="Interventions" value={`${data.controlTower.data.activeInterventionCount}`} />
+                  <Metric label="Rollback ready" value={data.controlTower.data.rollbackReady == null ? "unknown" : data.controlTower.data.rollbackReady ? "yes" : "no"} />
+                </div>
+              ) : null}
+            </ArtifactPanel>
+
             <ArtifactPanel title="Portfolio posture" artifact={data.lifecycle}>
               {data.lifecycle.data ? (
                 <div className="space-y-2 text-sm">

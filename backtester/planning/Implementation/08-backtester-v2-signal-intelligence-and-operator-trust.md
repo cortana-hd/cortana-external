@@ -1,6 +1,6 @@
 # Implementation Plan - Backtester V2 Signal Intelligence And Operator Trust
 
-**Document Status:** Draft
+**Document Status:** Complete
 
 ## Team
 
@@ -46,9 +46,9 @@ Week 4: V5 + shadow comparisons
 
 #### Jira
 
-- [ ] Sub-task 1: Add `backtester/features/core_feature_bundle.py` to assemble price, volume, trend, breadth, realized volatility, relative strength, and technical-transform inputs.
-- [ ] Sub-task 2: Extend `backtester/data/market_regime.py` and `backtester/data/adverse_regime.py` to emit the canonical regime labels used by V2 scoring and evaluation.
-- [ ] Sub-task 3: Add versioned artifact writers for the feature bundle and regime context.
+- [x] Sub-task 1: Add `backtester/features/core_feature_bundle.py` to assemble price, volume, trend, breadth, realized volatility, relative strength, and technical-transform inputs.
+- [x] Sub-task 2: Extend `backtester/data/market_regime.py` and `backtester/data/adverse_regime.py` to emit the canonical regime labels used by V2 scoring and evaluation.
+- [x] Sub-task 3: Add versioned artifact writers for the feature bundle and regime context.
 
 #### Testing
 
@@ -68,9 +68,9 @@ Week 4: V5 + shadow comparisons
 
 #### Jira
 
-- [ ] Sub-task 1: Add `backtester/scoring/opportunity_score.py` with score computation and score-to-action mapping rules.
-- [ ] Sub-task 2: Update `backtester/advisor.py` to consume the opportunity-score contract instead of ad hoc ranking logic.
-- [ ] Sub-task 3: Extend `backtester/evaluation/prediction_contract.py` with score, action mapping, and horizon provenance fields.
+- [x] Sub-task 1: Add `backtester/scoring/opportunity_score.py` with score computation and score-to-action mapping rules.
+- [x] Sub-task 2: Update `backtester/advisor.py` to consume the opportunity-score contract instead of ad hoc ranking logic.
+- [x] Sub-task 3: Extend `backtester/evaluation/prediction_contract.py` with score, action mapping, and horizon provenance fields.
 
 #### Important Planning Notes
 
@@ -93,9 +93,9 @@ Week 4: V5 + shadow comparisons
 
 #### Jira
 
-- [ ] Sub-task 1: Add a regime-aware momentum / relative-strength strategy family that reads the V2 feature bundle.
-- [ ] Sub-task 2: Register the new family in evaluation outputs and strategy score summaries.
-- [ ] Sub-task 3: Keep the family benchmarked against incumbent strategies instead of granting special authority.
+- [x] Sub-task 1: Add a regime-aware momentum / relative-strength strategy family that reads the V2 feature bundle.
+- [x] Sub-task 2: Register the new family in evaluation outputs and strategy score summaries.
+- [x] Sub-task 3: Keep the family benchmarked against incumbent strategies instead of granting special authority.
 
 #### Testing
 
@@ -115,9 +115,9 @@ Week 4: V5 + shadow comparisons
 
 #### Jira
 
-- [ ] Sub-task 1: Add `backtester/evaluation/regime_slices.py` and `backtester/evaluation/strategy_scorecard.py`.
-- [ ] Sub-task 2: Extend `backtester/evaluation/comparison.py` and `backtester/evaluation/prediction_accuracy.py` for the canonical V2 horizon and benchmark summaries.
-- [ ] Sub-task 3: Write fresh/warming/degraded/stale evaluation summaries for downstream surfaces.
+- [x] Sub-task 1: Add `backtester/evaluation/regime_slices.py` and `backtester/evaluation/strategy_scorecard.py`.
+- [x] Sub-task 2: Extend `backtester/evaluation/comparison.py` and `backtester/evaluation/prediction_accuracy.py` for the canonical V2 horizon and benchmark summaries.
+- [x] Sub-task 3: Write fresh/warming/degraded/stale evaluation summaries for downstream surfaces.
 
 #### Testing
 
@@ -137,9 +137,9 @@ Week 4: V5 + shadow comparisons
 
 #### Jira
 
-- [ ] Sub-task 1: Update `apps/mission-control/lib/trading-ops.ts` and `backtester/operator_surfaces/mission_control.py` to consume the new trust summaries.
-- [ ] Sub-task 2: Update `apps/mission-control/components/trading-ops-dashboard.tsx` to show V2 score/trust/freshness states cleanly.
-- [ ] Sub-task 3: Add shadow comparison output comparing incumbent ranking vs V2 score behavior before any broader activation.
+- [x] Sub-task 1: Update `apps/mission-control/lib/trading-ops.ts` and `backtester/operator_surfaces/mission_control.py` to consume the new trust summaries.
+- [x] Sub-task 2: Update `apps/mission-control/components/trading-ops-dashboard.tsx` to show V2 score/trust/freshness states cleanly.
+- [x] Sub-task 3: Add shadow comparison output comparing incumbent ranking vs V2 score behavior before any broader activation.
 
 #### Testing
 

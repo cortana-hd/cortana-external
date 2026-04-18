@@ -1,6 +1,6 @@
 # QA Plan - Backtester V3 Adaptive Portfolio Intelligence And Governed Autonomy
 
-**Document Status:** Draft
+**Document Status:** Complete
 
 ## Team
 
@@ -184,9 +184,9 @@ The V3 release is QA-complete when all of the following are true:
 
 ## Sign-Off Checklist
 
-- [ ] Strategy authority tiers verified
-- [ ] Two-stage allocation verified
-- [ ] Four-layer risk-budget stack verified
-- [ ] Supervised-live gate and approval path verified
-- [ ] Mission Control posture and autonomy truth verified
-- [ ] No silent escalation beyond supervised-live
+- [x] Strategy authority tiers verified
+- [x] Two-stage allocation verified
+- [x] Four-layer risk-budget stack verified
+- [x] Supervised-live gate and approval path verified
+- [x] Mission Control posture and autonomy truth verified
+- [x] No silent escalation beyond supervised-live

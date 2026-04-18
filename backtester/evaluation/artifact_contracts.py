@@ -14,6 +14,12 @@ ARTIFACT_FAMILY_OPERATOR_PAYLOAD = "operator_payload"
 ARTIFACT_FAMILY_RUNTIME_INVENTORY = "runtime_inventory"
 ARTIFACT_FAMILY_RUNTIME_HEALTH_SNAPSHOT = "runtime_health_snapshot"
 ARTIFACT_FAMILY_OPS_HIGHWAY_PLAN = "ops_highway_plan"
+ARTIFACT_FAMILY_TRADING_DESIRED_STATE = "trading_desired_state"
+ARTIFACT_FAMILY_TRADING_ACTUAL_STATE = "trading_actual_state"
+ARTIFACT_FAMILY_TRADING_RECONCILIATION_ACTIONS = "trading_reconciliation_actions"
+ARTIFACT_FAMILY_TRADING_INTERVENTION_EVENTS = "trading_intervention_events"
+ARTIFACT_FAMILY_TRADING_RELEASE_UNIT = "trading_release_unit"
+ARTIFACT_FAMILY_TRADING_DRIFT_SUMMARY = "trading_drift_summary"
 
 ARTIFACT_STATUS_OK = "ok"
 ARTIFACT_STATUS_DEGRADED = "degraded"
@@ -112,6 +118,65 @@ ARTIFACT_FAMILY_MINIMUM_FIELDS: dict[str, tuple[str, ...]] = {
         "capacity_thresholds",
         "change_management",
         "source_refs",
+        "warnings",
+    ),
+    ARTIFACT_FAMILY_TRADING_DESIRED_STATE: REQUIRED_ARTIFACT_METADATA_FIELDS
+    + (
+        "desired_state_id",
+        "posture_target",
+        "authority_target",
+        "release_target",
+        "policy_constraints",
+        "operator_intent",
+        "summary",
+        "warnings",
+    ),
+    ARTIFACT_FAMILY_TRADING_ACTUAL_STATE: REQUIRED_ARTIFACT_METADATA_FIELDS
+    + (
+        "actual_state_id",
+        "posture_actual",
+        "authority_actual",
+        "runtime_actual",
+        "drift_actual",
+        "release_actual",
+        "summary",
+        "warnings",
+    ),
+    ARTIFACT_FAMILY_TRADING_RECONCILIATION_ACTIONS: REQUIRED_ARTIFACT_METADATA_FIELDS
+    + (
+        "reconciliation_id",
+        "desired_state_ref",
+        "actual_state_ref",
+        "actions",
+        "summary",
+        "warnings",
+    ),
+    ARTIFACT_FAMILY_TRADING_INTERVENTION_EVENTS: REQUIRED_ARTIFACT_METADATA_FIELDS
+    + (
+        "intervention_set_id",
+        "events",
+        "active_event_count",
+        "summary",
+        "warnings",
+    ),
+    ARTIFACT_FAMILY_TRADING_RELEASE_UNIT: REQUIRED_ARTIFACT_METADATA_FIELDS
+    + (
+        "release_key",
+        "code_ref",
+        "strategy_refs",
+        "config_refs",
+        "validation",
+        "canary_state",
+        "rollback_state",
+        "health_summary",
+        "warnings",
+    ),
+    ARTIFACT_FAMILY_TRADING_DRIFT_SUMMARY: REQUIRED_ARTIFACT_METADATA_FIELDS
+    + (
+        "drift_id",
+        "summary",
+        "signals",
+        "policy_outcome",
         "warnings",
     ),
 }

@@ -103,6 +103,23 @@ export type LifecycleOverview = {
   blockerCount?: number;
 };
 
+export type ControlTowerOverview = {
+  desiredPosture: string | null;
+  actualPosture: string | null;
+  desiredAutonomy: string | null;
+  actualAutonomy: string | null;
+  releaseKey: string | null;
+  releaseMode: string | null;
+  releaseStatus: string | null;
+  rollbackReady: boolean | null;
+  driftStatus: string | null;
+  driftSummary: string | null;
+  pendingActionCount: number;
+  appliedActionCount: number;
+  activeInterventionCount: number;
+  topAction: string | null;
+};
+
 export type WorkflowOverview = {
   runId: string;
   runLabel: string;
@@ -176,6 +193,7 @@ export type TradingOpsDashboardData = {
   prediction: ArtifactState<PredictionOverview>;
   benchmark: ArtifactState<BenchmarkOverview>;
   lifecycle: ArtifactState<LifecycleOverview>;
+  controlTower: ArtifactState<ControlTowerOverview>;
   workflow: ArtifactState<WorkflowOverview>;
   opsHighway: ArtifactState<OpsHighwayOverview>;
   financialServices: ArtifactState<FinancialServicesHealthOverview>;

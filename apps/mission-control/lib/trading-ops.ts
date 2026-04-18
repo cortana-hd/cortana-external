@@ -122,6 +122,23 @@ export type LifecycleOverview = {
   blockerCount?: number;
 };
 
+export type ControlTowerOverview = {
+  desiredPosture: string | null;
+  actualPosture: string | null;
+  desiredAutonomy: string | null;
+  actualAutonomy: string | null;
+  releaseKey: string | null;
+  releaseMode: string | null;
+  releaseStatus: string | null;
+  rollbackReady: boolean | null;
+  driftStatus: string | null;
+  driftSummary: string | null;
+  pendingActionCount: number;
+  appliedActionCount: number;
+  activeInterventionCount: number;
+  topAction: string | null;
+};
+
 export type WorkflowOverview = {
   runId: string;
   runLabel: string;
@@ -207,6 +224,7 @@ export type TradingOpsDashboardData = {
   prediction: ArtifactState<PredictionOverview>;
   benchmark: ArtifactState<BenchmarkOverview>;
   lifecycle: ArtifactState<LifecycleOverview>;
+  controlTower: ArtifactState<ControlTowerOverview>;
   workflow: ArtifactState<WorkflowOverview>;
   opsHighway: ArtifactState<OpsHighwayOverview>;
   financialServices: ArtifactState<FinancialServicesHealthOverview>;
@@ -242,6 +260,7 @@ export async function loadTradingOpsDashboardData(
     prediction,
     benchmark,
     lifecycle,
+    controlTower,
     workflow,
     opsHighway,
     financialServices,
@@ -253,6 +272,7 @@ export async function loadTradingOpsDashboardData(
     loadPredictionOverview(repoPath, runJsonCommand),
     loadBenchmarkOverview(repoPath),
     loadLifecycleOverview(repoPath, tradingRunSignal),
+    loadControlTowerOverview(repoPath),
     loadWorkflowOverview(repoPath, tradingRunSignal),
     loadOpsHighwayOverview(repoPath, runJsonCommand),
     loadFinancialServicesOverview(externalServiceBaseUrl, fetchImpl),
@@ -269,6 +289,7 @@ export async function loadTradingOpsDashboardData(
     prediction,
     benchmark,
     lifecycle,
+    controlTower,
     workflow,
     opsHighway,
     financialServices,
@@ -1243,6 +1264,104 @@ async function loadLifecycleOverview(
       autonomyBlockerCount > 0 ? `autonomy-blockers:${autonomyBlockerCount}` : null,
     ]),
     badgeText: isStale ? "stale" : undefined,
+  };
+}
+
+async function loadControlTowerOverview(repoPath: string): Promise<ArtifactState<ControlTowerOverview>> {
+  const lifecycleRoot = path.join(repoPath, ".cache", "trade_lifecycle");
+  const desiredPath = path.join(lifecycleRoot, "desired_state.json");
+  const actualPath = path.join(lifecycleRoot, "actual_state.json");
+  const reconciliationPath = path.join(lifecycleRoot, "reconciliation_actions.json");
+  const releasePath = path.join(lifecycleRoot, "release_unit.json");
+  const driftPath = path.join(lifecycleRoot, "drift_monitor.json");
+  const interventionsPath = path.join(lifecycleRoot, "intervention_events.json");
+
+  const [desired, actual, reconciliation, release, drift, interventions] = await Promise.all([
+    readJsonFile<Record<string, unknown>>(desiredPath),
+    readJsonFile<Record<string, unknown>>(actualPath),
+    readJsonFile<Record<string, unknown>>(reconciliationPath),
+    readJsonFile<Record<string, unknown>>(releasePath),
+    readJsonFile<Record<string, unknown>>(driftPath),
+    readJsonFile<Record<string, unknown>>(interventionsPath),
+  ]);
+
+  if (!desired?.data || !actual?.data) {
+    return {
+      state: desired?.error === "missing" || actual?.error === "missing" ? "missing" : "error",
+      label: "Control tower unavailable",
+      message: "Desired-state and actual-state artifacts are not available yet.",
+      data: null,
+      source: [desiredPath, actualPath].join(" · "),
+      warnings: [],
+    };
+  }
+
+  const desiredData = desired.data;
+  const actualData = actual.data;
+  const reconciliationData = asRecord(reconciliation?.data) ?? {};
+  const releaseData = asRecord(release?.data) ?? {};
+  const driftData = asRecord(drift?.data) ?? {};
+  const interventionsData = asRecord(interventions?.data) ?? {};
+  const desiredSummary = asRecord(desiredData.summary) ?? {};
+  const actualSummary = asRecord(actualData.summary) ?? {};
+  const driftSummary = asRecord(driftData.summary) ?? {};
+  const releaseCanary = asRecord(releaseData.canary_state) ?? {};
+  const rollbackState = asRecord(releaseData.rollback_state) ?? {};
+  const releaseValidation = asRecord(releaseData.validation) ?? {};
+  const reconciliationSummary = asRecord(reconciliationData.summary) ?? {};
+  const actionRows = asArray(reconciliationData.actions)
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+  const proposedCount = numberValue(reconciliationSummary.proposed_count)
+    ?? actionRows.filter((entry) => stringValue(entry.action_status) === "proposed").length;
+  const appliedCount = numberValue(reconciliationSummary.applied_count)
+    ?? actionRows.filter((entry) => stringValue(entry.action_status) === "applied").length;
+  const activeInterventionCount = numberValue(interventionsData.active_event_count) ?? 0;
+  const driftStatus = stringValue(driftSummary.drift_status) ?? stringValue(driftData.status);
+  const releaseStatus = stringValue(releaseCanary.status) ?? (booleanValue(releaseValidation.is_valid) ? "ok" : "degraded");
+  const updatedAt = stringValue(actualData.generated_at)
+    ?? stringValue(desiredData.generated_at)
+    ?? stringValue(releaseData.generated_at)
+    ?? null;
+  const state: LoadState = (driftStatus && driftStatus !== "ok")
+    || (releaseStatus && !["ok", "healthy"].includes(releaseStatus))
+    || proposedCount > 0
+    || activeInterventionCount > 0
+    ? "degraded"
+    : "ok";
+
+  return {
+    state,
+    label: "Control tower",
+    message: compactStrings([
+      stringValue(driftSummary.headline),
+      proposedCount > 0 ? `${proposedCount} proposed reconciliation action${proposedCount === 1 ? "" : "s"} pending.` : null,
+      activeInterventionCount > 0 ? `${activeInterventionCount} active intervention${activeInterventionCount === 1 ? "" : "s"} visible.` : null,
+    ]).join(" ") || "Desired and actual state are aligned.",
+    data: {
+      desiredPosture: stringValue(desiredSummary.desired_posture_state),
+      actualPosture: stringValue(actualSummary.actual_posture_state),
+      desiredAutonomy: stringValue(desiredSummary.desired_autonomy_mode),
+      actualAutonomy: stringValue(actualSummary.actual_autonomy_mode),
+      releaseKey: stringValue(releaseData.release_key),
+      releaseMode: stringValue(releaseCanary.stage) ?? stringValue(releaseCanary.mode),
+      releaseStatus,
+      rollbackReady: booleanValue(rollbackState.rollback_ready),
+      driftStatus,
+      driftSummary: stringValue(driftSummary.headline),
+      pendingActionCount: proposedCount ?? 0,
+      appliedActionCount: appliedCount ?? 0,
+      activeInterventionCount,
+      topAction: stringValue(reconciliationSummary.top_action) ?? stringValue(actionRows[0]?.action_type),
+    },
+    source: [desiredPath, actualPath, reconciliationPath, releasePath, driftPath, interventionsPath].join(" · "),
+    updatedAt,
+    warnings: compactStrings([
+      driftStatus && driftStatus !== "ok" ? `drift:${driftStatus}` : null,
+      proposedCount > 0 ? `pending-actions:${proposedCount}` : null,
+      activeInterventionCount > 0 ? `active-interventions:${activeInterventionCount}` : null,
+    ]),
+    badgeText: driftStatus && driftStatus !== "ok" ? driftStatus : proposedCount > 0 ? `${proposedCount} pending` : undefined,
   };
 }
 

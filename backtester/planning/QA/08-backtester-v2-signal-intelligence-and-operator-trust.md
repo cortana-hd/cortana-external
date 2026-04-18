@@ -1,6 +1,6 @@
 # QA Plan - Backtester V2 Signal Intelligence And Operator Trust
 
-**Document Status:** Draft
+**Document Status:** Complete
 
 ## Team
 
@@ -185,9 +185,9 @@ The V2 release is QA-complete when all of the following are true:
 
 ## Sign-Off Checklist
 
-- [ ] Feature and regime bundle verified
-- [ ] Opportunity-score contract verified
-- [ ] Confidence and downside-risk separation verified
-- [ ] Benchmark and regime-slice summaries verified
-- [ ] Mission Control trust/freshness truth verified
-- [ ] Shadow rollout confirmed with no silent authority increase
+- [x] Feature and regime bundle verified
+- [x] Opportunity-score contract verified
+- [x] Confidence and downside-risk separation verified
+- [x] Benchmark and regime-slice summaries verified
+- [x] Mission Control trust/freshness truth verified
+- [x] Shadow rollout confirmed with no silent authority increase

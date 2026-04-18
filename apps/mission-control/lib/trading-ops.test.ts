@@ -199,6 +199,56 @@ describe("trading ops loader", () => {
       requested_mode: "guarded_live",
       blocking_factors: ["dip_buyer:missing_operator_signoff"],
     });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "desired_state.json"), {
+      generated_at: "2026-04-03T22:20:35.951192+00:00",
+      summary: {
+        desired_posture_state: "selective",
+        desired_autonomy_mode: "supervised_live",
+      },
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "actual_state.json"), {
+      generated_at: "2026-04-03T22:20:35.951192+00:00",
+      summary: {
+        actual_posture_state: "paused",
+        actual_autonomy_mode: "advisory",
+      },
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "reconciliation_actions.json"), {
+      generated_at: "2026-04-03T22:20:35.951192+00:00",
+      summary: {
+        proposed_count: 2,
+        applied_count: 1,
+        top_action: "rebalance_posture",
+      },
+      actions: [
+        { action_type: "rebalance_posture", action_status: "proposed" },
+        { action_type: "align_authority", action_status: "proposed" },
+        { action_type: "respect_manual_pause", action_status: "applied" },
+      ],
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "release_unit.json"), {
+      generated_at: "2026-04-03T22:20:35.951192+00:00",
+      release_key: "bt-v4-control-loop",
+      validation: { is_valid: true },
+      canary_state: {
+        stage: "steady",
+        status: "ok",
+      },
+      rollback_state: {
+        rollback_ready: true,
+      },
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "drift_monitor.json"), {
+      generated_at: "2026-04-03T22:20:35.951192+00:00",
+      summary: {
+        drift_status: "degraded",
+        headline: "Observed drift requires a temporary authority reduction.",
+      },
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "intervention_events.json"), {
+      generated_at: "2026-04-03T22:20:35.951192+00:00",
+      active_event_count: 1,
+    });
     await writeJson(path.join(repoPath, "var", "local-workflows", "20260403-231522", "canslim-alert.json"), {
       generated_at: "2026-04-03T23:15:25.794002+00:00",
       degraded_status: "degraded_safe",
@@ -313,6 +363,12 @@ describe("trading ops loader", () => {
     expect(data.lifecycle.data?.authoritySummary).toBe("trusted · supervised_live");
     expect(data.lifecycle.data?.familyBudgetHeadline).toContain("dip_buyer");
     expect(data.lifecycle.data?.blockerCount).toBe(1);
+    expect(data.controlTower.state).toBe("degraded");
+    expect(data.controlTower.data?.desiredPosture).toBe("selective");
+    expect(data.controlTower.data?.actualPosture).toBe("paused");
+    expect(data.controlTower.data?.pendingActionCount).toBe(2);
+    expect(data.controlTower.data?.activeInterventionCount).toBe(1);
+    expect(data.controlTower.data?.topAction).toBe("rebalance_posture");
     expect(data.workflow.state).toBe("degraded");
     expect(data.workflow.data?.failedStages).toEqual(["dipbuyer_alert"]);
     expect(data.workflow.data?.runLabel).toBe("Apr 3, 7:16 PM");

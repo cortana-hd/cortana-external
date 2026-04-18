@@ -1,6 +1,6 @@
 # Implementation Plan - Backtester V3 Adaptive Portfolio Intelligence And Governed Autonomy
 
-**Document Status:** Draft
+**Document Status:** Complete
 
 ## Team
 
@@ -47,9 +47,9 @@ Week 5: V5 + supervised-live replay review
 
 #### Jira
 
-- [ ] Sub-task 1: Add `backtester/governance/authority.py` and `backtester/governance/autonomy_tiers.py`.
-- [ ] Sub-task 2: Extend `backtester/governance/registry.py`, `backtester/governance/challengers.py`, and `backtester/governance/gates.py` to emit `strategy_authority_tiers_v1`.
-- [ ] Sub-task 3: Persist authority decisions with benchmark, drawdown, regime, and operator-rationale fields.
+- [x] Sub-task 1: Add `backtester/governance/authority.py` and `backtester/governance/autonomy_tiers.py`.
+- [x] Sub-task 2: Extend `backtester/governance/registry.py`, `backtester/governance/challengers.py`, and `backtester/governance/gates.py` to emit `strategy_authority_tiers_v1`.
+- [x] Sub-task 3: Persist authority decisions with benchmark, drawdown, regime, and operator-rationale fields.
 
 #### Testing
 
@@ -69,9 +69,9 @@ Week 5: V5 + supervised-live replay review
 
 #### Jira
 
-- [ ] Sub-task 1: Add `backtester/portfolio/allocator.py` for stage-1 family budgeting and stage-2 candidate ranking.
-- [ ] Sub-task 2: Update `backtester/advisor.py` to consume family budgets before producing final candidate ordering.
-- [ ] Sub-task 3: Carry authority and budget metadata through `backtester/lifecycle/trade_objects.py`.
+- [x] Sub-task 1: Add `backtester/portfolio/allocator.py` for stage-1 family budgeting and stage-2 candidate ranking.
+- [x] Sub-task 2: Update `backtester/advisor.py` to consume family budgets before producing final candidate ordering.
+- [x] Sub-task 3: Carry authority and budget metadata through `backtester/lifecycle/trade_objects.py`.
 
 #### Important Planning Notes
 
@@ -96,9 +96,9 @@ Week 5: V5 + supervised-live replay review
 
 #### Jira
 
-- [ ] Sub-task 1: Add `backtester/portfolio/risk_budget.py` and `backtester/portfolio/posture.py`.
-- [ ] Sub-task 2: Extend `backtester/lifecycle/paper_portfolio.py` and `backtester/lifecycle/execution_policy.py` with the V3 budget stack.
-- [ ] Sub-task 3: Emit `portfolio_posture_snapshots_v1` with posture state, overlap summaries, and warnings.
+- [x] Sub-task 1: Add `backtester/portfolio/risk_budget.py` and `backtester/portfolio/posture.py`.
+- [x] Sub-task 2: Extend `backtester/lifecycle/paper_portfolio.py` and `backtester/lifecycle/execution_policy.py` with the V3 budget stack.
+- [x] Sub-task 3: Emit `portfolio_posture_snapshots_v1` with posture state, overlap summaries, and warnings.
 
 #### Testing
 
@@ -118,9 +118,9 @@ Week 5: V5 + supervised-live replay review
 
 #### Jira
 
-- [ ] Sub-task 1: Add `supervised_live_review_windows_v1` recording windows, incidents, breaches, and signoff.
-- [ ] Sub-task 2: Add stronger-autonomy gate checks in `backtester/governance/gates.py`.
-- [ ] Sub-task 3: Surface approval prerequisites and unresolved blockers in Mission Control loaders.
+- [x] Sub-task 1: Add `supervised_live_review_windows_v1` recording windows, incidents, breaches, and signoff.
+- [x] Sub-task 2: Add stronger-autonomy gate checks in `backtester/governance/gates.py`.
+- [x] Sub-task 3: Surface approval prerequisites and unresolved blockers in Mission Control loaders.
 
 #### Testing
 
@@ -140,9 +140,9 @@ Week 5: V5 + supervised-live replay review
 
 #### Jira
 
-- [ ] Sub-task 1: Update `apps/mission-control/lib/trading-run-state.ts` and `apps/mission-control/lib/trading-ops.ts` to load posture and authority state.
-- [ ] Sub-task 2: Update `apps/mission-control/components/trading-ops-dashboard.tsx` with strategy-family budgets, posture summaries, and autonomy labels.
-- [ ] Sub-task 3: Add replay/debug affordances for authority changes, pauses, and supervised-live review windows.
+- [x] Sub-task 1: Update `apps/mission-control/lib/trading-run-state.ts` and `apps/mission-control/lib/trading-ops.ts` to load posture and authority state.
+- [x] Sub-task 2: Update `apps/mission-control/components/trading-ops-dashboard.tsx` with strategy-family budgets, posture summaries, and autonomy labels.
+- [x] Sub-task 3: Add replay/debug affordances for authority changes, pauses, and supervised-live review windows.
 
 #### Testing
 

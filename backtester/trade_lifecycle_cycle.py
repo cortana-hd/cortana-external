@@ -10,6 +10,17 @@ from pathlib import Path
 from typing import Any
 
 from data.risk_budget import build_position_size_recommendation
+from control_loop.actual_state import build_actual_state_artifact, save_actual_state_artifact
+from control_loop.desired_state import build_desired_state_artifact, save_desired_state_artifact
+from control_loop.interventions import (
+    build_intervention_events_artifact,
+    derive_intervention_events,
+    save_intervention_events_artifact,
+)
+from control_loop.reconciler import (
+    build_reconciliation_actions_artifact,
+    save_reconciliation_actions_artifact,
+)
 from governance.authority import load_strategy_authority_tiers
 from governance.autonomy_tiers import (
     build_supervised_live_review_window,
@@ -23,6 +34,10 @@ from lifecycle.exit_engine import evaluate_exit_decision, update_position_mark_t
 from lifecycle.ledgers import LifecycleLedgerStore
 from lifecycle.paper_portfolio import build_portfolio_snapshot_artifact, select_entries
 from portfolio.posture import save_portfolio_posture_artifact
+from release.drift_monitor import build_drift_monitor_artifact, save_drift_monitor_artifact
+from release.release_units import build_release_unit_artifact, save_release_unit_artifact
+from runtime_health_snapshot import build_runtime_health_snapshot
+from runtime_inventory_snapshot import build_runtime_inventory_artifact
 from lifecycle.position_review import build_position_review, build_position_review_artifact
 from lifecycle.trade_objects import ClosedPosition, OpenPosition, deterministic_key
 
@@ -259,6 +274,84 @@ def run_cycle(
             )
             save_autonomy_gate_artifact(autonomy_gate, path=store.root / "autonomy_gate.json")
 
+    release_unit = build_release_unit_artifact(
+        generated_at=generated_at,
+        release_key=f"trade-lifecycle-{generated_at[:10]}",
+        strategy_refs=[
+            item.get("strategy_family")
+            for item in authority_artifact.get("families") or []
+            if isinstance(item, dict)
+        ],
+        config_refs=[
+            "backtester/governance/promotion_gates.json",
+            "backtester/governance/benchmark_registry.json",
+        ],
+        canary_state={
+            "mode": "steady",
+            "stage": "steady",
+            "status": "ok" if portfolio_snapshot is not None else "warn",
+            "summary": "Lifecycle-backed release bundle for the current governed posture.",
+        },
+        health_summary={
+            "status": "ok" if portfolio_snapshot is not None else "degraded",
+            "warnings": [] if portfolio_snapshot is not None else ["portfolio_snapshot_missing"],
+        },
+    )
+    save_release_unit_artifact(release_unit, path=store.root / "release_unit.json")
+
+    runtime_inventory = build_runtime_inventory_artifact(generated_at=generated_at)
+    runtime_health = build_runtime_health_snapshot(generated_at=generated_at)
+    store.write_artifact("runtime_inventory.json", runtime_inventory)
+    store.write_artifact("runtime_health.json", runtime_health)
+
+    desired_state = build_desired_state_artifact(
+        snapshot_at=generated_at,
+        posture_artifact=portfolio_snapshot.posture_snapshot if portfolio_snapshot is not None else None,
+        authority_artifact=authority_artifact,
+        release_target=release_unit,
+    )
+    save_desired_state_artifact(desired_state, path=store.root / "desired_state.json")
+
+    drift_monitor = build_drift_monitor_artifact(
+        generated_at=generated_at,
+        runtime_health_artifact=runtime_health,
+        release_unit_artifact=release_unit,
+        posture_artifact=portfolio_snapshot.posture_snapshot if portfolio_snapshot is not None else None,
+    )
+    save_drift_monitor_artifact(drift_monitor, path=store.root / "drift_monitor.json")
+
+    actual_state = build_actual_state_artifact(
+        snapshot_at=generated_at,
+        posture_artifact=portfolio_snapshot.posture_snapshot if portfolio_snapshot is not None else None,
+        portfolio_snapshot=portfolio_snapshot.to_dict() if portfolio_snapshot is not None else None,
+        authority_artifact=authority_artifact,
+        runtime_health_artifact=runtime_health,
+        runtime_inventory_artifact=runtime_inventory,
+        drift_artifact=drift_monitor,
+        release_unit_artifact=release_unit,
+        known_at=generated_at,
+    )
+    save_actual_state_artifact(actual_state, path=store.root / "actual_state.json")
+
+    intervention_events = build_intervention_events_artifact(
+        generated_at=generated_at,
+        events=derive_intervention_events(
+            generated_at=generated_at,
+            actual_state_artifact=actual_state,
+            drift_artifact=drift_monitor,
+            release_unit_artifact=release_unit,
+        ),
+    )
+    save_intervention_events_artifact(intervention_events, path=store.root / "intervention_events.json")
+
+    reconciliation_actions = build_reconciliation_actions_artifact(
+        generated_at=generated_at,
+        desired_state_artifact=desired_state,
+        actual_state_artifact=actual_state,
+        interventions_artifact=intervention_events,
+    )
+    save_reconciliation_actions_artifact(reconciliation_actions, path=store.root / "reconciliation_actions.json")
+
     summary = {
         "artifact_family": "trade_lifecycle_cycle",
         "schema_version": 1,
@@ -281,6 +374,12 @@ def run_cycle(
         "portfolio_posture": portfolio_snapshot.posture_snapshot if portfolio_snapshot is not None else None,
         "review_window": review_window_artifact,
         "autonomy_gate": autonomy_gate,
+        "desired_state": desired_state,
+        "actual_state": actual_state,
+        "release_unit": release_unit,
+        "drift_monitor": drift_monitor,
+        "intervention_events": intervention_events,
+        "reconciliation_actions": reconciliation_actions,
     }
     store.write_artifact("cycle_summary.json", summary)
     return summary

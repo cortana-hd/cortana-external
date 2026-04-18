@@ -270,6 +270,31 @@ const fixture: TradingOpsDashboardData = {
       blockerCount: 0,
     },
   },
+  controlTower: {
+    state: "degraded",
+    label: "Control tower",
+    message: "Observed drift requires a temporary authority reduction. 2 proposed reconciliation actions pending. 1 active intervention visible.",
+    updatedAt: "2026-04-03T22:20:35.951192+00:00",
+    source: "/tmp/desired_state.json · /tmp/actual_state.json",
+    warnings: ["drift:degraded", "pending-actions:2", "active-interventions:1"],
+    badgeText: "degraded",
+    data: {
+      desiredPosture: "selective",
+      actualPosture: "paused",
+      desiredAutonomy: "supervised_live",
+      actualAutonomy: "advisory",
+      releaseKey: "bt-v4-control-loop",
+      releaseMode: "steady",
+      releaseStatus: "ok",
+      rollbackReady: true,
+      driftStatus: "degraded",
+      driftSummary: "Observed drift requires a temporary authority reduction.",
+      pendingActionCount: 2,
+      appliedActionCount: 1,
+      activeInterventionCount: 1,
+      topAction: "rebalance_posture",
+    },
+  },
   workflow: {
     state: "degraded",
     label: "20260403-231522",
@@ -402,6 +427,9 @@ describe("TradingOpsDashboard", () => {
     fireEvent.click(deepDiveTab);
     expect(container).toHaveTextContent("Operator verdict");
     expect(container).toHaveTextContent("Do not size up");
+    expect(container).toHaveTextContent("Control tower");
+    expect(container).toHaveTextContent("Desired posture");
+    expect(container).toHaveTextContent("bt-v4-control-loop");
     expect(container).toHaveTextContent("trusted · supervised_live");
     expect(container).toHaveTextContent("dip_buyer $25,000");
 
