@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { formatOperatorTimestamp, formatRelativeAge } from "@/lib/format-utils";
+import { formatCurrency as formatMoney, formatOperatorTimestamp, formatRelativeAge } from "@/lib/format-utils";
 import { getBacktesterRepoPath, getCortanaSourceRepo } from "@/lib/runtime-paths";
 import { findWorkspaceRoot } from "@/lib/service-workspace";
 import { shouldTolerateInFlightRunAheadOfArtifact } from "@/lib/trading-ops-smoke";
@@ -76,6 +76,9 @@ export type PredictionOverview = {
   freshnessLabel: string | null;
   topStrategyFamily: string | null;
   shadowAgreementLabel: string | null;
+  trustedFamilyCount?: number | null;
+  demotedFamilyCount?: number | null;
+  highestAutonomyMode?: string | null;
 };
 
 export type OperatorVerdictOverview = {
@@ -111,6 +114,12 @@ export type LifecycleOverview = {
   totalCapital: number | null;
   availableCapital: number | null;
   grossExposurePct: number | null;
+  postureState?: string | null;
+  autonomyMode?: string | null;
+  authoritySummary?: string | null;
+  familyBudgetHeadline?: string | null;
+  warningCount?: number;
+  blockerCount?: number;
 };
 
 export type WorkflowOverview = {
@@ -886,6 +895,7 @@ async function loadPredictionOverview(
   const reportPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "prediction-accuracy-latest.json");
   const strategyScorecardPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "strategy-scorecard-latest.json");
   const shadowPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "opportunity-shadow-latest.json");
+  const authorityPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "strategy-authority-tiers-latest.json");
   let report = await readJsonFile<Record<string, unknown>>(reportPath);
   let refreshedBundle: Record<string, unknown> | null = null;
 
@@ -909,14 +919,16 @@ async function loadPredictionOverview(
   }
 
   const data = report.data;
-  const [strategyScorecard, shadowSummary] = await Promise.all([
+  const [strategyScorecard, shadowSummary, authoritySummary] = await Promise.all([
     readJsonFile<Record<string, unknown>>(strategyScorecardPath),
     readJsonFile<Record<string, unknown>>(shadowPath),
+    readJsonFile<Record<string, unknown>>(authorityPath),
   ]);
   const horizonStatus = asRecord(asRecord(data.horizon_status)?.["1d"]);
   const summary = asArray(data.summary);
   const strategyScorecardData = asRecord(strategyScorecard?.data) ?? asRecord(refreshedBundle?.strategy_scorecard);
   const shadowData = asRecord(shadowSummary?.data) ?? asRecord(refreshedBundle?.opportunity_shadow);
+  const authorityData = asRecord(authoritySummary?.data) ?? asRecord(refreshedBundle?.strategy_authority);
   const bestStrategy = summary
     .map((entry) => asRecord(entry))
     .find((entry) => asRecord(entry?.["1d"]));
@@ -944,6 +956,9 @@ async function loadPredictionOverview(
     : isStale
       ? "stale"
       : "fresh";
+  const trustedFamilyCount = numberValue(asRecord(authorityData?.authority_counts)?.trusted);
+  const demotedFamilyCount = numberValue(asRecord(authorityData?.authority_counts)?.demoted);
+  const highestAutonomyMode = stringValue(asRecord(authorityData?.summary)?.highest_autonomy_mode);
   const state: LoadState = isStale || ["stale", "degraded", "warming"].includes(String(trustState ?? ""))
     ? "degraded"
     : "ok";
@@ -973,6 +988,9 @@ async function loadPredictionOverview(
       freshnessLabel,
       topStrategyFamily,
       shadowAgreementLabel,
+      trustedFamilyCount,
+      demotedFamilyCount,
+      highestAutonomyMode,
     },
     source: reportPath,
     updatedAt,
@@ -1134,6 +1152,8 @@ async function loadLifecycleOverview(
   tradingRunSignal: TradingRunSignal | null,
 ): Promise<ArtifactState<LifecycleOverview>> {
   const cyclePath = path.join(repoPath, ".cache", "trade_lifecycle", "cycle_summary.json");
+  const posturePath = path.join(repoPath, ".cache", "trade_lifecycle", "portfolio_posture.json");
+  const autonomyPath = path.join(repoPath, ".cache", "trade_lifecycle", "autonomy_gate.json");
   const cycle = await readJsonFile<Record<string, unknown>>(cyclePath);
 
   if (!cycle?.data) {
@@ -1150,12 +1170,42 @@ async function loadLifecycleOverview(
   const data = cycle.data;
   const summary = asRecord(data.summary);
   const portfolioSnapshot = asRecord(data.portfolio_snapshot);
+  const [posture, autonomyGate] = await Promise.all([
+    readJsonFile<Record<string, unknown>>(posturePath),
+    readJsonFile<Record<string, unknown>>(autonomyPath),
+  ]);
+  const postureData = asRecord(posture?.data) ?? asRecord(data.portfolio_posture);
+  const autonomyGateData = asRecord(autonomyGate?.data) ?? asRecord(data.autonomy_gate);
+  const strategyAllocations = asArray(postureData?.strategy_allocations)
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+  const topFamily = [...strategyAllocations].sort(
+    (left, right) => (
+      (numberValue(right.open_capital) ?? 0) + (numberValue(right.pending_capital) ?? 0)
+    ) - (
+      (numberValue(left.open_capital) ?? 0) + (numberValue(left.pending_capital) ?? 0)
+    ),
+  )[0];
+  const autonomyBlockerCount = asArray(autonomyGateData?.blocking_factors).length;
+  const postureWarnings = asArray(postureData?.warnings).map(String);
   const updatedAt = stringValue(data.generated_at) ?? null;
   const isOlderThanTradingRun = isArtifactOlderThanTradingRun(updatedAt, tradingRunSignal);
   const isStale = !updatedAt || isOlderThanTradingRun || isTimestampOlderThanSeconds(updatedAt, STALE_SUMMARY_MAX_AGE_SECONDS);
+  const postureState = stringValue(postureData?.posture_state);
+  const autonomyMode = stringValue(asRecord(postureData?.summary)?.highest_autonomy_mode)
+    ?? stringValue(autonomyGateData?.requested_mode);
+  const authoritySummary = topFamily
+    ? compactStrings([
+        stringValue(topFamily.authority_tier),
+        stringValue(topFamily.autonomy_mode),
+      ]).join(" · ")
+    : null;
+  const familyBudgetHeadline = topFamily
+    ? `${stringValue(topFamily.strategy_family) ?? "unknown"} ${formatMoney(numberValue(topFamily.budget_amount) ?? 0)}`
+    : null;
 
   return {
-    state: isStale ? "degraded" : "ok",
+    state: isStale || postureState === "paused" || autonomyBlockerCount > 0 ? "degraded" : "ok",
     label: "Trade lifecycle",
     message: isStale
       ? compactStrings([
@@ -1166,19 +1216,31 @@ async function loadLifecycleOverview(
               : `Last refreshed ${formatOperatorTimestamp(updatedAt)} (${formatRelativeAge(updatedAt)}).`
             : "Lifecycle summary is missing a generated timestamp.",
         ]).join(" ")
-      : `${numberValue(summary?.open_count) ?? 0} open, ${numberValue(summary?.closed_total_count) ?? 0} closed.`,
+      : compactStrings([
+          postureState ? `${postureState.replaceAll("_", " ")} posture.` : null,
+          `${numberValue(summary?.open_count) ?? 0} open, ${numberValue(summary?.closed_total_count) ?? 0} closed.`,
+          autonomyBlockerCount > 0 ? `${autonomyBlockerCount} autonomy blockers active.` : null,
+        ]).join(" "),
     data: {
       openCount: numberValue(summary?.open_count) ?? 0,
       closedCount: numberValue(summary?.closed_total_count) ?? 0,
       totalCapital: numberValue(portfolioSnapshot?.total_capital),
       availableCapital: numberValue(portfolioSnapshot?.available_capital),
       grossExposurePct: numberValue(portfolioSnapshot?.gross_exposure_pct) == null ? null : (numberValue(portfolioSnapshot?.gross_exposure_pct) ?? 0) * 100,
+      postureState,
+      autonomyMode,
+      authoritySummary,
+      familyBudgetHeadline,
+      warningCount: postureWarnings.length + autonomyBlockerCount,
+      blockerCount: autonomyBlockerCount,
     },
-    source: cyclePath,
+    source: [cyclePath, postureData ? posturePath : null, autonomyGateData ? autonomyPath : null].filter(Boolean).join(" · "),
     updatedAt,
     warnings: compactStrings([
       isStale && updatedAt ? `stale:${formatRelativeAge(updatedAt)}` : isStale ? "stale:missing-timestamp" : null,
       isOlderThanTradingRun && tradingRunSignal ? `latest-trading-run:${tradingRunSignal.runLabel}` : null,
+      ...postureWarnings,
+      autonomyBlockerCount > 0 ? `autonomy-blockers:${autonomyBlockerCount}` : null,
     ]),
     badgeText: isStale ? "stale" : undefined,
   };

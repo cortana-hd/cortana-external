@@ -57,6 +57,9 @@ export type PredictionOverview = {
   freshnessLabel: string | null;
   topStrategyFamily: string | null;
   shadowAgreementLabel: string | null;
+  trustedFamilyCount?: number | null;
+  demotedFamilyCount?: number | null;
+  highestAutonomyMode?: string | null;
 };
 
 export type OperatorVerdictOverview = {
@@ -92,6 +95,12 @@ export type LifecycleOverview = {
   totalCapital: number | null;
   availableCapital: number | null;
   grossExposurePct: number | null;
+  postureState?: string | null;
+  autonomyMode?: string | null;
+  authoritySummary?: string | null;
+  familyBudgetHeadline?: string | null;
+  warningCount?: number;
+  blockerCount?: number;
 };
 
 export type WorkflowOverview = {

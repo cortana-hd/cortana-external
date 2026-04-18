@@ -31,6 +31,9 @@ class ExecutionPolicy:
     fill_realism_state: str = "clean"
     fill_allowed: bool = True
     blocked_reason: str | None = None
+    authority_tier: str | None = None
+    autonomy_mode: str | None = None
+    posture_state: str | None = None
     policy_notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -64,10 +67,28 @@ def build_execution_policy(
         or risk_overlay.get("status")
         or ""
     ).strip().lower()
+    authority_tier = str(
+        signal.get("authority_tier")
+        or risk_overlay.get("authority_tier")
+        or ""
+    ).strip().lower() or None
+    autonomy_mode = str(
+        signal.get("autonomy_mode")
+        or risk_overlay.get("autonomy_mode")
+        or ""
+    ).strip().lower() or None
+    posture_state = str(
+        signal.get("posture_state")
+        or risk_overlay.get("posture_state")
+        or ""
+    ).strip().lower() or None
 
     blocked_reason = None
     notes: list[str] = []
-    if signal_price is not None and chase_limit is not None and signal_price > chase_limit:
+    if posture_state == "paused":
+        blocked_reason = "portfolio_paused"
+        notes.append("portfolio posture is paused")
+    elif signal_price is not None and chase_limit is not None and signal_price > chase_limit:
         blocked_reason = "gap_above_zone"
         notes.append(f"signal price {signal_price:.2f} is above chase limit {chase_limit:.2f}")
     elif risk_state in {"closed", "unavailable"}:
@@ -116,6 +137,9 @@ def build_execution_policy(
         fill_realism_state=fill_realism_state,
         fill_allowed=blocked_reason is None,
         blocked_reason=blocked_reason,
+        authority_tier=authority_tier,
+        autonomy_mode=autonomy_mode,
+        posture_state=posture_state,
         policy_notes=notes,
     )
 

@@ -12,6 +12,8 @@ from governance.registry import (
     load_demotion_rules,
     load_promotion_gates,
 )
+from governance.authority import synthesize_strategy_authority_row
+from governance.autonomy_tiers import evaluate_autonomy_transition
 
 
 def evaluate_promotion_decision(
@@ -95,6 +97,32 @@ def evaluate_demotion_decision(
             "registry_status": str(registry_entry.get("status") or ""),
             "artifact_family": str(registry_entry.get("artifact_family") or ""),
         },
+        generated_at=generated_at,
+    )
+
+
+def evaluate_strategy_authority(
+    *,
+    strategy_row: Mapping[str, Any],
+    operator_rationale: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    return synthesize_strategy_authority_row(
+        strategy_row,
+        operator_rationale=operator_rationale,
+    )
+
+
+def evaluate_stronger_autonomy_gate(
+    *,
+    authority_artifact: Mapping[str, Any],
+    review_window_artifact: Mapping[str, Any] | None = None,
+    requested_mode: str = "guarded_live",
+    generated_at: str | None = None,
+) -> dict[str, Any]:
+    return evaluate_autonomy_transition(
+        authority_artifact=authority_artifact,
+        review_window_artifact=review_window_artifact,
+        requested_mode=requested_mode,
         generated_at=generated_at,
     )
 

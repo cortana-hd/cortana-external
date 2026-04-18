@@ -568,7 +568,7 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
       {(hasIncidents || hasErrors || hasTradingRunFallback) && <AlertBanner data={data} />}
 
       {/* ── Zone C: Four Summary Cells ── */}
-      <section className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      <section className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <TerminalCell
           title="Market posture"
           value={data.market.data ? `${data.market.data.regime.toUpperCase()} · ${data.market.data.posture}` : data.market.label}
@@ -596,6 +596,20 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
           }
           state={data.prediction.state}
           icon={<Radar className="h-3.5 w-3.5" />}
+        />
+        <TerminalCell
+          title="Portfolio posture"
+          value={data.lifecycle.data?.postureState ? formatLabel(data.lifecycle.data.postureState) : data.lifecycle.label}
+          detail={
+            data.lifecycle.data
+              ? compactValue([
+                  data.lifecycle.data.autonomyMode ? formatLabel(data.lifecycle.data.autonomyMode) : null,
+                  data.lifecycle.data.grossExposurePct != null ? `gross ${formatPercent(data.lifecycle.data.grossExposurePct)}` : null,
+                ])
+              : "No lifecycle posture"
+          }
+          state={data.lifecycle.state}
+          icon={<Landmark className="h-3.5 w-3.5" />}
         />
       </section>
 
@@ -1369,6 +1383,19 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
           </section>
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <ArtifactPanel title="Portfolio posture" artifact={data.lifecycle}>
+              {data.lifecycle.data ? (
+                <div className="space-y-2 text-sm">
+                  <Metric label="Posture" value={data.lifecycle.data.postureState ? formatLabel(data.lifecycle.data.postureState) : "Not synthesized"} />
+                  <Metric label="Autonomy" value={data.lifecycle.data.autonomyMode ? formatLabel(data.lifecycle.data.autonomyMode) : "advisory"} />
+                  <Metric label="Authority" value={data.lifecycle.data.authoritySummary ?? "No authority summary yet"} />
+                  <Metric label="Family budget" value={data.lifecycle.data.familyBudgetHeadline ?? "No family budget headline yet"} />
+                  <Metric label="Gross exposure" value={data.lifecycle.data.grossExposurePct != null ? formatPercent(data.lifecycle.data.grossExposurePct) : "n/a"} />
+                  <Metric label="Warnings / blockers" value={`${data.lifecycle.data.warningCount ?? 0} / ${data.lifecycle.data.blockerCount ?? 0}`} />
+                </div>
+              ) : null}
+            </ArtifactPanel>
+
             <ArtifactPanel title="Ops highway" artifact={data.opsHighway}>
               {data.opsHighway.data ? (
                 <div className="space-y-2 text-sm">
@@ -1482,6 +1509,10 @@ function buildLiveExecutionGateArtifact(
 function formatSignedPercentLabel(value: number | null | undefined): string {
   if (value == null) return "n/a";
   return `${value >= 0 ? "+" : "-"}${Math.abs(value).toFixed(2)}%`;
+}
+
+function compactValue(parts: Array<string | null | undefined>): string {
+  return parts.filter((part): part is string => typeof part === "string" && part.length > 0).join(" · ") || "n/a";
 }
 
 function buildLiveArtifact(

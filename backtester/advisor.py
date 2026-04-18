@@ -58,6 +58,7 @@ from data.confidence import (
     regime_quality_modifier,
     risk_adjusted_size_multiplier,
 )
+from governance.authority import load_strategy_authority_tiers
 from data.polymarket_context import load_symbol_context
 from data.universe import (
     UniverseScreener,
@@ -90,6 +91,7 @@ from evaluation.comparison import (
     score_enhanced_rank,
 )
 from scoring.opportunity_score import build_opportunity_score_payload
+from portfolio.allocator import build_strategy_budget_allocations, strategy_budget_map
 from strategies.dip_buyer import DipBuyerStrategy
 
 LOGGER = logging.getLogger(__name__)
@@ -666,6 +668,44 @@ class TradingAdvisor:
 
         ordered = ordered.sort_values(sort_columns, ascending=ascending, kind='mergesort')
         return ordered.drop(columns=['_action_priority', '_abstain_priority'])
+
+    @classmethod
+    def _apply_strategy_family_budgets(
+        cls,
+        frame: pd.DataFrame,
+    ) -> pd.DataFrame:
+        if frame is None or frame.empty or 'strategy_family' not in frame.columns:
+            return pd.DataFrame() if frame is None else frame
+        if frame['strategy_family'].nunique(dropna=True) <= 1:
+            return frame
+
+        authority_artifact = load_strategy_authority_tiers()
+        budget_artifact = build_strategy_budget_allocations(
+            candidates=frame.to_dict('records'),
+            authority_artifact=authority_artifact or None,
+            total_capital=100_000.0,
+        )
+        budgets = strategy_budget_map(budget_artifact)
+        ordered = frame.copy()
+        ordered['family_budget_share'] = ordered['strategy_family'].map(
+            lambda value: float((budgets.get(str(value).strip().lower()) or {}).get('allocation_weight') or 0.0)
+        )
+        ordered['family_budget_amount'] = ordered['strategy_family'].map(
+            lambda value: float((budgets.get(str(value).strip().lower()) or {}).get('budget_amount') or 0.0)
+        )
+        ordered['family_candidate_slots'] = ordered['strategy_family'].map(
+            lambda value: int((budgets.get(str(value).strip().lower()) or {}).get('candidate_slots') or 0)
+        )
+        ordered['authority_tier'] = ordered['strategy_family'].map(
+            lambda value: str((budgets.get(str(value).strip().lower()) or {}).get('authority_tier') or '')
+        )
+        ordered['autonomy_mode'] = ordered['strategy_family'].map(
+            lambda value: str((budgets.get(str(value).strip().lower()) or {}).get('autonomy_mode') or '')
+        )
+        ordered['authority_weight'] = ordered['strategy_family'].map(
+            lambda value: float((budgets.get(str(value).strip().lower()) or {}).get('authority_weight') or 0.0)
+        )
+        return ordered
 
     def analyze_stock(
         self,
@@ -1706,6 +1746,7 @@ class TradingAdvisor:
             return pd.DataFrame()
 
         df = pd.DataFrame(candidates)
+        df = self._apply_strategy_family_budgets(df)
         return self._sort_runtime_candidates(
             df,
             primary_desc_columns=['opportunity_score', 'trade_quality_score', 'position_size_pct', 'total_score'],
@@ -2043,6 +2084,7 @@ class TradingAdvisor:
             return results
 
         enriched_df = pd.DataFrame(enriched)
+        enriched_df = self._apply_strategy_family_budgets(enriched_df)
         enriched_df = self._sort_runtime_candidates(
             enriched_df,
             primary_desc_columns=['opportunity_score', 'trade_quality_score', 'rank_score'],
@@ -2143,9 +2185,10 @@ class TradingAdvisor:
             f"Nightly discovery progress: enrichment complete with {len(enriched)} leaders"
         )
 
-        return pd.DataFrame(enriched).sort_values(
-            ['opportunity_score', 'rank_score', 'technical_score', 'confidence', 'symbol'],
-            ascending=[False, False, False, False, True],
+        enriched_df = self._apply_strategy_family_budgets(pd.DataFrame(enriched))
+        return self._sort_runtime_candidates(
+            enriched_df,
+            primary_desc_columns=['family_budget_share', 'opportunity_score', 'rank_score', 'technical_score'],
         ).reset_index(drop=True)
 
     def compare_model_families(

@@ -150,6 +150,12 @@ class OpenPosition:
     max_runup_pct: float | None = None
     unrealized_return_pct: float | None = None
     portfolio_snapshot_ref: str | None = None
+    portfolio_posture_ref: str | None = None
+    authority_tier: str | None = None
+    autonomy_mode: str | None = None
+    strategy_budget_amount: float | None = None
+    sector: str | None = None
+    theme: str | None = None
 
     def __post_init__(self) -> None:
         if not self.position_key or not self.symbol or not self.strategy:
@@ -182,6 +188,12 @@ class OpenPosition:
             max_runup_pct=_optional_float(payload.get("max_runup_pct")),
             unrealized_return_pct=_optional_float(payload.get("unrealized_return_pct")),
             portfolio_snapshot_ref=str(payload.get("portfolio_snapshot_ref") or "") or None,
+            portfolio_posture_ref=str(payload.get("portfolio_posture_ref") or "") or None,
+            authority_tier=str(payload.get("authority_tier") or "") or None,
+            autonomy_mode=str(payload.get("autonomy_mode") or "") or None,
+            strategy_budget_amount=_optional_float(payload.get("strategy_budget_amount")),
+            sector=str(payload.get("sector") or "") or None,
+            theme=str(payload.get("theme") or "") or None,
         )
 
 
@@ -204,6 +216,10 @@ class ClosedPosition:
     position_review_ref: str | None = None
     entry_plan_ref: str | None = None
     execution_policy_ref: str | None = None
+    portfolio_posture_ref: str | None = None
+    authority_tier: str | None = None
+    autonomy_mode: str | None = None
+    strategy_budget_amount: float | None = None
 
     def __post_init__(self) -> None:
         if not self.position_key:
@@ -232,6 +248,10 @@ class ClosedPosition:
             position_review_ref=str(payload.get("position_review_ref") or "") or None,
             entry_plan_ref=str(payload.get("entry_plan_ref") or "") or None,
             execution_policy_ref=str(payload.get("execution_policy_ref") or "") or None,
+            portfolio_posture_ref=str(payload.get("portfolio_posture_ref") or "") or None,
+            authority_tier=str(payload.get("authority_tier") or "") or None,
+            autonomy_mode=str(payload.get("autonomy_mode") or "") or None,
+            strategy_budget_amount=_optional_float(payload.get("strategy_budget_amount")),
         )
 
 

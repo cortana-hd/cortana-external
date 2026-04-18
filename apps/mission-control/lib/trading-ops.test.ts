@@ -152,6 +152,14 @@ describe("trading ops loader", () => {
       validation_grade_counts: { trade_validation_grade: { good: 10, mixed: 5 } },
       summary: [{ strategy: "dip_buyer", action: "WATCH", "1d": { samples: 100 } }],
     });
+    await writeJson(path.join(repoPath, ".cache", "prediction_accuracy", "reports", "strategy-authority-tiers-latest.json"), {
+      generated_at: "2026-04-03T23:16:05.000000+00:00",
+      authority_counts: { trusted: 1, limited_trust: 1 },
+      summary: { highest_autonomy_mode: "supervised_live" },
+      families: [
+        { strategy_family: "dip_buyer", authority_tier: "trusted", autonomy_mode: "supervised_live" },
+      ],
+    });
     await writeJson(path.join(repoPath, ".cache", "prediction_accuracy", "reports", "benchmark-comparison-latest.json"), {
       generated_at: "2026-04-03T23:16:04.695355+00:00",
       horizon_key: "5d",
@@ -169,6 +177,27 @@ describe("trading ops loader", () => {
       generated_at: "2026-04-03T22:20:35.951192+00:00",
       summary: { open_count: 1, closed_total_count: 2 },
       portfolio_snapshot: { total_capital: 100000, available_capital: 85000, gross_exposure_pct: 0.15 },
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "portfolio_posture.json"), {
+      generated_at: "2026-04-03T22:20:35.951192+00:00",
+      posture_state: "selective",
+      summary: { highest_autonomy_mode: "supervised_live" },
+      strategy_allocations: [
+        {
+          strategy_family: "dip_buyer",
+          open_capital: 12000,
+          pending_capital: 3000,
+          budget_amount: 25000,
+          authority_tier: "trusted",
+          autonomy_mode: "supervised_live",
+        },
+      ],
+      warnings: ["drawdown_selective"],
+    });
+    await writeJson(path.join(repoPath, ".cache", "trade_lifecycle", "autonomy_gate.json"), {
+      generated_at: "2026-04-03T22:20:35.951192+00:00",
+      requested_mode: "guarded_live",
+      blocking_factors: ["dip_buyer:missing_operator_signoff"],
     });
     await writeJson(path.join(repoPath, "var", "local-workflows", "20260403-231522", "canslim-alert.json"), {
       generated_at: "2026-04-03T23:15:25.794002+00:00",
@@ -272,11 +301,18 @@ describe("trading ops loader", () => {
     expect(data.prediction.badgeText).toBe("stale");
     expect(data.prediction.message).toContain("Prediction accuracy report is stale");
     expect(data.prediction.data?.oneDayMatured).toBe(880);
+    expect(data.prediction.data?.trustedFamilyCount).toBe(1);
+    expect(data.prediction.data?.highestAutonomyMode).toBe("supervised_live");
     expect(data.operatorVerdict.state).toBe("degraded");
     expect(data.operatorVerdict.label).toBe("Research only");
     expect(data.operatorVerdict.data?.verdictLabel).toBe("Do not size up");
     expect(data.benchmark.data?.horizonKey).toBe("5d");
     expect(data.lifecycle.data?.openCount).toBe(1);
+    expect(data.lifecycle.data?.postureState).toBe("selective");
+    expect(data.lifecycle.data?.autonomyMode).toBe("supervised_live");
+    expect(data.lifecycle.data?.authoritySummary).toBe("trusted · supervised_live");
+    expect(data.lifecycle.data?.familyBudgetHeadline).toContain("dip_buyer");
+    expect(data.lifecycle.data?.blockerCount).toBe(1);
     expect(data.workflow.state).toBe("degraded");
     expect(data.workflow.data?.failedStages).toEqual(["dipbuyer_alert"]);
     expect(data.workflow.data?.runLabel).toBe("Apr 3, 7:16 PM");

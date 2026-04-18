@@ -10,11 +10,19 @@ from pathlib import Path
 from typing import Any
 
 from data.risk_budget import build_position_size_recommendation
+from governance.authority import load_strategy_authority_tiers
+from governance.autonomy_tiers import (
+    build_supervised_live_review_window,
+    evaluate_autonomy_transition,
+    save_autonomy_gate_artifact,
+    save_review_window_artifact,
+)
 from lifecycle.entry_plan import build_entry_plan_from_signal
 from lifecycle.execution_policy import build_execution_policy
 from lifecycle.exit_engine import evaluate_exit_decision, update_position_mark_to_market
 from lifecycle.ledgers import LifecycleLedgerStore
 from lifecycle.paper_portfolio import build_portfolio_snapshot_artifact, select_entries
+from portfolio.posture import save_portfolio_posture_artifact
 from lifecycle.position_review import build_position_review, build_position_review_artifact
 from lifecycle.trade_objects import ClosedPosition, OpenPosition, deterministic_key
 
@@ -25,9 +33,12 @@ def run_cycle(
     root: Path | None = None,
     generated_at: str | None = None,
     review_only: bool = False,
+    portfolio_drawdown_pct: float | None = None,
+    supervised_live_review: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     generated_at = _normalize_timestamp(generated_at or datetime.now(timezone.utc).isoformat())
     store = LifecycleLedgerStore(root=root)
+    authority_artifact = load_strategy_authority_tiers() if root is None else {}
 
     alerts = [_load_alert(path) for path in alert_paths if path.exists()]
     signal_map = _collect_signal_map(alerts)
@@ -82,6 +93,10 @@ def run_cycle(
                 position_review_ref=review.review_key,
                 entry_plan_ref=position.entry_plan_ref,
                 execution_policy_ref=position.execution_policy_ref,
+                portfolio_posture_ref=position.portfolio_posture_ref,
+                authority_tier=position.authority_tier,
+                autonomy_mode=position.autonomy_mode,
+                strategy_budget_amount=position.strategy_budget_amount,
             )
             new_closed_positions.append(closed_position)
             all_closed_positions.append(closed_position)
@@ -156,6 +171,8 @@ def run_cycle(
             open_positions=updated_open_positions,
             closed_positions=all_closed_positions,
             snapshot_at=generated_at,
+            authority_artifact=authority_artifact,
+            portfolio_drawdown_pct=portfolio_drawdown_pct,
         )
         for candidate in selected_candidates:
             symbol = str(candidate.get("symbol") or "").strip().upper()
@@ -182,6 +199,12 @@ def run_cycle(
                 target_price_2=_optional_float((candidate.get("entry_plan") or {}).get("stretch_target_price")),
                 current_state="open",
                 portfolio_snapshot_ref=portfolio_snapshot.snapshot_id if portfolio_snapshot else None,
+                portfolio_posture_ref=(portfolio_snapshot.posture_snapshot or {}).get("posture_id") if portfolio_snapshot else None,
+                authority_tier=str(candidate.get("authority_tier") or "") or None,
+                autonomy_mode=str(candidate.get("autonomy_mode") or "") or None,
+                strategy_budget_amount=_optional_float(candidate.get("strategy_budget_amount")),
+                sector=str(candidate.get("sector") or "") or None,
+                theme=str(candidate.get("theme") or "") or None,
             )
             updated_open_positions.append(opened)
             opened_positions.append(opened)
@@ -207,6 +230,34 @@ def run_cycle(
             "portfolio_snapshot.json",
             build_portfolio_snapshot_artifact(portfolio_snapshot),
         )
+        if portfolio_snapshot.posture_snapshot:
+            store.write_artifact("portfolio_posture.json", dict(portfolio_snapshot.posture_snapshot))
+            save_portfolio_posture_artifact(
+                portfolio_snapshot.posture_snapshot,
+                path=store.root / "portfolio_posture.json",
+            )
+
+    review_window_artifact = None
+    autonomy_gate = None
+    if supervised_live_review:
+        review_window_artifact = build_supervised_live_review_window(
+            strategy_family=str(supervised_live_review.get("strategy_family") or ""),
+            started_at=str(supervised_live_review.get("started_at") or generated_at),
+            ended_at=str(supervised_live_review.get("ended_at") or generated_at),
+            policy_breaches=supervised_live_review.get("policy_breaches"),
+            unresolved_incidents=supervised_live_review.get("unresolved_incidents"),
+            operator_signoff=supervised_live_review.get("operator_signoff"),
+            outcome_summary=supervised_live_review.get("outcome_summary"),
+            generated_at=generated_at,
+        )
+        save_review_window_artifact(review_window_artifact, path=store.root / "supervised_live_review_window.json")
+        if authority_artifact:
+            autonomy_gate = evaluate_autonomy_transition(
+                authority_artifact=authority_artifact,
+                review_window_artifact=review_window_artifact,
+                generated_at=generated_at,
+            )
+            save_autonomy_gate_artifact(autonomy_gate, path=store.root / "autonomy_gate.json")
 
     summary = {
         "artifact_family": "trade_lifecycle_cycle",
@@ -227,6 +278,9 @@ def run_cycle(
         "reviews": [review.to_dict() for review in reviews],
         "exit_decisions": exit_decisions,
         "portfolio_snapshot": portfolio_snapshot.to_dict() if portfolio_snapshot is not None else None,
+        "portfolio_posture": portfolio_snapshot.posture_snapshot if portfolio_snapshot is not None else None,
+        "review_window": review_window_artifact,
+        "autonomy_gate": autonomy_gate,
     }
     store.write_artifact("cycle_summary.json", summary)
     return summary
@@ -238,6 +292,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--root", default=None)
     parser.add_argument("--generated-at", default=None)
     parser.add_argument("--review-only", action="store_true")
+    parser.add_argument("--portfolio-drawdown-pct", type=float, default=None)
+    parser.add_argument("--supervised-live-review-json", default=None)
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()
 
@@ -249,6 +305,8 @@ def main() -> int:
         root=Path(args.root).expanduser() if args.root else None,
         generated_at=args.generated_at,
         review_only=bool(args.review_only),
+        portfolio_drawdown_pct=args.portfolio_drawdown_pct,
+        supervised_live_review=_load_optional_json(args.supervised_live_review_json),
     )
     if args.json:
         print(json.dumps(summary, indent=2))
@@ -267,6 +325,16 @@ def _load_alert(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"Alert payload must be a dict: {path}")
     return payload
+
+
+def _load_optional_json(value: str | None) -> dict[str, Any] | None:
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return dict(payload) if isinstance(payload, dict) else None
 
 
 def _collect_signal_map(alerts: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

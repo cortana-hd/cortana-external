@@ -262,6 +262,12 @@ const fixture: TradingOpsDashboardData = {
       totalCapital: 100000,
       availableCapital: 85000,
       grossExposurePct: 15,
+      postureState: "selective",
+      autonomyMode: "supervised_live",
+      authoritySummary: "trusted · supervised_live",
+      familyBudgetHeadline: "dip_buyer $25,000",
+      warningCount: 1,
+      blockerCount: 0,
     },
   },
   workflow: {
@@ -368,6 +374,7 @@ describe("TradingOpsDashboard", () => {
     expect(screen.getByRole("tab", { name: "System Health" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Deep Dive" })).toBeInTheDocument();
     expect(screen.getAllByText("Market posture").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Portfolio posture").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Latest trading run").length).toBeGreaterThan(0);
     expect(screen.getByText("Polymarket status")).toBeInTheDocument();
     expect(container).toHaveTextContent("Focus ABBV · WATCH");
@@ -395,6 +402,8 @@ describe("TradingOpsDashboard", () => {
     fireEvent.click(deepDiveTab);
     expect(container).toHaveTextContent("Operator verdict");
     expect(container).toHaveTextContent("Do not size up");
+    expect(container).toHaveTextContent("trusted · supervised_live");
+    expect(container).toHaveTextContent("dip_buyer $25,000");
 
     const watchlistsTab = screen.getByRole("tab", { name: "Watchlists" });
     fireEvent.mouseDown(watchlistsTab);

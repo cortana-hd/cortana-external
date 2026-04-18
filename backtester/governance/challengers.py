@@ -146,6 +146,7 @@ def build_governance_status_artifact(
     registry_payload: Mapping[str, Any],
     decisions: Sequence[Mapping[str, Any]] | None = None,
     compare_only: bool = True,
+    authority_artifact: Mapping[str, Any] | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     registry = load_experiment_registry_from_payload(registry_payload)
@@ -187,6 +188,7 @@ def build_governance_status_artifact(
             "eligible_incumbent_count": len(active_incumbents),
         },
         "trust_tier_summary": _build_trust_tier_summary(experiments),
+        "strategy_authority_summary": _build_strategy_authority_summary(authority_artifact),
     }
     return artifact
 
@@ -228,6 +230,14 @@ def build_governance_operator_lines(artifact: Mapping[str, Any]) -> list[str]:
         lines.append(
             f"Latest change: {latest.get('experiment_key')} {latest.get('decision_type')} {latest.get('decision_result')}"
         )
+    authority_summary = dict(artifact.get("strategy_authority_summary") or {})
+    if authority_summary.get("highest_autonomy_mode"):
+        lines.append(
+            "Authority: "
+            f"{int(authority_summary.get('trusted_family_count', 0) or 0)} trusted | "
+            f"{int(authority_summary.get('demoted_family_count', 0) or 0)} demoted | "
+            f"highest autonomy {authority_summary.get('highest_autonomy_mode')}"
+        )
     return lines
 
 
@@ -267,6 +277,24 @@ def _build_trust_tier_summary(experiments: Sequence[Mapping[str, Any]]) -> list[
             }
         )
     return sorted(rows, key=lambda item: (item["artifact_family"], item["experiment_key"]))
+
+
+def _build_strategy_authority_summary(authority_artifact: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(authority_artifact, Mapping):
+        return {}
+    families = [dict(item) for item in authority_artifact.get("families") or [] if isinstance(item, Mapping)]
+    highest_mode = "advisory"
+    order = {"advisory": 0, "paper": 1, "supervised_live": 2, "guarded_live": 3}
+    for row in families:
+        mode = str(row.get("autonomy_mode") or "advisory")
+        if order.get(mode, -1) > order.get(highest_mode, -1):
+            highest_mode = mode
+    return {
+        "family_count": len(families),
+        "trusted_family_count": sum(1 for row in families if row.get("authority_tier") == "trusted"),
+        "demoted_family_count": sum(1 for row in families if row.get("authority_tier") == "demoted"),
+        "highest_autonomy_mode": highest_mode if families else None,
+    }
 
 
 def _status_to_trust_tier(status: str, activation: Mapping[str, Any]) -> str:

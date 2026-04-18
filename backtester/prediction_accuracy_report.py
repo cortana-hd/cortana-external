@@ -14,6 +14,7 @@ from evaluation.prediction_accuracy import (
     settle_prediction_snapshots,
 )
 from evaluation.strategy_scorecard import build_shadow_comparison_artifact, build_strategy_scorecard_artifact
+from governance.authority import build_strategy_authority_tiers_artifact
 from governance.challengers import (
     build_governance_operator_lines,
     build_governance_status_artifact,
@@ -42,13 +43,18 @@ def main() -> None:
     benchmark_summary = build_benchmark_comparison_artifact()
     strategy_scorecard = build_strategy_scorecard_artifact(_load_prediction_records())
     shadow_summary = build_shadow_comparison_artifact(_load_prediction_records())
-    governance_summary = _build_governance_summary()
+    strategy_authority = build_strategy_authority_tiers_artifact(strategy_scorecard.get("strategies") or [])
+    try:
+        governance_summary = _build_governance_summary(strategy_authority=strategy_authority)
+    except TypeError:
+        governance_summary = _build_governance_summary()
     bundle = {
         "prediction_accuracy": summary,
         "decision_review": decision_review,
         "benchmark_comparisons": benchmark_summary,
         "strategy_scorecard": strategy_scorecard,
         "opportunity_shadow": shadow_summary,
+        "strategy_authority": strategy_authority,
         "governance": governance_summary,
     }
 
@@ -247,6 +253,20 @@ def main() -> None:
                 f"samples {int(row.get('sample_depth', 0) or 0)}"
             )
 
+    authority_rows = strategy_authority.get("families") or []
+    if authority_rows:
+        print("")
+        print("Strategy authority")
+        for row in authority_rows:
+            reasons = "; ".join((row.get("decision_reason") or {}).get("reasons") or [])
+            print(
+                f"{row.get('strategy_family', 'unknown')}: "
+                f"{row.get('authority_tier', 'exploratory')} | "
+                f"{row.get('autonomy_mode', 'advisory')} | "
+                f"samples {int(row.get('sample_depth', 0) or 0)}"
+                f"{f' | {reasons}' if reasons else ''}"
+            )
+
     if governance_summary:
         print("")
         for line in build_governance_operator_lines(governance_summary):
@@ -325,7 +345,7 @@ def _format_optional_signed_lift(value: object, *, ratio: bool = False) -> str:
     return f"{float(value):+.2f}%"
 
 
-def _build_governance_summary() -> dict:
+def _build_governance_summary(strategy_authority: dict | None = None) -> dict:
     try:
         registry = load_experiment_registry()
     except Exception:
@@ -343,6 +363,7 @@ def _build_governance_summary() -> dict:
         registry_payload=registry,
         decisions=decisions,
         compare_only=compare_only,
+        authority_artifact=strategy_authority,
     )
     save_governance_status_artifact(artifact)
     return artifact
