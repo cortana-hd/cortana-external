@@ -65,6 +65,7 @@ def test_prediction_accuracy_round_trip(tmp_path):
     assert record["schema_version"] == 1
     assert record["producer"] == "backtester.test_prediction_accuracy"
     assert record["strategy"] == "dip_buyer"
+    assert record["strategy_family"] == "dip_buyer"
     assert record["market_regime"] == "correction"
     assert record["predicted_at"] == generated_at.isoformat()
     assert record["risk"] == "medium"
@@ -114,6 +115,8 @@ def test_prediction_accuracy_round_trip(tmp_path):
     assert regime_bucket["market_regime"] == "correction"
     confidence_bucket = summary["by_confidence_bucket"][0]
     assert confidence_bucket["confidence_bucket"] == "medium"
+    scorecard_path = tmp_path / "reports" / "strategy-scorecard-latest.json"
+    assert scorecard_path.exists()
 
 
 class _NegativeStubProvider:

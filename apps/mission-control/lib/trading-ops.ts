@@ -72,6 +72,10 @@ export type PredictionOverview = {
   oneDayPending: number;
   bestStrategyLabel: string | null;
   decisionGradeHeadline: string | null;
+  trustState: string | null;
+  freshnessLabel: string | null;
+  topStrategyFamily: string | null;
+  shadowAgreementLabel: string | null;
 };
 
 export type OperatorVerdictOverview = {
@@ -880,12 +884,16 @@ async function loadPredictionOverview(
   runJsonCommand: (scriptPath: string, args?: string[]) => Promise<unknown>,
 ): Promise<ArtifactState<PredictionOverview>> {
   const reportPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "prediction-accuracy-latest.json");
+  const strategyScorecardPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "strategy-scorecard-latest.json");
+  const shadowPath = path.join(repoPath, ".cache", "prediction_accuracy", "reports", "opportunity-shadow-latest.json");
   let report = await readJsonFile<Record<string, unknown>>(reportPath);
+  let refreshedBundle: Record<string, unknown> | null = null;
 
   if (await shouldRefreshPredictionAccuracySummary(repoPath, reportPath)) {
-    const refreshed = await refreshPredictionAccuracySummary(repoPath, runJsonCommand);
-    if (refreshed) {
-      report = { path: reportPath, data: refreshed };
+    refreshedBundle = await refreshPredictionAccuracySummary(repoPath, runJsonCommand);
+    const refreshedPrediction = asRecord(refreshedBundle?.prediction_accuracy);
+    if (refreshedPrediction) {
+      report = { path: reportPath, data: refreshedPrediction };
     }
   }
 
@@ -901,8 +909,14 @@ async function loadPredictionOverview(
   }
 
   const data = report.data;
+  const [strategyScorecard, shadowSummary] = await Promise.all([
+    readJsonFile<Record<string, unknown>>(strategyScorecardPath),
+    readJsonFile<Record<string, unknown>>(shadowPath),
+  ]);
   const horizonStatus = asRecord(asRecord(data.horizon_status)?.["1d"]);
   const summary = asArray(data.summary);
+  const strategyScorecardData = asRecord(strategyScorecard?.data) ?? asRecord(refreshedBundle?.strategy_scorecard);
+  const shadowData = asRecord(shadowSummary?.data) ?? asRecord(refreshedBundle?.opportunity_shadow);
   const bestStrategy = summary
     .map((entry) => asRecord(entry))
     .find((entry) => asRecord(entry?.["1d"]));
@@ -910,15 +924,38 @@ async function loadPredictionOverview(
   const tradeGradeCounts = asRecord(gradeCounts?.trade_validation_grade);
   const updatedAt = stringValue(data.generated_at) ?? null;
   const isStale = !updatedAt || isTimestampOlderThanSeconds(updatedAt, STALE_SUMMARY_MAX_AGE_SECONDS);
+  const trustState = stringValue(strategyScorecardData?.overall_state) ?? null;
+  const trustMessage = stringValue(strategyScorecardData?.overall_message) ?? null;
+  const topStrategyRow = asArray(strategyScorecardData?.strategies)
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+    .sort((left, right) => (numberValue(right.sample_depth) ?? 0) - (numberValue(left.sample_depth) ?? 0))[0];
+  const topStrategyFamily = stringValue(topStrategyRow?.strategy_family) ?? null;
+  const topShadowRow = asArray(shadowData?.comparisons)
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+    .sort((left, right) => (numberValue(right.sample_depth) ?? 0) - (numberValue(left.sample_depth) ?? 0))[0];
+  const shadowAgreement = numberValue(topShadowRow?.agreement_rate);
+  const shadowAgreementLabel = shadowAgreement != null
+    ? `${stringValue(topShadowRow?.strategy_family) ?? "unknown"} ${Math.round(shadowAgreement * 100)}%`
+    : null;
+  const freshnessLabel = trustState
+    ? trustState.replaceAll("_", " ")
+    : isStale
+      ? "stale"
+      : "fresh";
+  const state: LoadState = isStale || ["stale", "degraded", "warming"].includes(String(trustState ?? ""))
+    ? "degraded"
+    : "ok";
 
   return {
-    state: isStale ? "degraded" : "ok",
+    state,
     label: "Prediction loop",
     message: isStale
       ? updatedAt
         ? `Prediction accuracy report is stale. Last refreshed ${formatOperatorTimestamp(updatedAt)} (${formatRelativeAge(updatedAt)}).`
         : "Prediction accuracy report is stale or missing a generated timestamp."
-      : `${numberValue(data.snapshot_count) ?? 0} snapshots, ${numberValue(data.record_count) ?? 0} settled records tracked.`,
+      : trustMessage ?? `${numberValue(data.snapshot_count) ?? 0} snapshots, ${numberValue(data.record_count) ?? 0} settled records tracked.`,
     data: {
       snapshotCount: numberValue(data.snapshot_count) ?? 0,
       recordCount: numberValue(data.record_count) ?? 0,
@@ -932,11 +969,18 @@ async function loadPredictionOverview(
             .map(([grade, count]) => `${grade}:${count}`)
             .join(" · ")
         : null,
+      trustState,
+      freshnessLabel,
+      topStrategyFamily,
+      shadowAgreementLabel,
     },
     source: reportPath,
     updatedAt,
-    warnings: compactStrings([isStale && updatedAt ? `stale:${formatRelativeAge(updatedAt)}` : isStale ? "stale:missing-timestamp" : null]),
-    badgeText: isStale ? "stale" : undefined,
+    warnings: compactStrings([
+      isStale && updatedAt ? `stale:${formatRelativeAge(updatedAt)}` : isStale ? "stale:missing-timestamp" : null,
+      trustState ? `trust:${trustState}` : null,
+    ]),
+    badgeText: isStale ? "stale" : trustState ? freshnessLabel ?? undefined : undefined,
   };
 }
 
@@ -1549,8 +1593,7 @@ async function refreshPredictionAccuracySummary(
   const scriptPath = path.join(repoPath, "backtester", "prediction_accuracy_report.py");
 
   try {
-    const raw = asRecord(await runJsonCommand(scriptPath, ["--json", "--max-snapshots-per-run", "1"]));
-    return asRecord(raw?.prediction_accuracy);
+    return asRecord(await runJsonCommand(scriptPath, ["--json", "--max-snapshots-per-run", "1"]));
   } catch {
     return null;
   }

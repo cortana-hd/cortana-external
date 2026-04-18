@@ -589,7 +589,11 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
         <TerminalCell
           title="Prediction loop"
           value={data.prediction.data ? `${data.prediction.data.snapshotCount} snapshots` : data.prediction.label}
-          detail={data.prediction.data ? `1d matured ${data.prediction.data.oneDayMatured}` : "No accuracy artifact"}
+          detail={
+            data.prediction.data
+              ? `1d matured ${data.prediction.data.oneDayMatured} · ${data.prediction.data.freshnessLabel ?? "unknown trust"}`
+              : "No accuracy artifact"
+          }
           state={data.prediction.state}
           icon={<Radar className="h-3.5 w-3.5" />}
         />
@@ -1345,6 +1349,9 @@ export function TradingOpsDashboard({ data }: TradingOpsDashboardProps) {
                   <Metric label="1d pending" value={String(data.prediction.data.oneDayPending)} />
                   <Metric label="Best visible slice" value={data.prediction.data.bestStrategyLabel ?? "Not enough settled data"} />
                   <Metric label="Trade grades" value={data.prediction.data.decisionGradeHeadline ?? "No grade rollup yet"} />
+                  <Metric label="Trust state" value={data.prediction.data.freshnessLabel ?? "unknown"} />
+                  <Metric label="Top strategy family" value={data.prediction.data.topStrategyFamily ?? "warming"} />
+                  <Metric label="Shadow agreement" value={data.prediction.data.shadowAgreementLabel ?? "Not enough comparisons"} />
                 </div>
               ) : null}
             </ArtifactPanel>

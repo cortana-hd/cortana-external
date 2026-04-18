@@ -243,6 +243,9 @@ def build_prediction_accuracy_summary(root: Optional[Path] = None) -> dict:
     reports_dir = base / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     (reports_dir / "prediction-accuracy-latest.json").write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+    from evaluation.strategy_scorecard import build_strategy_scorecard_artifact
+
+    build_strategy_scorecard_artifact(records, root=base)
     return artifact
 
 

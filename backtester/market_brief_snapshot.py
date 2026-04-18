@@ -365,6 +365,26 @@ def _format_age_hours(value: float | None) -> str:
     return f"{value:.1f}h old"
 
 
+def _load_signal_trust_summary() -> dict[str, Any]:
+    reports_path = Path(__file__).resolve().parent / ".cache" / "prediction_accuracy" / "reports" / "strategy-scorecard-latest.json"
+    if not reports_path.exists():
+        return {
+            "state": "warming",
+            "message": "Signal trust summaries are still warming up.",
+        }
+    try:
+        payload = json.loads(reports_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {
+            "state": "degraded",
+            "message": "Signal trust summary could not be read.",
+        }
+    return {
+        "state": str(payload.get("overall_state") or "warming"),
+        "message": str(payload.get("overall_message") or "Signal trust summary unavailable."),
+    }
+
+
 def _extract_underlying_regime_age(regime: dict[str, Any]) -> str | None:
     text_candidates = [
         str(regime.get("notes") or ""),
@@ -494,6 +514,7 @@ def build_operator_summary(
     research_runtime: dict[str, Any] | None = None,
     shadow_review: dict[str, Any] | None = None,
     narrative_overlay: dict[str, Any] | None = None,
+    signal_trust: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     tape_source = str(tape.get("primary_source") or "unknown")
     tape_mode = str(tape.get("provider_mode") or "unknown")
@@ -592,6 +613,11 @@ def build_operator_summary(
     else:
         narrative_read = "Narrative overlay is unavailable."
 
+    trust_payload = signal_trust if isinstance(signal_trust, dict) else {}
+    trust_state = str(trust_payload.get("state") or "warming").replace("_", " ")
+    trust_message = str(trust_payload.get("message") or "Signal trust summary unavailable.").strip()
+    signal_trust_read = f"Signal trust is {trust_state}. {trust_message}".strip()
+
     shadow_summary = (shadow_review or {}).get("summary_line", "") if isinstance(shadow_review, dict) else ""
     if shadow_summary:
         shadow_read = shadow_summary
@@ -609,6 +635,7 @@ def build_operator_summary(
             "macro": f"Macro overlay is {macro.get('state', 'unknown')} ({macro_age}).",
             "breadth": breadth_read,
             "narrative": narrative_read,
+            "signal_trust": signal_trust_read,
             "research": research_read,
             "shadow": shadow_read,
             "focus": focus_line,
@@ -826,6 +853,7 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
     comparison_artifact, calibration_artifact, shadow_input_warnings = load_shadow_inputs()
     warnings.extend(shadow_input_warnings)
     research_runtime = build_surface_research_runtime(generated_at=generated_at)
+    signal_trust = _load_signal_trust_summary()
     decision_bundle = build_market_brief_decision_bundle(
         generated_at=generated_at,
         known_at=generated_at,
@@ -852,6 +880,7 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
         research_runtime=research_runtime,
         shadow_review=decision_bundle.get("shadow_review"),
         narrative_overlay=decision_bundle.get("narrative_overlay"),
+        signal_trust=signal_trust,
     )
 
     taxonomy = classify_market_brief_outcome(
@@ -882,6 +911,7 @@ def build_snapshot(service_base_url: str = SERVICE_BASE_URL, now: datetime | Non
         "adaptive_weights": decision_bundle.get("adaptive_weights"),
         "narrative_overlay": decision_bundle.get("narrative_overlay"),
         "research_runtime": research_runtime,
+        "signal_trust": signal_trust,
         "shadow_review": decision_bundle.get("shadow_review"),
         "freshness": {
             "regime_snapshot_age_seconds": status.snapshot_age_seconds,

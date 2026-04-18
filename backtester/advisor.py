@@ -48,6 +48,7 @@ from decision_brain.surfaces import (
     build_surface_research_runtime,
     load_shadow_inputs,
 )
+from features.core_feature_bundle import build_core_feature_record
 from operator_surfaces.mission_control import emit_decision_trace
 from data.confidence import (
     build_confidence_assessment,
@@ -88,6 +89,7 @@ from evaluation.comparison import (
     render_model_comparison_report,
     score_enhanced_rank,
 )
+from scoring.opportunity_score import build_opportunity_score_payload
 from strategies.dip_buyer import DipBuyerStrategy
 
 LOGGER = logging.getLogger(__name__)
@@ -136,16 +138,92 @@ class TradingAdvisor:
         self.x_sentiment = XSentimentAnalyzer()
         self.sector_strength = SectorStrengthAnalyzer(self.market_data)
         self.enable_timing = os.getenv("BACKTESTER_TIMING", "0") not in {"", "0", "false", "False"}
-        
+
         # Cache
         self._market_status: Optional[MarketStatus] = None
         self._candidate_context_by_symbol: Dict[str, Dict] = {}
+        self._benchmark_history_cache: Dict[str, pd.DataFrame] = {}
     
     def get_market_status(self, refresh: bool = False) -> MarketStatus:
         """Get current market regime status."""
         if self._market_status is None or refresh:
             self._market_status = self.market_detector.get_status()
         return self._market_status
+
+    def _get_benchmark_history(self, *, period: str = "1y") -> pd.DataFrame | None:
+        cached = self._benchmark_history_cache.get(period)
+        if cached is not None:
+            return cached
+        try:
+            history_result = self.market_data.get_history("SPY", period=period, auto_adjust=False)
+        except Exception:
+            return None
+        frame = history_result.frame.copy() if history_result.frame is not None else None
+        if frame is not None and not frame.empty:
+            self._benchmark_history_cache[period] = frame
+        return frame
+
+    @staticmethod
+    def _normalize_downside_risk(
+        *,
+        trade_quality: Optional[Dict] = None,
+        analysis: Optional[Dict] = None,
+    ) -> float:
+        trade_quality_payload = trade_quality or {}
+        analysis_payload = analysis or {}
+        for candidate in (
+            analysis_payload.get("downside_risk"),
+            trade_quality_payload.get("downside_risk"),
+            analysis_payload.get("downside_penalty"),
+            trade_quality_payload.get("downside_penalty"),
+        ):
+            try:
+                numeric = float(candidate)
+            except (TypeError, ValueError):
+                continue
+            if numeric > 1.0:
+                numeric /= 10.0
+            return min(max(numeric, 0.0), 1.0)
+        return 0.0
+
+    def _build_v2_signal(
+        self,
+        *,
+        strategy_family: str,
+        symbol: str,
+        history: pd.DataFrame,
+        market: MarketStatus,
+        confidence_assessment: Optional[Dict] = None,
+        trade_quality: Optional[Dict] = None,
+        period: str = "1y",
+        benchmark_context: Optional[Dict] = None,
+    ) -> Dict[str, object]:
+        feature_record = build_core_feature_record(
+            symbol=symbol,
+            history=history,
+            benchmark_history=self._get_benchmark_history(period=period),
+            market_regime=market.regime.value,
+            market_status=market,
+            generated_at=datetime.now(UTC),
+        )
+        if not feature_record:
+            return {}
+        opportunity = build_opportunity_score_payload(
+            symbol=symbol,
+            strategy_family=strategy_family,
+            feature_record=feature_record,
+            market_regime=market.regime.value,
+            calibrated_confidence=(confidence_assessment or {}).get("effective_confidence_pct"),
+            downside_risk=self._normalize_downside_risk(
+                trade_quality=trade_quality,
+                analysis=feature_record,
+            ),
+            benchmark_context=benchmark_context,
+        )
+        return {
+            "feature_record": feature_record,
+            "opportunity": opportunity,
+        }
 
     @staticmethod
     def _prediction_to_float(value: object) -> float | None:
@@ -355,9 +433,42 @@ class TradingAdvisor:
             or context.get("market_regime")
             or ""
         ).strip() or None
+        opportunity_score = cls._prediction_to_float(
+            rec.get("opportunity_score", context.get("opportunity_score"))
+        )
+        calibrated_confidence = cls._prediction_to_float(
+            rec.get("calibrated_confidence", context.get("calibrated_confidence", effective_confidence))
+        )
+        downside_risk = cls._prediction_to_float(
+            rec.get("downside_risk", context.get("downside_risk", context.get("downside_penalty")))
+        )
+        if downside_risk is not None and downside_risk > 1.0:
+            downside_risk = min(max(downside_risk / 10.0, 0.0), 1.0)
+        feature_summary = rec.get("feature_summary", context.get("feature_summary"))
+        benchmark_context = rec.get("benchmark_context", context.get("benchmark_context"))
+        score_mapping_version = str(
+            rec.get("score_mapping_version")
+            or context.get("score_mapping_version")
+            or ""
+        ).strip() or None
 
         return {
             "confidence": effective_confidence,
+            "calibrated_confidence": calibrated_confidence,
+            "strategy_family": str(
+                rec.get("strategy_family")
+                or context.get("strategy_family")
+                or strategy
+            ).strip()
+            or strategy,
+            "opportunity_score": opportunity_score,
+            "downside_risk": downside_risk,
+            "canonical_horizon_days": int(
+                rec.get("canonical_horizon_days")
+                or context.get("canonical_horizon_days")
+                or 5
+            ),
+            "score_mapping_version": score_mapping_version,
             "risk": cls._prediction_risk_label(recommendation=rec, analysis=context),
             "market_regime": market_regime,
             "breadth_state": normalized_breadth_state,
@@ -371,6 +482,8 @@ class TradingAdvisor:
                 analysis=context,
                 execution_overlay=execution_overlay,
             ),
+            "feature_summary": dict(feature_summary) if isinstance(feature_summary, dict) else None,
+            "benchmark_context": dict(benchmark_context) if isinstance(benchmark_context, dict) else None,
             "vetoes": cls._prediction_vetoes(recommendation=rec, analysis=context),
         }
     
@@ -671,6 +784,22 @@ class TradingAdvisor:
                 price_history=hist['Close'],
             ),
         )
+        v2_signal = _time_block(
+            "v2_signal",
+            lambda: self._build_v2_signal(
+                strategy_family="canslim",
+                symbol=symbol,
+                history=hist,
+                market=market,
+                confidence_assessment=confidence_assessment,
+                trade_quality=trade_quality,
+                period="1y",
+                benchmark_context={
+                    "legacy_rank_score": rank_score,
+                    "legacy_total_score": total_score,
+                },
+            ),
+        )
 
         recommendation = _time_block(
             "recommendation",
@@ -687,6 +816,7 @@ class TradingAdvisor:
                 catalyst_weighting=catalyst_weighting,
                 confidence_assessment=confidence_assessment,
                 rank_score=rank_score,
+                opportunity_signal=dict(v2_signal.get("opportunity") or {}),
             ),
         )
         
@@ -718,6 +848,15 @@ class TradingAdvisor:
             'downside_penalty': trade_quality.get('downside_penalty', 0.0),
             'churn_penalty': trade_quality.get('churn_penalty', 0.0),
             'adverse_regime': confidence_assessment.get('adverse_regime', {}),
+            'feature_summary': dict((v2_signal.get("feature_record") or {}).get("feature_summary") or {}),
+            'benchmark_context': dict((v2_signal.get("opportunity") or {}).get("benchmark_context") or {}),
+            'strategy_family': 'canslim',
+            'canonical_horizon_days': int((v2_signal.get("opportunity") or {}).get("canonical_horizon_days", 5) or 5),
+            'score_mapping_version': (v2_signal.get("opportunity") or {}).get("score_mapping_version"),
+            'opportunity_score': (v2_signal.get("opportunity") or {}).get("opportunity_score"),
+            'calibrated_confidence': (v2_signal.get("opportunity") or {}).get("calibrated_confidence"),
+            'downside_risk': (v2_signal.get("opportunity") or {}).get("downside_risk"),
+            'v2_action_label': (v2_signal.get("opportunity") or {}).get("action_label"),
             'data_source': history_result.source,
             'data_staleness_seconds': history_result.staleness_seconds,
             'data_status': history_result.status,
@@ -758,6 +897,32 @@ class TradingAdvisor:
             data_staleness_seconds=hist_result.staleness_seconds,
         )
         scores = setup.get('scores', {})
+        trade_quality = setup.get('trade_quality', setup.get('recommendation', {}).get('trade_quality', {}))
+        confidence_assessment = setup.get('confidence_assessment', {})
+        v2_signal = self._build_v2_signal(
+            strategy_family="dip_buyer",
+            symbol=symbol,
+            history=hist,
+            market=market,
+            confidence_assessment=confidence_assessment,
+            trade_quality=trade_quality,
+            period="6mo",
+            benchmark_context={
+                "legacy_total_score": setup.get('total_score', 0),
+                "legacy_profile": setup.get('profile'),
+            },
+        )
+        opportunity = dict(v2_signal.get("opportunity") or {})
+        recommendation = dict(setup.get('recommendation', {}) or {})
+        recommendation.setdefault('opportunity_score', opportunity.get('opportunity_score'))
+        recommendation.setdefault('calibrated_confidence', opportunity.get('calibrated_confidence'))
+        recommendation.setdefault('downside_risk', opportunity.get('downside_risk'))
+        recommendation.setdefault('strategy_family', 'dip_buyer')
+        recommendation.setdefault('canonical_horizon_days', int(opportunity.get('canonical_horizon_days', 5) or 5))
+        recommendation.setdefault('score_mapping_version', opportunity.get('score_mapping_version'))
+        recommendation.setdefault('feature_summary', dict(opportunity.get('feature_summary') or {}))
+        recommendation.setdefault('benchmark_context', dict(opportunity.get('benchmark_context') or {}))
+        recommendation.setdefault('v2_action_label', opportunity.get('action_label'))
 
         return {
             'symbol': symbol,
@@ -791,12 +956,21 @@ class TradingAdvisor:
             'abstain_reason_codes': setup.get('abstain_reason_codes', []),
             'abstain_reasons': setup.get('abstain_reasons', []),
             'confidence_assessment': setup.get('confidence_assessment', {}),
-            'trade_quality_score': setup.get('trade_quality_score', setup.get('recommendation', {}).get('trade_quality_score', 0.0)),
-            'trade_quality': setup.get('trade_quality', setup.get('recommendation', {}).get('trade_quality', {})),
-            'downside_penalty': setup.get('trade_quality', setup.get('recommendation', {}).get('trade_quality', {})).get('downside_penalty', 0.0),
-            'churn_penalty': setup.get('trade_quality', setup.get('recommendation', {}).get('trade_quality', {})).get('churn_penalty', 0.0),
+            'trade_quality_score': setup.get('trade_quality_score', recommendation.get('trade_quality_score', 0.0)),
+            'trade_quality': trade_quality,
+            'downside_penalty': trade_quality.get('downside_penalty', 0.0),
+            'churn_penalty': trade_quality.get('churn_penalty', 0.0),
             'adverse_regime': setup.get('adverse_regime', setup.get('confidence_assessment', {}).get('adverse_regime', {})),
-            'recommendation': setup.get('recommendation', {}),
+            'feature_summary': dict((v2_signal.get("feature_record") or {}).get("feature_summary") or {}),
+            'benchmark_context': dict(opportunity.get("benchmark_context") or {}),
+            'strategy_family': 'dip_buyer',
+            'canonical_horizon_days': int(opportunity.get("canonical_horizon_days", 5) or 5),
+            'score_mapping_version': opportunity.get("score_mapping_version"),
+            'opportunity_score': opportunity.get("opportunity_score"),
+            'calibrated_confidence': opportunity.get("calibrated_confidence"),
+            'downside_risk': opportunity.get("downside_risk"),
+            'v2_action_label': opportunity.get("action_label"),
+            'recommendation': recommendation,
         }
 
     def analyze_dip_stock(self, symbol: str, quiet: bool = False) -> Dict:
@@ -1517,6 +1691,11 @@ class TradingAdvisor:
                 'position_size_pct': analysis.get('recommendation', {}).get('position_size_pct', 0.0),
                 'size_label': analysis.get('recommendation', {}).get('size_label', 'STANDARD'),
                 'trade_quality_score': analysis.get('trade_quality_score', analysis.get('effective_confidence', analysis.get('confidence', 0))),
+                'opportunity_score': analysis.get('recommendation', {}).get('opportunity_score', analysis.get('opportunity_score', analysis.get('total_score', 0))),
+                'calibrated_confidence': analysis.get('recommendation', {}).get('calibrated_confidence', analysis.get('calibrated_confidence')),
+                'downside_risk': analysis.get('recommendation', {}).get('downside_risk', analysis.get('downside_risk')),
+                'strategy_family': analysis.get('recommendation', {}).get('strategy_family', analysis.get('strategy_family', 'dip_buyer')),
+                'v2_action_label': analysis.get('recommendation', {}).get('v2_action_label', analysis.get('v2_action_label')),
                 'downside_penalty': analysis.get('downside_penalty', analysis.get('trade_quality', {}).get('downside_penalty', 0.0)),
                 'churn_penalty': analysis.get('churn_penalty', analysis.get('trade_quality', {}).get('churn_penalty', 0.0)),
                 'adverse_regime_score': analysis.get('adverse_regime', {}).get('score', 0.0),
@@ -1529,7 +1708,7 @@ class TradingAdvisor:
         df = pd.DataFrame(candidates)
         return self._sort_runtime_candidates(
             df,
-            primary_desc_columns=['trade_quality_score', 'position_size_pct', 'total_score'],
+            primary_desc_columns=['opportunity_score', 'trade_quality_score', 'position_size_pct', 'total_score'],
         )
     
     def _generate_recommendation(
@@ -1546,6 +1725,7 @@ class TradingAdvisor:
         catalyst_weighting: Dict,
         confidence_assessment: Dict,
         rank_score: float,
+        opportunity_signal: Dict,
     ) -> Dict:
         """
         Generate a specific trade recommendation.
@@ -1595,10 +1775,29 @@ class TradingAdvisor:
         else:
             sizing['label'] = 'STARTER'
         sizing['risk_adjusted_multiplier'] = risk_size_multiplier
+        opportunity_score = float(opportunity_signal.get('opportunity_score', rank_score) or rank_score)
+        opportunity_action = str(opportunity_signal.get('action_label', 'NO_BUY') or 'NO_BUY').upper()
+        calibrated_confidence = float(
+            opportunity_signal.get('calibrated_confidence', confidence_assessment.get('effective_confidence_pct', confidence) / 100.0)
+            or 0.0
+        )
+        downside_risk = float(
+            opportunity_signal.get('downside_risk', self._normalize_downside_risk(trade_quality=trade_quality))
+            or 0.0
+        )
 
         base_fields = {
             'score': total_score,
             'rank_score': rank_score,
+            'opportunity_score': opportunity_score,
+            'calibrated_confidence': calibrated_confidence,
+            'downside_risk': downside_risk,
+            'strategy_family': 'canslim',
+            'canonical_horizon_days': int(opportunity_signal.get('canonical_horizon_days', 5) or 5),
+            'score_mapping_version': opportunity_signal.get('score_mapping_version'),
+            'feature_summary': dict(opportunity_signal.get('feature_summary') or {}),
+            'benchmark_context': dict(opportunity_signal.get('benchmark_context') or {}),
+            'v2_action_label': opportunity_action,
             'trade_quality_score': trade_quality['score'],
             'trade_quality': trade_quality,
             'downside_penalty': trade_quality.get('downside_penalty', 0.0),
@@ -1621,19 +1820,22 @@ class TradingAdvisor:
             'sizing': sizing,
             'size_label': sizing.get('label', 'STANDARD'),
         }
-        
-        # Check if we should buy
+
         if market.regime == MarketRegime.CORRECTION:
             return {
                 'action': 'NO_BUY',
                 'reason': 'Market in correction. No new positions.',
                 **base_fields,
             }
-        
-        if total_score < 7:
+
+        if total_score < 7 or opportunity_action == 'NO_BUY':
             return {
                 'action': 'NO_BUY',
-                'reason': f'Score too low ({total_score}/12). Need >= 7.',
+                'reason': (
+                    f'Score too low ({total_score}/12). Need >= 7.'
+                    if total_score < 7
+                    else f'Opportunity score {opportunity_score:.1f} remains below the V2 action threshold.'
+                ),
                 **base_fields,
             }
 
@@ -1660,10 +1862,14 @@ class TradingAdvisor:
                 **base_fields,
             }
 
-        if breakout_score <= 1:
+        if breakout_score <= 1 or opportunity_action == 'WATCH':
             return {
                 'action': 'WATCH',
-                'reason': f"Breakout follow-through is weak ({breakout_score}/5). Wait for stronger confirmation.",
+                'reason': (
+                    f"Breakout follow-through is weak ({breakout_score}/5). Wait for stronger confirmation."
+                    if breakout_score <= 1
+                    else f"V2 opportunity score is constructive ({opportunity_score:.1f}) but still confirmation-only."
+                ),
                 **base_fields,
             }
 
@@ -1818,6 +2024,11 @@ class TradingAdvisor:
                     row_dict['size_label'] = rec.get('size_label', rec.get('sizing', {}).get('label', 'STANDARD'))
                     row_dict['action'] = rec.get('action', 'NO_BUY')
                     row_dict['trade_quality_score'] = analysis.get('trade_quality_score', rec.get('trade_quality_score', row_dict['rank_score']))
+                    row_dict['opportunity_score'] = rec.get('opportunity_score', analysis.get('opportunity_score', row_dict['rank_score']))
+                    row_dict['calibrated_confidence'] = rec.get('calibrated_confidence', analysis.get('calibrated_confidence'))
+                    row_dict['downside_risk'] = rec.get('downside_risk', analysis.get('downside_risk'))
+                    row_dict['strategy_family'] = rec.get('strategy_family', analysis.get('strategy_family', 'canslim'))
+                    row_dict['v2_action_label'] = rec.get('v2_action_label', analysis.get('v2_action_label'))
                     row_dict['adverse_regime_score'] = analysis.get('adverse_regime', {}).get('score', 0.0)
                     row_dict['adverse_regime_label'] = analysis.get('adverse_regime', {}).get('label', 'normal')
                     enriched.append(row_dict)
@@ -1834,7 +2045,7 @@ class TradingAdvisor:
         enriched_df = pd.DataFrame(enriched)
         enriched_df = self._sort_runtime_candidates(
             enriched_df,
-            primary_desc_columns=['trade_quality_score', 'rank_score'],
+            primary_desc_columns=['opportunity_score', 'trade_quality_score', 'rank_score'],
         )
         
         # Filter by minimum total score
@@ -1907,6 +2118,11 @@ class TradingAdvisor:
                     row_dict['action'] = rec.get('action', 'NO_BUY')
                     row_dict['reason'] = rec.get('reason', '')
                     row_dict['confidence'] = rec.get('confidence', analysis.get('confidence', 0))
+                    row_dict['opportunity_score'] = rec.get('opportunity_score', analysis.get('opportunity_score'))
+                    row_dict['calibrated_confidence'] = rec.get('calibrated_confidence', analysis.get('calibrated_confidence'))
+                    row_dict['downside_risk'] = rec.get('downside_risk', analysis.get('downside_risk'))
+                    row_dict['strategy_family'] = rec.get('strategy_family', analysis.get('strategy_family', 'canslim'))
+                    row_dict['v2_action_label'] = rec.get('v2_action_label', analysis.get('v2_action_label'))
                     row_dict['trade_quality_score'] = rec.get(
                         'trade_quality_score',
                         analysis.get('trade_quality_score', analysis.get('total_score', 0)),
@@ -1928,8 +2144,8 @@ class TradingAdvisor:
         )
 
         return pd.DataFrame(enriched).sort_values(
-            ['rank_score', 'technical_score', 'confidence', 'symbol'],
-            ascending=[False, False, False, True],
+            ['opportunity_score', 'rank_score', 'technical_score', 'confidence', 'symbol'],
+            ascending=[False, False, False, False, True],
         ).reset_index(drop=True)
 
     def compare_model_families(

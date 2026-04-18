@@ -230,6 +230,10 @@ const fixture: TradingOpsDashboardData = {
       oneDayPending: 337,
       bestStrategyLabel: "dip_buyer WATCH",
       decisionGradeHeadline: "good:10 · mixed:5",
+      trustState: "degraded",
+      freshnessLabel: "degraded",
+      topStrategyFamily: "dip_buyer",
+      shadowAgreementLabel: "dip_buyer 81%",
     },
   },
   benchmark: {

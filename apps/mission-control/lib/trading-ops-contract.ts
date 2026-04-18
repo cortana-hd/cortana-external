@@ -53,6 +53,10 @@ export type PredictionOverview = {
   oneDayPending: number;
   bestStrategyLabel: string | null;
   decisionGradeHeadline: string | null;
+  trustState: string | null;
+  freshnessLabel: string | null;
+  topStrategyFamily: string | null;
+  shadowAgreementLabel: string | null;
 };
 
 export type OperatorVerdictOverview = {

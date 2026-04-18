@@ -36,11 +36,17 @@ class PredictionContractRecord:
     producer: str
     symbol: str
     strategy: str
+    strategy_family: str
     action: str
     predicted_at: str
     known_at: str
     market_regime: str
     confidence: float | None
+    calibrated_confidence: float | None
+    opportunity_score: float | None
+    downside_risk: float | None
+    canonical_horizon_days: int | None
+    score_mapping_version: str | None
     risk: str
     score: float | None
     uncertainty_pct: float | None
@@ -117,11 +123,19 @@ def build_prediction_contract_record(
         producer=normalized_producer,
         symbol=symbol,
         strategy=normalized_strategy,
+        strategy_family=str(record.get("strategy_family") or normalized_strategy),
         action=action,
         predicted_at=timestamp,
         known_at=timestamp,
         market_regime=normalized_regime,
         confidence=_to_float(record.get("effective_confidence", record.get("confidence"))),
+        calibrated_confidence=_to_float(
+            record.get("calibrated_confidence", record.get("effective_confidence", record.get("confidence")))
+        ),
+        opportunity_score=_to_float(record.get("opportunity_score")),
+        downside_risk=_to_float(record.get("downside_risk")),
+        canonical_horizon_days=_to_int(record.get("canonical_horizon_days")),
+        score_mapping_version=_normalize_optional_text(record.get("score_mapping_version")),
         risk=_normalize_risk(record.get("risk")),
         score=_to_float(record.get("score")),
         uncertainty_pct=_to_float(record.get("uncertainty_pct")),
@@ -200,3 +214,12 @@ def _to_float(value: object) -> float | None:
     if numeric != numeric:
         return None
     return numeric
+
+
+def _to_int(value: object) -> int | None:
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None

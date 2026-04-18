@@ -8,7 +8,12 @@ import json
 
 from evaluation.benchmark_models import build_benchmark_comparison_artifact
 from evaluation.decision_review_metrics import build_decision_review_artifact
-from evaluation.prediction_accuracy import build_prediction_accuracy_summary, settle_prediction_snapshots
+from evaluation.prediction_accuracy import (
+    build_prediction_accuracy_summary,
+    default_prediction_root,
+    settle_prediction_snapshots,
+)
+from evaluation.strategy_scorecard import build_shadow_comparison_artifact, build_strategy_scorecard_artifact
 from governance.challengers import (
     build_governance_operator_lines,
     build_governance_status_artifact,
@@ -35,11 +40,15 @@ def main() -> None:
     summary = build_prediction_accuracy_summary()
     decision_review = build_decision_review_artifact()
     benchmark_summary = build_benchmark_comparison_artifact()
+    strategy_scorecard = build_strategy_scorecard_artifact(_load_prediction_records())
+    shadow_summary = build_shadow_comparison_artifact(_load_prediction_records())
     governance_summary = _build_governance_summary()
     bundle = {
         "prediction_accuracy": summary,
         "decision_review": decision_review,
         "benchmark_comparisons": benchmark_summary,
+        "strategy_scorecard": strategy_scorecard,
+        "opportunity_shadow": shadow_summary,
         "governance": governance_summary,
     }
 
@@ -210,6 +219,34 @@ def main() -> None:
                 )
             print(line)
 
+    strategy_rows = strategy_scorecard.get("strategies") or []
+    if strategy_rows:
+        print("")
+        print("Strategy scorecards")
+        for row in strategy_rows:
+            strategy = row.get("strategy_family", "unknown")
+            health = row.get("health_status", "warming")
+            samples = int(row.get("sample_depth", 0) or 0)
+            avg_score = row.get("avg_opportunity_score")
+            score_text = f"{float(avg_score):.1f}" if isinstance(avg_score, (int, float)) else "n/a"
+            print(f"{strategy}: {health} | samples {samples} | avg opportunity {score_text}")
+
+    shadow_rows = shadow_summary.get("comparisons") or []
+    if shadow_rows:
+        print("")
+        print("Opportunity shadow")
+        for row in shadow_rows:
+            delta = row.get("avg_score_delta")
+            delta_text = f"{float(delta):+.2f}" if isinstance(delta, (int, float)) else "n/a"
+            agreement = row.get("agreement_rate")
+            agreement_text = f"{float(agreement):.0%}" if isinstance(agreement, (int, float)) else "n/a"
+            print(
+                f"{row.get('strategy_family', 'unknown')}: "
+                f"agreement {agreement_text} | "
+                f"delta {delta_text} | "
+                f"samples {int(row.get('sample_depth', 0) or 0)}"
+            )
+
     if governance_summary:
         print("")
         for line in build_governance_operator_lines(governance_summary):
@@ -241,6 +278,24 @@ def _format_summary_row(row: dict, *, key_fields: tuple[str, ...]) -> str:
             segment += " | " + " | ".join(extras)
         parts.append(segment)
     return " | ".join(parts)
+
+
+def _load_prediction_records() -> list[dict]:
+    settled_dir = default_prediction_root() / "settled"
+    if not settled_dir.exists():
+        return []
+    records: list[dict] = []
+    for path in sorted(settled_dir.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        strategy = str(payload.get("strategy") or "unknown")
+        for record in payload.get("records") or []:
+            if not isinstance(record, dict):
+                continue
+            records.append({**record, "strategy": strategy})
+    return records
 
 
 def _format_counts(counts: dict) -> str:

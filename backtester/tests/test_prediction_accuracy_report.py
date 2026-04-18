@@ -6,7 +6,22 @@ import prediction_accuracy_report
 
 
 def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
-    monkeypatch.setattr(prediction_accuracy_report, "settle_prediction_snapshots", lambda: None)
+    monkeypatch.setattr(prediction_accuracy_report, "settle_prediction_snapshots", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        prediction_accuracy_report,
+        "build_strategy_scorecard_artifact",
+        lambda *_args, **_kwargs: {
+            "strategies": [{"strategy_family": "canslim", "health_status": "fresh", "sample_depth": 12, "avg_opportunity_score": 74.2}]
+        },
+    )
+    monkeypatch.setattr(
+        prediction_accuracy_report,
+        "build_shadow_comparison_artifact",
+        lambda *_args, **_kwargs: {
+            "comparisons": [{"strategy_family": "canslim", "agreement_rate": 0.81, "avg_score_delta": 1.8, "sample_depth": 12}]
+        },
+    )
+    monkeypatch.setattr(prediction_accuracy_report, "_load_prediction_records", lambda: [])
     called = {"decision_review": False}
     monkeypatch.setattr(
         prediction_accuracy_report,
@@ -236,6 +251,10 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
     assert "market_regime: preserved bad 4/6 (67%) | blocked winners 33% | avg return -1.40%" in out
     assert "Benchmark comparisons" in out
     assert "dip_buyer NO_BUY: n=8 mean=-1.25% hit=25% | vs all mean -0.55% hit +12% | vs action mean -0.25% hit +5%" in out
+    assert "Strategy scorecards" in out
+    assert "canslim: fresh | samples 12 | avg opportunity 74.2" in out
+    assert "Opportunity shadow" in out
+    assert "canslim: agreement 81% | delta +1.80 | samples 12" in out
     assert "Governance status" in out
     assert "Mode: compare_only | enforced no | eligible incumbents 1" in out
     assert "Incumbents: dip_buyer_v1" in out
@@ -243,10 +262,13 @@ def test_prediction_accuracy_report_renders_richer_summary(monkeypatch, capsys):
 
 
 def test_prediction_accuracy_report_json_emits_bundle(monkeypatch, capsys):
-    monkeypatch.setattr(prediction_accuracy_report, "settle_prediction_snapshots", lambda: None)
+    monkeypatch.setattr(prediction_accuracy_report, "settle_prediction_snapshots", lambda **_kwargs: None)
     monkeypatch.setattr(prediction_accuracy_report, "build_prediction_accuracy_summary", lambda: {"artifact_family": "prediction_accuracy_summary"})
     monkeypatch.setattr(prediction_accuracy_report, "build_decision_review_artifact", lambda: {"artifact_family": "decision_review_summary"})
     monkeypatch.setattr(prediction_accuracy_report, "build_benchmark_comparison_artifact", lambda: {"artifact_family": "benchmark_comparison_summary"})
+    monkeypatch.setattr(prediction_accuracy_report, "build_strategy_scorecard_artifact", lambda *_args, **_kwargs: {"artifact_family": "strategy_scorecard_summary"})
+    monkeypatch.setattr(prediction_accuracy_report, "build_shadow_comparison_artifact", lambda *_args, **_kwargs: {"artifact_family": "opportunity_shadow_summary"})
+    monkeypatch.setattr(prediction_accuracy_report, "_load_prediction_records", lambda: [])
     monkeypatch.setattr(prediction_accuracy_report, "_build_governance_summary", lambda: {"artifact_family": "governance_status_summary"})
     monkeypatch.setattr(sys, "argv", ["prediction_accuracy_report.py", "--json"])
 
@@ -256,4 +278,6 @@ def test_prediction_accuracy_report_json_emits_bundle(monkeypatch, capsys):
     assert '"prediction_accuracy"' in payload
     assert '"decision_review"' in payload
     assert '"benchmark_comparisons"' in payload
+    assert '"strategy_scorecard"' in payload
+    assert '"opportunity_shadow"' in payload
     assert '"governance"' in payload
