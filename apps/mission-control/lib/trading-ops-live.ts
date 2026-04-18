@@ -380,7 +380,7 @@ function buildLiveQuoteRow(
         timestamp: retainedQuote.timestamp,
         stalenessSeconds: retainedQuote.stalenessSeconds,
         state: "degraded",
-        warning: buildRetainedLiveQuoteWarning(retainedQuote),
+        warning: buildRetainedLiveQuoteWarning(retainedQuote, context),
       };
     }
 
@@ -436,7 +436,7 @@ function buildLiveQuoteRow(
         timestamp,
         stalenessSeconds: quoteItem.stalenessSeconds ?? null,
         observedAtMs: context.nowMs,
-      }),
+      }, context),
     };
   }
 
@@ -455,7 +455,7 @@ function buildLiveQuoteRow(
         timestamp: retainedQuote.timestamp,
         stalenessSeconds: retainedQuote.stalenessSeconds,
         state: "degraded",
-        warning: buildRetainedLiveQuoteWarning(retainedQuote),
+        warning: buildRetainedLiveQuoteWarning(retainedQuote, context),
       };
     }
 
@@ -499,18 +499,27 @@ function buildMissingLiveQuoteWarning(
   }
   if (!context.isAfterHours) return null;
   if (preferUnavailable) {
-    return "No after-hours Schwab quote has arrived for this symbol yet.";
+    return "No recent Schwab quote is available for this symbol while the market is closed.";
   }
   const firstSeenAtMs = quietAfterHoursGapSince.get(sourceSymbol) ?? context.nowMs;
   quietAfterHoursGapSince.set(sourceSymbol, firstSeenAtMs);
   if (context.nowMs - firstSeenAtMs > AFTER_HOURS_WAITING_BADGE_WINDOW_MS) {
-    return "No after-hours Schwab quote has arrived for this symbol yet.";
+    return "No recent Schwab quote is available for this symbol while the market is closed.";
   }
-  return "No recent after-hours Schwab quote yet.";
+  return "No recent Schwab quote yet while the market is closed.";
 }
 
-function buildRetainedLiveQuoteWarning(retainedQuote: RetainedLiveQuote): string {
+function buildRetainedLiveQuoteWarning(
+  retainedQuote: RetainedLiveQuote,
+  context: { streamerConnected: boolean; isAfterHours: boolean },
+): string {
   const ageSeconds = retainedQuote.stalenessSeconds ?? 0;
+  if (context.streamerConnected && context.isAfterHours) {
+    if (ageSeconds <= 0) {
+      return "Holding the last known Schwab streamer quote while the market is closed.";
+    }
+    return `Holding the last known Schwab streamer quote from ${formatAgeSeconds(ageSeconds)} while the market is closed.`;
+  }
   if (ageSeconds <= 0) {
     return "Holding the last known Schwab streamer quote while the stream reconnects.";
   }
@@ -549,22 +558,22 @@ function buildFreshnessMessage(
     }
     if (hasStreamerQuotes) {
       if (hasAfterHoursRetainedSchwabQuotes && hasQuietAfterHoursRows && !hasErrors) {
-        return "Streamer is connected. Some symbols are holding their last Schwab after-hours update, and quieter names are waiting for the next one.";
+        return "Market is closed. Some symbols are holding their last Schwab quote, and quieter names are waiting for the next print.";
       }
       if (hasAfterHoursRetainedSchwabQuotes && hasUnavailableAfterHoursRows && !hasErrors) {
-        return "Streamer is connected. Some symbols are holding their last Schwab after-hours update, and quieter names still have not printed a fresh after-hours quote.";
+        return "Market is closed. Some symbols are holding their last Schwab quote, and quieter names still have no recent Schwab print.";
       }
       if (hasQuietAfterHoursRows && !hasErrors) {
-        return "Streamer is connected. Some symbols are still ticking, and quieter after-hours names are waiting for the next Schwab update.";
+        return "Market is closed. Some symbols are waiting for the next Schwab print.";
       }
       if (hasUnavailableAfterHoursRows && !hasErrors) {
-        return "Streamer is connected, but a few quieter after-hours symbols still have not printed a fresh Schwab quote.";
+        return "Market is closed. A few symbols still have no recent Schwab quote.";
       }
       if (hasAfterHoursRetainedSchwabQuotes && !hasErrors) {
-        return "Quotes are fresh where Schwab is still ticking. Quieter after-hours symbols may show last-known Schwab prices with age markers.";
+        return "Market is closed. Showing last-known Schwab prices with age markers.";
       }
       if (hasAfterHoursRetainedSchwabQuotes) {
-        return "Streamer is connected. Some symbols are holding their last Schwab after-hours update, and some quieter names are unavailable right now.";
+        return "Market is closed. Showing last-known Schwab prices where available, and some symbols are unavailable.";
       }
       if (tapeMode.providerMode === "alpaca_fallback") {
         return "Streamer is connected, but some symbols moved into the declared Alpaca fallback lane.";
@@ -578,10 +587,10 @@ function buildFreshnessMessage(
       return "Streamer is connected and some quotes are fresh, but some symbols are still degraded.";
     }
     if (hasQuietAfterHoursRows) {
-      return "Streamer is connected, but no followed symbols have printed a fresh after-hours Schwab quote yet.";
+      return "Market is closed. No followed symbols have printed a recent Schwab quote yet.";
     }
     if (hasUnavailableAfterHoursRows) {
-      return "Streamer is connected, but the followed after-hours symbols still have no fresh Schwab quote.";
+      return "Market is closed. The followed symbols still have no recent Schwab quote.";
     }
     if (hasUsableQuotes) {
       return "Streamer is connected, but this batch fell off the live Schwab lane for some symbols.";
@@ -604,11 +613,11 @@ function buildFreshnessMessage(
 }
 
 function isQuietAfterHoursGapRow(row: LiveQuoteRow): boolean {
-  return row.state === "degraded" && row.warning === "No recent after-hours Schwab quote yet.";
+  return row.state === "degraded" && row.warning === "No recent Schwab quote yet while the market is closed.";
 }
 
 function isUnavailableAfterHoursGapRow(row: LiveQuoteRow): boolean {
-  return row.state === "degraded" && row.warning === "No after-hours Schwab quote has arrived for this symbol yet.";
+  return row.state === "degraded" && row.warning === "No recent Schwab quote is available for this symbol while the market is closed.";
 }
 
 function collectWatchlistSymbols(tradingRun: TradingRunOverview | null): string[] {
@@ -642,14 +651,16 @@ function safeJsonParse(value: string): unknown {
 }
 
 function isAfterHoursSession(reference = new Date()): boolean {
-  const parsed = Number(
-    reference.toLocaleString("en-US", {
-      hour: "numeric",
-      hour12: false,
-      timeZone: "America/New_York",
-    }),
-  );
-  return parsed < 9 || parsed >= 16;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    hour: "numeric",
+    hour12: false,
+    timeZone: "America/New_York",
+  }).formatToParts(reference);
+  const weekday = parts.find((part) => part.type === "weekday")?.value ?? "";
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? NaN);
+  const isWeekday = !["Sat", "Sun"].includes(weekday);
+  return !isWeekday || !Number.isFinite(hour) || hour < 9 || hour >= 16;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

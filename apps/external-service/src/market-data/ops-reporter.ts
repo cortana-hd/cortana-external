@@ -76,7 +76,7 @@ export async function buildOpsPayload(args: OpsPayloadArgs): Promise<Record<stri
   const liveQuoteLaneMode = streamerConnected ? "schwab_primary" : "schwab_streamer_stale_or_unavailable";
   const liveQuoteLaneReason = streamerConnected
     ? "Live quote lane is using the Schwab streamer primary path."
-    : "Live quote lane is streamer-only. When the streamer disconnects, consumers should keep last-known Schwab streamer quotes marked stale or show unavailable until streaming resumes.";
+    : "Live quote lane is streamer-only. When the market is closed or the streamer disconnects, consumers should keep last-known Schwab streamer quotes marked stale or show unavailable until fresh quotes resume.";
   return {
     streamerRoleConfigured: args.streamerRuntime.getConfiguredRole(),
     streamerRoleActive: args.streamerRuntime.getActiveRole(),

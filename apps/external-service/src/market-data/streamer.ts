@@ -31,6 +31,7 @@ export interface SchwabStreamerSessionOptions {
   connectTimeoutMs?: number;
   quoteWaitTimeoutMs?: number;
   freshnessTtlMs?: number;
+  staleCacheRetentionMs?: number;
   heartbeatTimeoutMs?: number;
   subscriptionIdleTtlMs?: number;
   reconnectBaseDelayMs?: number;
@@ -204,6 +205,7 @@ export class SchwabStreamerSession {
   private readonly connectTimeoutMs: number;
   private readonly quoteWaitTimeoutMs: number;
   private readonly freshnessTtlMs: number;
+  private readonly staleCacheRetentionMs: number;
   private readonly heartbeatTimeoutMs: number;
   private readonly subscriptionIdleTtlMs: number;
   private readonly reconnectBaseDelayMs: number;
@@ -294,6 +296,7 @@ export class SchwabStreamerSession {
     this.connectTimeoutMs = options.connectTimeoutMs ?? 5_000;
     this.quoteWaitTimeoutMs = options.quoteWaitTimeoutMs ?? 750;
     this.freshnessTtlMs = options.freshnessTtlMs ?? 15_000;
+    this.staleCacheRetentionMs = Math.max(options.staleCacheRetentionMs ?? this.freshnessTtlMs * 2, this.freshnessTtlMs * 2);
     this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? Math.max(this.freshnessTtlMs * 2, 30_000);
     this.subscriptionIdleTtlMs = options.subscriptionIdleTtlMs ?? 10 * 60_000;
     this.reconnectBaseDelayMs = options.reconnectBaseDelayMs ?? 1_000;
@@ -1023,7 +1026,7 @@ export class SchwabStreamerSession {
 
   private evictStaleCaches(): void {
     const now = Date.now();
-    const maxAgeMs = this.freshnessTtlMs * 2;
+    const maxAgeMs = this.staleCacheRetentionMs;
     for (const [symbol, cached] of this.quoteCache.entries()) {
       if (now - cached.receivedAt > maxAgeMs) {
         this.quoteCache.delete(symbol);

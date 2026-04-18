@@ -428,6 +428,24 @@ market_data_advisory_should_recover() {
   return 0
 }
 
+market_data_quote_smoke_should_run() {
+  local ny_weekday="${WATCHDOG_MARKET_DATA_WEEKDAY:-}"
+
+  if [[ -z "$ny_weekday" ]]; then
+    ny_weekday=$(TZ=America/New_York date +%u 2>/dev/null || echo "1")
+  fi
+
+  if [[ ! "$ny_weekday" =~ ^[1-7]$ ]]; then
+    return 0
+  fi
+
+  if (( ny_weekday >= 6 )); then
+    return 1
+  fi
+
+  return 0
+}
+
 humanize_polymarket_issue() {
   local status="${1:-}"
   local raw="${2:-}"
@@ -989,6 +1007,11 @@ check_market_data_health() {
     recovery_alert "$provider_check_name" "Schwab market-data provider recovered and is accepting live requests"
   else
     clear_check_recovery_silent "$provider_check_name"
+  fi
+  if ! market_data_quote_smoke_should_run; then
+    clear_check_recovery_silent "$quote_check_name"
+    log "info" "Skipping market-data quote smoke outside weekdays"
+    return
   fi
   if [[ "$quote_code" == "200" ]]; then
     if market_data_advisory_should_recover "$quote_check_name" "$advisory_threshold_seconds"; then

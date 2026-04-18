@@ -50,6 +50,7 @@ export class SchwabStreamerRuntime {
   private sharedStateCache: SharedStreamerState | null = null;
   private sharedStateCacheMtimeMs: number | null = null;
   private runtimeReadyPromise: Promise<void> | null = null;
+  private shutdownInProgress = false;
 
   constructor(config: SchwabStreamerRuntimeConfig) {
     this.logger = config.logger;
@@ -112,6 +113,7 @@ export class SchwabStreamerRuntime {
     if (this.runtimeReadyPromise) {
       return this.runtimeReadyPromise;
     }
+    this.shutdownInProgress = false;
     this.runtimeReadyPromise = (async () => {
       if (this.sharedStateBackend === "postgres" || this.configuredRole === "auto") {
         await this.ensureDB();
@@ -136,6 +138,10 @@ export class SchwabStreamerRuntime {
   }
 
   async shutdown(): Promise<void> {
+    this.shutdownInProgress = true;
+    const pool = this.pool;
+    this.pool = null;
+    this.dbReadyPromise = null;
     this.streamer?.close();
     this.streamer = null;
     if (this.sharedStateListenerClient) {
@@ -158,12 +164,10 @@ export class SchwabStreamerRuntime {
         this.leaderLockClient = null;
       }
     }
-    if (this.pool) {
-      await this.pool.end().catch((error) => {
+    if (pool) {
+      await pool.end().catch((error) => {
         this.logger.error("Unable to close market-data pool", error);
       });
-      this.pool = null;
-      this.dbReadyPromise = null;
     }
   }
 
@@ -299,6 +303,10 @@ export class SchwabStreamerRuntime {
       preferencesProvider: this.preferencesProvider,
       connectTimeoutMs: this.config.SCHWAB_STREAMER_CONNECT_TIMEOUT_MS,
       freshnessTtlMs: this.config.SCHWAB_STREAMER_QUOTE_TTL_MS,
+      staleCacheRetentionMs: Math.max(
+        this.config.SCHWAB_STREAMER_QUOTE_TTL_MS * 2,
+        this.config.SCHWAB_STREAMER_AFTER_HOURS_QUOTE_TTL_MS,
+      ),
       subscriptionSoftCap: this.config.SCHWAB_STREAMER_SYMBOL_SOFT_CAP,
       cacheSoftCap: this.config.SCHWAB_STREAMER_CACHE_SOFT_CAP,
       subscriptionFields: this.config.SCHWAB_STREAMER_EQUITY_FIELDS,
@@ -307,6 +315,9 @@ export class SchwabStreamerRuntime {
       ),
       reconnectJitterMs: this.config.SCHWAB_STREAMER_RECONNECT_JITTER_MS,
       stateSink: (state) => {
+        if (this.shutdownInProgress) {
+          return;
+        }
         void this.writeSharedState(state);
       },
     });
@@ -387,6 +398,9 @@ export class SchwabStreamerRuntime {
   }
 
   private async writeSharedState(state: SharedStreamerState): Promise<void> {
+    if (this.shutdownInProgress) {
+      return;
+    }
     if (this.sharedStateBackend === "postgres") {
       if (!this.pool) {
         return;

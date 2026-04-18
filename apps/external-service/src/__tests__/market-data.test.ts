@@ -45,7 +45,7 @@ const TEST_CONFIG: AppConfig = {
   SCHWAB_STREAMER_SHARED_STATE_PATH: path.join(TEST_TEMP_ROOT, "test-schwab-streamer-state.json"),
   SCHWAB_STREAMER_CONNECT_TIMEOUT_MS: 1_000,
   SCHWAB_STREAMER_QUOTE_TTL_MS: 15_000,
-  SCHWAB_STREAMER_AFTER_HOURS_QUOTE_TTL_MS: 600_000,
+  SCHWAB_STREAMER_AFTER_HOURS_QUOTE_TTL_MS: 259_200_000,
   SCHWAB_STREAMER_SYMBOL_SOFT_CAP: 250,
   SCHWAB_STREAMER_CACHE_SOFT_CAP: 500,
   SCHWAB_STREAMER_EQUITY_FIELDS: "0,1,2,3,8,19,20,32,34,42",
@@ -494,6 +494,52 @@ describe("market-data routes", () => {
     expect(storedFuturesQuotes?.["/ES"]?.quote.rootSymbol).toBe("ES");
 
     session.close();
+  });
+
+  it("retains stale equity quotes in shared state for the closed-market retention window", async () => {
+    FakeWebSocket.createdCount = 0;
+    FakeWebSocket.sentRequests = [];
+    const snapshots: Array<Record<string, unknown>> = [];
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T20:00:00.000Z"));
+    try {
+      const session = new SchwabStreamerSession({
+        logger: {
+          log() {},
+          printf() {},
+          error() {},
+        },
+        websocketFactory: () => new FakeWebSocket(),
+        accessTokenProvider: async () => "access-token",
+        preferencesProvider: async () => ({
+          streamerSocketUrl: "wss://streamer.example.test/ws",
+          schwabClientCustomerId: "customer-id",
+          schwabClientCorrelId: "correl-id",
+          schwabClientChannel: "N9",
+          schwabClientFunctionId: "APIAP",
+        }),
+        accountActivityEnabled: false,
+        staleCacheRetentionMs: 72 * 60 * 60 * 1000,
+        stateSink: (state) => {
+          snapshots.push(state as unknown as Record<string, unknown>);
+        },
+      });
+
+      try {
+        const quote = await session.getQuote("SPY");
+        expect(quote?.symbol).toBe("SPY");
+
+        await vi.advanceTimersByTimeAsync(20 * 60 * 1000);
+
+        const latestSnapshot = (snapshots.at(-1) ?? {}) as Record<string, unknown>;
+        const storedQuotes = latestSnapshot.quotes as Record<string, { quote: Record<string, unknown> }>;
+        expect(storedQuotes?.SPY?.quote.symbol).toBe("SPY");
+      } finally {
+        session.close();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("buffers normalized ACCT_ACTIVITY events in streamer health and shared state", async () => {
@@ -1669,7 +1715,7 @@ describe("market-data routes", () => {
     expect(body.data.price).toBe(211.11);
   });
 
-  it("keeps last-known Schwab quotes as degraded during the after-hours stale window for live watchlists", async () => {
+  it("keeps last-known Schwab quotes as degraded while the market is closed for live watchlists", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-10T22:00:00.000Z"));
     try {
@@ -1724,7 +1770,67 @@ describe("market-data routes", () => {
       expect(body.status).toBe("degraded");
       expect(body.providerMode).toBe("schwab_primary");
       expect(body.stalenessSeconds).toBe(300);
-      expect(body.degradedReason).toContain("after-hours stale window");
+      expect(body.degradedReason).toContain("while the market is closed");
+      expect(body.data.price).toBe(211.11);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps Friday's last Schwab quote available on Saturday morning for live watchlists", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-18T14:57:00.000Z"));
+    try {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "market-data-weekend-shared-state-"));
+      const sharedStatePath = path.join(tempDir, "streamer-state.json");
+      fs.writeFileSync(
+        sharedStatePath,
+        JSON.stringify(
+          {
+            updatedAt: new Date().toISOString(),
+            health: { connected: true },
+            quotes: {
+              SPY: {
+                quote: {
+                  symbol: "SPY",
+                  price: 211.11,
+                  timestamp: "2026-04-17T19:45:00.000Z",
+                  currency: "USD",
+                },
+                receivedAt: "2026-04-17T19:45:00.000Z",
+              },
+            },
+            charts: {},
+          },
+          null,
+          2,
+        ),
+      );
+      const app = new Hono();
+      const service = new MarketDataService({
+        config: {
+          ...TEST_CONFIG,
+          SCHWAB_STREAMER_ROLE: "follower",
+          SCHWAB_STREAMER_SHARED_STATE_PATH: sharedStatePath,
+        },
+        fetchImpl: async () => new Response("not found", { status: 404 }),
+      });
+      registerMarketDataRoutes(app, service);
+
+      const response = await app.request("/market-data/quote/SPY?subsystem=live_watchlists");
+      const body = (await response.json()) as {
+        source: string;
+        status: string;
+        stalenessSeconds: number | null;
+        degradedReason: string | null;
+        data: { price?: number };
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.source).toBe("schwab_streamer_shared");
+      expect(body.status).toBe("degraded");
+      expect(body.stalenessSeconds).toBeGreaterThan(60_000);
+      expect(body.degradedReason).toContain("while the market is closed");
       expect(body.data.price).toBe(211.11);
     } finally {
       vi.useRealTimers();
@@ -2683,6 +2789,7 @@ describe("market-data routes", () => {
 
     const app = new Hono();
     const service = new MarketDataService({
+      config: TEST_CONFIG,
       fetchImpl: async (input) => {
         const url = String(input);
         if (url.includes("data.alpaca.markets") && url.includes("/bars")) {

@@ -39,7 +39,7 @@ const ConfigSchema = z.object({
   SCHWAB_STREAMER_SHARED_STATE_PATH: z.string().default(".cache/market_data/schwab-streamer-state.json"),
   SCHWAB_STREAMER_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
   SCHWAB_STREAMER_QUOTE_TTL_MS: z.coerce.number().int().positive().default(15_000),
-  SCHWAB_STREAMER_AFTER_HOURS_QUOTE_TTL_MS: z.coerce.number().int().positive().default(600_000),
+  SCHWAB_STREAMER_AFTER_HOURS_QUOTE_TTL_MS: z.coerce.number().int().positive().default(259_200_000),
   SCHWAB_STREAMER_SYMBOL_SOFT_CAP: z.coerce.number().int().positive().default(250),
   SCHWAB_STREAMER_CACHE_SOFT_CAP: z.coerce.number().int().positive().default(500),
   SCHWAB_STREAMER_EQUITY_FIELDS: z.string().default("0,1,2,3,8,19,20,32,34,42"),

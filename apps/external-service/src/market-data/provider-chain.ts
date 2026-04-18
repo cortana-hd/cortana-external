@@ -560,11 +560,11 @@ export class ProviderChain {
     return {
       source: "schwab_streamer_shared",
       status: "degraded",
-      degradedReason: `Using last-known Schwab quote${subsystemLabel} from the after-hours stale window (${formatAgeShort(snapshot.stalenessSeconds)} old).`,
+      degradedReason: `Using last-known Schwab quote${subsystemLabel} while the market is closed (${formatAgeShort(snapshot.stalenessSeconds)} old).`,
       stalenessSeconds: snapshot.stalenessSeconds,
       providerMode: "schwab_primary",
       fallbackEngaged: false,
-      providerModeReason: `Quote stayed on the Schwab after-hours stale lane${subsystemLabel}.`,
+      providerModeReason: `Quote stayed on the Schwab market-closed retained lane${subsystemLabel}.`,
       quote: snapshot.quote,
     };
   }

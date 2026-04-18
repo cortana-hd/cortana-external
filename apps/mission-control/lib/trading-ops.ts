@@ -928,10 +928,12 @@ async function loadPredictionOverview(
   const trustMessage = stringValue(strategyScorecardData?.overall_message) ?? null;
   const topStrategyRow = asArray(strategyScorecardData?.strategies)
     .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry))
     .sort((left, right) => (numberValue(right.sample_depth) ?? 0) - (numberValue(left.sample_depth) ?? 0))[0];
   const topStrategyFamily = stringValue(topStrategyRow?.strategy_family) ?? null;
   const topShadowRow = asArray(shadowData?.comparisons)
     .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry))
     .sort((left, right) => (numberValue(right.sample_depth) ?? 0) - (numberValue(left.sample_depth) ?? 0))[0];
   const shadowAgreement = numberValue(topShadowRow?.agreement_rate);
   const shadowAgreementLabel = shadowAgreement != null

@@ -203,6 +203,8 @@ run_scenario() {
   local scenario="$1"
   local scenario_dir="$TMP_DIR/$scenario"
   mkdir -p "$scenario_dir"
+  local weekday_override="${WATCHDOG_TEST_WEEKDAY_OVERRIDE:-3}"
+  rm -f "$scenario_dir/launchctl.log" "$scenario_dir/output.txt"
   PATH="$BIN_DIR:$PATH" \
   STATE_FILE="$scenario_dir/state.json" \
   WATCHDOG_TEST_DIR="$scenario_dir" \
@@ -210,6 +212,7 @@ run_scenario() {
   MARKET_DATA_BASE_URL="http://localhost:3033" \
   MARKET_DATA_RESTART_WAIT_SECONDS=0 \
   MARKET_DATA_ADVISORY_THRESHOLD_SECONDS=0 \
+  WATCHDOG_MARKET_DATA_WEEKDAY="$weekday_override" \
   bash -c "source '$ROOT_DIR/watchdog.sh'; PATH='$BIN_DIR':\"\$PATH\"; ALERTS=''; LOGS=''; check_market_data_health; printf '%s' \"\$ALERTS\" >'$scenario_dir/output.txt'"
 }
 
@@ -239,5 +242,11 @@ assert_file_empty "quote cooldown first failure stays silent" "$TMP_DIR/quote_co
 run_scenario quote_cooldown
 assert_file_contains "quote cooldown reuses provider advisory" "Schwab market data is in a brief cooldown" "$TMP_DIR/quote_cooldown/output.txt"
 assert_file_empty "quote cooldown does not restart service" "$TMP_DIR/quote_cooldown/launchctl.log"
+
+WATCHDOG_TEST_WEEKDAY_OVERRIDE=6
+run_scenario quote_flap
+assert_file_empty "weekend quote smoke stays silent" "$TMP_DIR/quote_flap/output.txt"
+assert_file_empty "weekend quote smoke does not restart service" "$TMP_DIR/quote_flap/launchctl.log"
+unset WATCHDOG_TEST_WEEKDAY_OVERRIDE
 
 echo "All market-data watchdog tests passed."

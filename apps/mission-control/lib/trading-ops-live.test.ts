@@ -113,7 +113,7 @@ describe("trading ops live loader", () => {
 
     expect(data.streamer.connected).toBe(true);
     expect(data.tape.freshnessMessage).toBe(
-      "Streamer is connected. Some symbols are still ticking, and quieter after-hours names are waiting for the next Schwab update.",
+      "Market is closed. Some symbols are waiting for the next Schwab print.",
     );
     expect(data.tape.providerMode).toBe("schwab_primary");
     expect(data.tape.rows.find((row) => row.symbol === "DOW")?.sourceSymbol).toBe("DIA");
@@ -194,13 +194,13 @@ describe("trading ops live loader", () => {
                 {
                   ...item("SPY", 500.1, -1.2, "schwab_streamer_shared"),
                   status: "degraded",
-                  degradedReason: "Using last-known Schwab quote for live_watchlists from the after-hours stale window (4m old).",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (4m old).",
                   stalenessSeconds: 240,
                 },
                 {
                   ...item("QQQ", 430.4, -1.8, "schwab_streamer_shared"),
                   status: "degraded",
-                  degradedReason: "Using last-known Schwab quote for live_watchlists from the after-hours stale window (4m old).",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (4m old).",
                   stalenessSeconds: 240,
                 },
                 {
@@ -222,13 +222,13 @@ describe("trading ops live loader", () => {
                 {
                   ...item("GLD", 231.8, 0.2, "schwab_streamer_shared"),
                   status: "degraded",
-                  degradedReason: "Using last-known Schwab quote for live_watchlists from the after-hours stale window (4m old).",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (4m old).",
                   stalenessSeconds: 240,
                 },
                 {
                   ...item("ABBV", 178.2, -0.45, "schwab_streamer_shared"),
                   status: "degraded",
-                  degradedReason: "Using last-known Schwab quote for live_watchlists from the after-hours stale window (4m old).",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (4m old).",
                   stalenessSeconds: 240,
                 },
               ],
@@ -318,20 +318,20 @@ describe("trading ops live loader", () => {
           JSON.stringify({
             providerMode: "schwab_primary",
             fallbackEngaged: false,
-            providerModeReason: "Quote stayed on the Schwab after-hours stale lane for live_watchlists.",
+            providerModeReason: "Quote stayed on the Schwab market-closed retained lane for live_watchlists.",
             data: {
               items: [
                 item("SPY", 679.97, 0.01, "schwab_streamer"),
                 {
                   ...item("QQQ", 611.97, 0.29, "schwab_streamer_shared"),
                   status: "degraded",
-                  degradedReason: "Using last-known Schwab quote for live_watchlists from the after-hours stale window (5m old).",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (5m old).",
                   stalenessSeconds: 300,
                 },
                 {
                   ...item("ABBV", 177.12, -0.12, "schwab_streamer_shared"),
                   status: "degraded",
-                  degradedReason: "Using last-known Schwab quote for live_watchlists from the after-hours stale window (5m old).",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (5m old).",
                   stalenessSeconds: 300,
                 },
               ],
@@ -349,7 +349,7 @@ describe("trading ops live loader", () => {
       fetchImpl,
     });
 
-    expect(data.tape.freshnessMessage).toContain("holding their last Schwab after-hours update");
+    expect(data.tape.freshnessMessage).toContain("Market is closed");
     expect(data.tape.rows.find((row) => row.symbol === "QQQ")).toMatchObject({
       state: "degraded",
       stalenessSeconds: 300,
@@ -480,10 +480,129 @@ describe("trading ops live loader", () => {
         price: 479.05,
         warning: expect.stringContaining("last known Schwab streamer quote"),
       });
-      expect(secondLoad.tape.freshnessMessage).toContain("holding their last Schwab after-hours update");
+      expect(secondLoad.tape.freshnessMessage).toContain("Market is closed");
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("describes retained Schwab quotes as market-closed data on Saturday morning", async () => {
+    const cortanaRepoPath = await mkdtemp(path.join(os.tmpdir(), "trading-ops-live-weekend-"));
+    tempDirs.push(cortanaRepoPath);
+
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260417-154500", "summary.json"), {
+      runId: "20260417-154500",
+      status: "success",
+      completedAt: "2026-04-17T19:45:00.000Z",
+    });
+    await writeJson(path.join(cortanaRepoPath, "var", "backtests", "runs", "20260417-154500", "watchlist-full.json"), {
+      decision: "WATCH",
+      summary: { buy: 0, watch: 0, noBuy: 0 },
+      strategies: {
+        dipBuyer: { buy: [], watch: [], noBuy: [] },
+        canslim: { buy: [], watch: [], noBuy: [] },
+      },
+    });
+
+    const fetchImpl: typeof fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/market-data/ops")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              serviceOperatorState: "healthy",
+              providerMetrics: {
+                schwabCooldownUntil: null,
+              },
+              health: {
+                providers: {
+                  schwabStreamerMeta: {
+                    connected: true,
+                    lastLoginAt: "2026-04-18T14:28:00.000Z",
+                    operatorState: "healthy",
+                    activeSubscriptions: {
+                      LEVELONE_EQUITIES: 7,
+                      ACCT_ACTIVITY: 0,
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        );
+      }
+
+      if (url.includes("/market-data/quote/batch")) {
+        return new Response(
+          JSON.stringify({
+            providerMode: "schwab_primary",
+            fallbackEngaged: false,
+            providerModeReason: "Quote stayed on the Schwab market-closed retained lane for live_watchlists.",
+            data: {
+              items: [
+                {
+                  ...item("SPY", 679.97, 0.01, "schwab_streamer_shared"),
+                  status: "degraded",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (19h old).",
+                  stalenessSeconds: 19 * 60 * 60,
+                },
+                {
+                  ...item("QQQ", 611.97, 0.29, "schwab_streamer_shared"),
+                  status: "degraded",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (19h old).",
+                  stalenessSeconds: 19 * 60 * 60,
+                },
+                {
+                  ...item("IWM", 261.41, -0.21, "schwab_streamer_shared"),
+                  status: "degraded",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (19h old).",
+                  stalenessSeconds: 19 * 60 * 60,
+                },
+                {
+                  ...item("DIA", 479.05, -0.59, "schwab_streamer_shared"),
+                  status: "degraded",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (19h old).",
+                  stalenessSeconds: 19 * 60 * 60,
+                },
+                {
+                  ...item("GLD", 436.1, -0.41, "schwab_streamer_shared"),
+                  status: "degraded",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (19h old).",
+                  stalenessSeconds: 19 * 60 * 60,
+                },
+                {
+                  ...item("ARKK", 47.91, -1.1, "schwab_streamer_shared"),
+                  status: "degraded",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (19h old).",
+                  stalenessSeconds: 19 * 60 * 60,
+                },
+                {
+                  ...item("XLE", 83.45, -0.72, "schwab_streamer_shared"),
+                  status: "degraded",
+                  degradedReason: "Using last-known Schwab quote for live_watchlists while the market is closed (19h old).",
+                  stalenessSeconds: 19 * 60 * 60,
+                },
+              ],
+            },
+          }),
+        );
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    const data = await loadTradingOpsLiveData({
+      baseUrl: "http://127.0.0.1:3033",
+      cortanaRepoPath,
+      fetchImpl,
+      referenceTime: new Date("2026-04-18T14:57:00.000Z"),
+    });
+
+    expect(data.tape.freshnessMessage).toBe("Market is closed. Showing last-known Schwab prices with age markers.");
+    expect(data.tape.rows.find((row) => row.symbol === "SPY")).toMatchObject({
+      state: "degraded",
+      warning: expect.stringContaining("while the market is closed"),
+    });
   });
 
   it("keeps retained Schwab streamer rows stale across longer gaps instead of expiring into REST recovery", async () => {
@@ -588,7 +707,7 @@ describe("trading ops live loader", () => {
         price: 479.05,
         warning: expect.stringContaining("last known Schwab streamer quote"),
       });
-      expect(firstQuietGap.tape.freshnessMessage).toContain("holding their last Schwab after-hours update");
+      expect(firstQuietGap.tape.freshnessMessage).toContain("Market is closed");
 
       vi.setSystemTime(new Date("2026-04-10T22:21:00.000Z"));
 
@@ -603,7 +722,7 @@ describe("trading ops live loader", () => {
         price: 261.41,
         warning: expect.stringContaining("last known Schwab streamer quote"),
       });
-      expect(secondQuietGap.tape.freshnessMessage).toContain("holding their last Schwab after-hours update");
+      expect(secondQuietGap.tape.freshnessMessage).toContain("Market is closed");
     } finally {
       vi.useRealTimers();
     }
