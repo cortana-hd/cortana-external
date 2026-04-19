@@ -97,6 +97,7 @@ if [[ "$url" == *"/polymarket/health" ]]; then
       exit 0
       ;;
     unreachable)
+      printf '000'
       exit 7
       ;;
   esac

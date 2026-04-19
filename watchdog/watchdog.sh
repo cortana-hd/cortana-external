@@ -371,7 +371,17 @@ attempt_launchd_restart() {
 probe_json_endpoint() {
   local url="$1"
   local body_path="$2"
-  curl -sS --max-time 15 -o "$body_path" -w '%{http_code}' "$url" 2>/dev/null || echo "000"
+  local code=""
+  if ! code="$(curl -sS --max-time 15 -o "$body_path" -w '%{http_code}' "$url" 2>/dev/null)"; then
+    printf '%s' "000"
+    return
+  fi
+
+  if [[ "$code" =~ ^[0-9]{3}$ ]]; then
+    printf '%s' "$code"
+  else
+    printf '%s' "000"
+  fi
 }
 
 market_data_body_indicates_cooldown() {
