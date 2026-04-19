@@ -456,6 +456,24 @@ market_data_quote_smoke_should_run() {
   return 0
 }
 
+pre_open_canary_should_run() {
+  local ny_weekday="${WATCHDOG_PRE_OPEN_WEEKDAY:-${WATCHDOG_MARKET_DATA_WEEKDAY:-}}"
+
+  if [[ -z "$ny_weekday" ]]; then
+    ny_weekday=$(TZ=America/New_York date +%u 2>/dev/null || echo "1")
+  fi
+
+  if [[ ! "$ny_weekday" =~ ^[1-7]$ ]]; then
+    return 0
+  fi
+
+  if (( ny_weekday >= 6 )); then
+    return 1
+  fi
+
+  return 0
+}
+
 humanize_polymarket_issue() {
   local status="${1:-}"
   local raw="${2:-}"
@@ -610,6 +628,12 @@ humanize_pre_open_canary_check() {
 check_pre_open_readiness() {
   local readiness_check_name="pre_open_readiness"
   local warn_threshold_seconds="${PRE_OPEN_CANARY_WARN_THRESHOLD_SECONDS:-900}"
+
+  if ! pre_open_canary_should_run; then
+    clear_check_recovery_silent "$readiness_check_name"
+    log "info" "Skipping pre-open canary outside weekdays"
+    return
+  fi
 
   if [[ ! -f "$PRE_OPEN_CANARY_PATH" ]]; then
     if refresh_pre_open_canary_artifact "missing"; then

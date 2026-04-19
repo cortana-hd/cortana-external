@@ -92,6 +92,7 @@ run_scenario() {
   local scenario_dir="$TMP_DIR/$scenario"
   mkdir -p "$scenario_dir"
   PATH="$BIN_DIR:$PATH" \
+  WATCHDOG_PRE_OPEN_WEEKDAY="${WATCHDOG_PRE_OPEN_WEEKDAY:-1}" \
   STATE_FILE="$scenario_dir/state.json" \
   PRE_OPEN_CANARY_PATH="$scenario_dir/pre-open-canary-latest.json" \
   PRE_OPEN_CANARY_MAX_AGE_SECONDS=7200 \
@@ -111,6 +112,24 @@ from datetime import UTC, datetime, timedelta
 print((datetime.now(UTC) - timedelta(hours=6)).isoformat())
 PY
 )"
+
+strategy_warn_checks='[
+  {"name":"service_ready","result":"pass","evidence":{"reason":"healthy"}},
+  {"name":"regime_path","result":"warn","evidence":{"degraded_reason":"cached fallback"}}
+]'
+
+mkdir -p "$TMP_DIR/weekend_skip"
+write_canary_artifact \
+  "$TMP_DIR/weekend_skip/pre-open-canary-latest.json" \
+  "warn" \
+  "readiness_warn" \
+  "degraded" \
+  "degraded_safe" \
+  "$strategy_warn_checks" \
+  "$CURRENT_TS"
+WATCHDOG_PRE_OPEN_WEEKDAY=6 run_scenario weekend_skip
+assert_file_empty "weekend pre-open readiness stays silent" "$TMP_DIR/weekend_skip/output.txt"
+unset WATCHDOG_PRE_OPEN_WEEKDAY
 
 provider_only_checks='[
   {"name":"service_ready","result":"warn","evidence":{"reason":"provider_cooldown","operator_action":"Wait until cooldown expires."}},
@@ -185,10 +204,6 @@ run_scenario strategy_fail
 assert_file_contains "strategy failure alerts immediately" "Pre-open canary failed. Trading lane is not ready for the open." "$TMP_DIR/strategy_fail/output.txt"
 assert_file_contains "strategy failure explains cause" "Reduced CANSLIM strategy smoke failed." "$TMP_DIR/strategy_fail/output.txt"
 
-strategy_warn_checks='[
-  {"name":"service_ready","result":"pass","evidence":{"reason":"healthy"}},
-  {"name":"regime_path","result":"warn","evidence":{"degraded_reason":"cached fallback"}}
-]'
 mkdir -p "$TMP_DIR/strategy_warn"
 write_canary_artifact \
   "$TMP_DIR/strategy_warn/pre-open-canary-latest.json" \
